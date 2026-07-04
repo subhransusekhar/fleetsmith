@@ -9,7 +9,7 @@ Orchestrates the fleetsmith meta-fleet — `domain-analyst`, `fleet-architect`, 
 
 - Pattern: **pipeline** with a generate-verify tail · Execution: **subagents** (each stage's output is a file; no mid-flight debate needed)
 - Workspace: `_fleet/` (handoffs in `_fleet/handoffs/`, ledger at `_fleet/LEDGER.md`)
-- Compiler: `node src/cli.js` in this repo (or `npx fleetsmith` once installed)
+- Compiler: `node src/cli.js` when working inside the fleetsmith repo; from any other project use `npx --yes github:subhransusekhar/fleetsmith <cmd>` (no local install needed) or `npm link`ed `fleetsmith`
 
 ## Phase 0: Context check
 

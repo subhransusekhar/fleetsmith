@@ -27,6 +27,11 @@
     "orchestration"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/subhransusekhar/fleetsmith.git"
+  },
+  "homepage": "https://github.com/subhransusekhar/fleetsmith#readme",
   "engines": {
     "node": ">=18"
   },

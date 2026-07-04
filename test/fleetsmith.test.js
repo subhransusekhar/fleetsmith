@@ -179,6 +179,17 @@ test('skills are emitted for claude-code and opencode with references', () => {
   assert.match(analyst, /\*\*requirements-analysis\*\*/);
 });
 
+test('generated output is machine-portable: relative paths only, no host-specific references', () => {
+  for (const pattern of Object.keys(ARCHETYPES)) {
+    const spec = normalizeSpec(archetype(pattern, `port-${pattern}`, 'portability check'));
+    const files = buildAll(spec, { today: '2026-01-01' });
+    for (const [p, content] of files.files) {
+      assert.ok(!p.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(p), `absolute output path: ${p}`);
+      assert.doesNotMatch(content, /\/Users\/|\/home\/[a-z]|[A-Z]:\\\\/, `host path leaked into ${p}`);
+    }
+  }
+});
+
 test('team execution adds team protocol block on claude-code only', () => {
   const raw = archetype('supervisor', 'sup', 'supervision');
   const spec = normalizeSpec(raw);

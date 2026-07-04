@@ -19,13 +19,23 @@ Every agentic CLI grew its own harness format: Claude Code has subagents + Agent
 
 ## Installation
 
-Requires Node.js ≥ 18. No build step; the only dependency is `yaml`.
+Requires only **Node.js ≥ 18** (any OS). No build step, no global tooling, no editor/agent-specific setup; the single runtime dependency (`yaml`) is fetched from the npm registry.
+
+**Zero-install (run from any machine or project):**
+
+```bash
+npx --yes github:subhransusekhar/fleetsmith patterns
+npx --yes github:subhransusekhar/fleetsmith init my-fleet --pattern pipeline --domain "..."
+npx --yes github:subhransusekhar/fleetsmith build fleet.yaml --target all
+```
+
+**Clone (for development, or to use the bundled meta-fleet):**
 
 ```bash
 git clone https://github.com/subhransusekhar/fleetsmith.git
 cd fleetsmith
-npm install
-npm test                      # 12 tests, node --test
+npm ci
+npm test                      # 13 tests, node --test
 
 # optional: make the CLI available globally as `fleetsmith`
 npm link
