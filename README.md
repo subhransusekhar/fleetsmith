@@ -1,5 +1,9 @@
 # fleetsmith
 
+<p align="center">
+  <img src="docs/assets/hero.svg" alt="fleetsmith — one fleet.yaml spec compiles into native agent harnesses for Claude Code, opencode, and goose" width="900">
+</p>
+
 **Meta agent-fleet builder.** Describe a fleet of AI agents once — roles, skills, handoff graph — and compile it into native harnesses for **Claude Code**, **opencode**, and **goose**. Say *"build a harness for this project"* in Claude Code and the bundled meta-fleet designs, authors, compiles, and QA-gates a domain-tailored harness for you.
 
 ```

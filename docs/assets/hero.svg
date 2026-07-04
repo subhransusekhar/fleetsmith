@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 380" role="img" aria-label="fleetsmith: one fleet.yaml spec compiles into agent harnesses for Claude Code, opencode, and goose">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1120"/>
+      <stop offset="0.55" stop-color="#0e1730"/>
+      <stop offset="1" stop-color="#0a1326"/>
+    </linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffc46b"/>
+      <stop offset="1" stop-color="#f7a83a"/>
+    </linearGradient>
+    <linearGradient id="wordmark" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffd089"/>
+      <stop offset="1" stop-color="#f6a02e"/>
+    </linearGradient>
+    <radialGradient id="glowA" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#f7a83a" stop-opacity="0.20"/>
+      <stop offset="1" stop-color="#f7a83a" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowC" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#4cc4f0" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#4cc4f0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="hexglow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#f7a83a" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#f7a83a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="380" rx="24" fill="url(#bg)" stroke="#1e2a45" stroke-width="1"/>
+  <circle cx="1060" cy="52" r="230" fill="url(#glowA)"/>
+  <circle cx="110" cy="360" r="250" fill="url(#glowC)"/>
+
+  <!-- wordmark -->
+  <text x="56" y="76" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="46" font-weight="800" letter-spacing="-0.5" fill="url(#wordmark)">fleetsmith</text>
+  <text x="58" y="104" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="17" fill="#9fb0cc">Meta agent-fleet builder — one spec, three harnesses.</text>
+
+  <!-- fleet.yaml card -->
+  <rect x="56" y="150" width="224" height="170" rx="14" fill="#101a30" stroke="#263450" stroke-width="1"/>
+  <circle cx="74" cy="170" r="3" fill="#ff6b6b" fill-opacity="0.85"/>
+  <circle cx="84" cy="170" r="3" fill="#ffcf5c" fill-opacity="0.85"/>
+  <circle cx="94" cy="170" r="3" fill="#6fcf97" fill-opacity="0.85"/>
+  <text x="112" y="174" font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="12.5" fill="#93a1bd">fleet.yaml</text>
+  <line x1="68" y1="184" x2="268" y2="184" stroke="#22304d" stroke-width="1"/>
+  <!-- yaml bars: amber/cyan keys + muted values -->
+  <rect x="72"  y="196" width="52"  height="7" rx="3" fill="#f7a83a"/>
+  <rect x="132" y="196" width="96"  height="7" rx="3" fill="#33425f"/>
+  <rect x="84"  y="214" width="40"  height="7" rx="3" fill="#4cc4f0"/>
+  <rect x="130" y="214" width="104" height="7" rx="3" fill="#33425f"/>
+  <rect x="72"  y="232" width="60"  height="7" rx="3" fill="#f7a83a"/>
+  <rect x="140" y="232" width="80"  height="7" rx="3" fill="#33425f"/>
+  <rect x="84"  y="250" width="48"  height="7" rx="3" fill="#4cc4f0"/>
+  <rect x="138" y="250" width="96"  height="7" rx="3" fill="#33425f"/>
+  <rect x="72"  y="268" width="44"  height="7" rx="3" fill="#f7a83a"/>
+  <rect x="124" y="268" width="110" height="7" rx="3" fill="#33425f"/>
+  <text x="168" y="308" text-anchor="middle" font-family="'Segoe UI', system-ui, sans-serif" font-size="10.5" fill="#6b7ba0">agents · skills · handoffs</text>
+
+  <!-- flow: card -> forge -->
+  <line x1="290" y1="240" x2="531" y2="240" stroke="#f7a83a" stroke-width="2"/>
+  <polygon points="540,240 531,235 531,245" fill="#f7a83a"/>
+  <text x="600" y="182" text-anchor="middle" font-family="'Segoe UI', system-ui, sans-serif" font-size="11" letter-spacing="2" fill="#b9a06a">COMPILE</text>
+
+  <!-- forge hex -->
+  <circle cx="600" cy="240" r="72" fill="url(#hexglow)"/>
+  <polygon points="572,191.5 628,191.5 656,240 628,288.5 572,288.5 544,240" fill="url(#amber)" stroke="#ffd089" stroke-width="1.5"/>
+  <!-- anvil -->
+  <polygon points="566,238 580,228 630,228 630,238" fill="#0b1120"/>
+  <rect x="598" y="238" width="16" height="8" fill="#0b1120"/>
+  <polygon points="584,246 628,246 632,253 580,253" fill="#0b1120"/>
+
+  <!-- flow: forge -> targets -->
+  <line x1="662" y1="240" x2="775" y2="176" stroke="#f7a83a" stroke-width="2"/>
+  <polygon points="784,176 775,171 775,181" fill="#f7a83a"/>
+  <line x1="662" y1="240" x2="775" y2="240" stroke="#4cc4f0" stroke-width="2"/>
+  <polygon points="784,240 775,235 775,245" fill="#4cc4f0"/>
+  <line x1="662" y1="240" x2="775" y2="304" stroke="#6fcf97" stroke-width="2"/>
+  <polygon points="784,304 775,299 775,309" fill="#6fcf97"/>
+
+  <!-- target cards -->
+  <rect x="792" y="150" width="352" height="52" rx="12" fill="#101a30" stroke="#263450" stroke-width="1"/>
+  <circle cx="818" cy="176" r="7" fill="#f7a83a"/>
+  <text x="838" y="172" font-family="'Segoe UI', system-ui, sans-serif" font-size="17" font-weight="700" fill="#eaf0f8">Claude Code</text>
+  <text x="838" y="190" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" fill="#8090ac">.claude/agents · skills · CLAUDE.md</text>
+
+  <rect x="792" y="214" width="352" height="52" rx="12" fill="#101a30" stroke="#263450" stroke-width="1"/>
+  <circle cx="818" cy="240" r="7" fill="#4cc4f0"/>
+  <text x="838" y="236" font-family="'Segoe UI', system-ui, sans-serif" font-size="17" font-weight="700" fill="#eaf0f8">opencode</text>
+  <text x="838" y="254" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" fill="#8090ac">.opencode/agents · commands · AGENTS.md</text>
+
+  <rect x="792" y="278" width="352" height="52" rx="12" fill="#101a30" stroke="#263450" stroke-width="1"/>
+  <circle cx="818" cy="304" r="7" fill="#6fcf97"/>
+  <text x="838" y="300" font-family="'Segoe UI', system-ui, sans-serif" font-size="17" font-weight="700" fill="#eaf0f8">goose</text>
+  <text x="838" y="318" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" fill="#8090ac">.goose/recipes · AGENTS.md</text>
+
+  <!-- footer -->
+  <text x="600" y="360" text-anchor="middle" font-family="'Segoe UI', system-ui, sans-serif" font-size="12.5" fill="#7c8bab">Portable, file-based handover protocol · handoff contracts + task ledger</text>
+</svg>
