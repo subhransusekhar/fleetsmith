@@ -1,0 +1,111 @@
+# fleetsmith fleet spec — full-featured example
+# Build:    node src/cli.js build fleet.example.yaml --target all --out ./dist-example
+# Validate: node src/cli.js validate fleet.example.yaml
+
+version: 1
+
+fleet:
+  name: api-hardening
+  domain: "REST API security and reliability hardening"
+  pattern: pipeline          # pipeline | fanout | expert-pool | generate-verify | supervisor | hierarchical
+  execution: hybrid          # team | subagents | hybrid
+  workspace: _fleet
+
+defaults:
+  model: inherit             # smart | fast | cheap | inherit — adapters map to concrete models
+  capabilities: { read: true }
+
+agents:
+  - name: threat-analyst
+    role: Maps the API surface and produces a prioritized threat model.
+    goal: A threat model where every entry names an endpoint, an attack class, and observable evidence.
+    model: smart
+    capabilities: { read: true, web: true }
+    skills: [threat-modeling]
+    handoff:
+      to: [hardening-engineer]
+      artifact: 01-threat-model.md
+      criteria:
+        - Every threat names endpoint + attack class + evidence
+        - Threats ranked by exploitability x impact
+
+  - name: hardening-engineer
+    role: Implements mitigations for the ranked threats.
+    goal: Each mitigation implemented, tested, and traceable to its threat entry.
+    model: smart
+    capabilities: { read: true, edit: true, run: true }
+    skills: [secure-remediation]
+    handoff:
+      to: [security-verifier]
+      artifact: 02-mitigations.md
+      criteria:
+        - Every mitigation maps to a threat-model entry
+        - Repro/verify steps included per mitigation
+
+  - name: security-verifier
+    role: Adversarially verifies mitigations — tries to bypass them, not just confirm they exist.
+    goal: A verdict per mitigation with reproducible evidence.
+    model: smart
+    capabilities: { read: true, run: true }
+    skills: []
+    principles:
+      - Attempt at least one bypass per mitigation before marking it effective
+      - Evidence is a command + output, never an assertion
+    handoff:
+      to: []
+      artifact: 03-verification-report.md
+
+skills:
+  - name: threat-modeling
+    description: >
+      Methodology for API threat modeling: surface enumeration, attack-class
+      mapping (OWASP API Top 10), exploitability x impact ranking. Use whenever
+      analyzing an API for security risks, producing or updating a threat model,
+      or re-ranking threats after mitigations land.
+    body: |
+      # Threat modeling
+
+      1. Enumerate the surface from routes/controllers, not docs — docs lie.
+      2. For each endpoint: auth requirement, input channels, data sensitivity.
+      3. Map each endpoint against OWASP API Top 10 classes; record only
+         plausible pairings with evidence (code path or config).
+      4. Rank: exploitability (unauthenticated? automatable?) x impact
+         (data class, blast radius). Ties break toward unauthenticated access.
+    references:
+      owasp-api-top10.md: |
+        # OWASP API Top 10 quick map
+        (populate per project: class -> what to grep for in this stack)
+
+  - name: secure-remediation
+    description: >
+      Implementation patterns for API security mitigations: input validation,
+      authz checks, rate limiting, secrets handling. Use when implementing or
+      updating fixes for threat-model findings.
+    body: |
+      # Secure remediation
+
+      - Fix the class, not the instance: a missing authz check on one endpoint
+        means auditing the whole router for the same gap.
+      - Prefer framework-native guards over hand-rolled checks; note why when
+        deviating.
+      - Every mitigation ships with a failing-then-passing test proving it.
+
+orchestrator:
+  name: run-api-hardening
+  trigger: API security hardening, threat modeling, or mitigation verification
+  phases:
+    - name: Threat modeling
+      mode: subagents
+      agents: [threat-analyst]
+      gate: Threat model contains at least one HIGH item with evidence, or explicitly states the surface is clean.
+    - name: Remediation
+      mode: subagents
+      agents: [hardening-engineer]
+    - name: Verification
+      mode: subagents
+      agents: [security-verifier]
+      gate: Every mitigation has a verdict; bypassed mitigations loop back to remediation (max 2 loops).
+
+handover:
+  strategy: file
+  ledger: true

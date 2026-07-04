@@ -1,0 +1,10 @@
+export { normalizeSpec } from './spec/schema.js';
+export { validateSpec } from './spec/validate.js';
+export { buildClaudeCode } from './adapters/claude-code.js';
+export { buildOpencode } from './adapters/opencode.js';
+export { buildGoose } from './adapters/goose.js';
+export { buildAll, ADAPTERS } from './adapters/index.js';
+export { ARCHETYPES, archetype } from './patterns/index.js';
+export { FileSet } from './lib/fs-utils.js';
+export { compileAgentBody } from './compile/agent-prompt.js';
+export { compileOrchestratorBody } from './compile/orchestrator.js';
