@@ -58,18 +58,37 @@ npm run build:binary           # optional: build a standalone binary for this OS
 
 The only runtime dependency (`yaml`) is bundled into the binary and installed automatically by npm/npx. `esbuild` and `postject` are build-time-only devDependencies used to produce binaries — they never reach end users.
 
-> The examples below use `fleetsmith <command>`. If you didn't install globally, substitute `./fleetsmith`, `npx ... fleetsmith`, or `node src/cli.js` as appropriate.
+> **The rest of this guide uses the command `fleetsmith`.** That's the binary you downloaded (option A — write `./fleetsmith` if it's not on your `PATH`), the global npm install (B), or an `npm link`ed checkout (D). For the zero-install path (C), replace `fleetsmith` with `npx --yes github:subhransusekhar/fleetsmith`. Running from a clone without linking? Use `node src/cli.js`.
+
+## Quickstart (60 seconds, using the binary)
+
+Go from nothing to a working, multi-tool agent harness in four commands:
+
+```bash
+# 0. one-time: grab the binary (macOS arm64 shown; see Installation for other OSes)
+curl -L -o fleetsmith https://github.com/subhransusekhar/fleetsmith/releases/latest/download/fleetsmith-macos-arm64 && chmod +x fleetsmith
+
+# 1. scaffold a fleet spec for your domain
+./fleetsmith init review-bot --pattern pipeline --domain "TypeScript PR review"
+
+# 2. (edit review-bot's fleet.yaml if you like) then check it
+./fleetsmith validate fleet.yaml
+
+# 3. install the harness into a project so Claude Code / opencode / goose can use it
+./fleetsmith install fleet.yaml --into ~/code/my-app --scope project
+```
+
+Now open `~/code/my-app` in any of the three tools and ask for the fleet by name (see [Run the fleet](#5-run-the-fleet-in-each-tool)). That's the whole loop: **init → (edit) → validate → install → run.** Everything below expands on each step.
 
 ## How to use
 
 ### 1. Scaffold a fleet spec
 
 ```bash
-node src/cli.js init my-fleet --pattern pipeline --domain "REST API code review"
-# or with npm link:  fleetsmith init my-fleet --pattern pipeline --domain "..."
+fleetsmith init my-fleet --pattern pipeline --domain "REST API code review"
 ```
 
-Pick a pattern with `fleetsmith patterns`:
+`init` writes a ready-to-edit `fleet.yaml` (use `--out other.yaml` to name it, `--force` to overwrite). Pick a pattern with `fleetsmith patterns`:
 
 | Pattern | Use for |
 |---------|---------|
@@ -117,12 +136,14 @@ See [`fleet.example.yaml`](fleet.example.yaml) for the full-featured version and
 ### 3. Validate and build
 
 ```bash
-node src/cli.js validate fleet.yaml
-node src/cli.js build fleet.yaml --target all            # or claude-code | opencode | goose
-node src/cli.js build fleet.yaml --target all --dry-run  # list files without writing
+fleetsmith validate fleet.yaml
+fleetsmith build fleet.yaml --target all            # or claude-code | opencode | goose
+fleetsmith build fleet.yaml --target all --dry-run  # list files without writing
 ```
 
-`--out DIR` writes elsewhere; `--force` overwrites existing files (re-runs). In combined builds, skills are emitted once to `.claude/skills/` — opencode and goose read that directory natively, so there's exactly one copy to maintain.
+`validate` reports errors (block the build) and warnings (design smells — orphaned agents, missing artifact contracts, unused skills). `build` writes the harness into the current directory; `--out DIR` writes elsewhere, `--force` overwrites existing files (re-runs). In combined builds, skills are emitted once to `.claude/skills/` — opencode and goose read that directory natively, so there's exactly one copy to maintain.
+
+Use `build` when you want the files in the current repo; use `install` (next) when you want them placed into a *different* app or into your global tool config.
 
 ### 4. Install into target apps
 
@@ -154,6 +175,61 @@ fleetsmith install fleet.yaml --scope user --dry-run   # preview first
 | **goose** | `goose run --recipe .goose/recipes/run-<fleet>.yaml` (skills need goose ≥ 1.25) |
 
 The orchestrator handles fresh runs, partial re-runs ("redo the X part"), and resumption — fleet state lives in `_fleet/LEDGER.md` and `_fleet/handoffs/`, so any run is auditable and resumable.
+
+## Examples by category
+
+Every example below is one `init` command that scaffolds an editable `fleet.yaml`. Change the `--domain` string to your own subject and edit the generated agents/skills — the pattern is what shapes the topology. After `init`, the loop is always the same: `validate → install → run`.
+
+| Category | Pattern | Scaffold command |
+|----------|---------|------------------|
+| **Code review** | `pipeline` | `fleetsmith init pr-review --pattern pipeline --domain "TypeScript PR review"` |
+| **Security audit** | `generate-verify` | `fleetsmith init sec-audit --pattern generate-verify --domain "smart-contract security audit"` |
+| **Research / analysis** | `fanout` | `fleetsmith init market-scan --pattern fanout --domain "competitor landscape research"` |
+| **Documentation** | `pipeline` | `fleetsmith init doc-writer --pattern pipeline --domain "API reference documentation"` |
+| **Data / ETL** | `pipeline` | `fleetsmith init ingest --pattern pipeline --domain "CSV-to-warehouse ingestion"` |
+| **Incident triage** | `expert-pool` | `fleetsmith init on-call --pattern expert-pool --domain "production incident triage"` |
+| **Refactor / migration** | `supervisor` | `fleetsmith init py3-migrate --pattern supervisor --domain "Python 2 to 3 migration"` |
+| **Content / marketing** | `generate-verify` | `fleetsmith init blog-team --pattern generate-verify --domain "technical blog drafting + fact-check"` |
+
+### How to choose a pattern
+
+- **`pipeline`** — the work is a chain where each stage needs the previous one's output (analyze → build → review). Most common.
+- **`fanout`** — the work splits into independent slices explored in parallel, then merged (research, audits, multi-file sweeps).
+- **`generate-verify`** — one agent produces, a second adversarially checks it (code + QA, draft + fact-check, fix + attempt-to-bypass).
+- **`expert-pool`** — a router classifies each request and calls only the relevant specialist (triage, help desks, mixed request types).
+- **`supervisor`** — a lead owns shared state and delegates dynamically to specialists; best with Claude Code agent teams (`execution: team`).
+
+### Worked example: security audit
+
+```bash
+fleetsmith init sec-audit --pattern generate-verify --domain "smart-contract security audit"
+```
+
+This scaffolds a two-agent `generate-verify` fleet:
+
+- **`generator`** — read/edit/run capabilities; produces the audit findings (`draft.md`).
+- **`verifier`** — read/run only; tries to *break* each finding (repro or refute) rather than rubber-stamp it, and hands results back with `verdict.md`.
+
+Open `fleet.yaml` and make it yours: rename the agents (e.g. `vuln-hunter` / `exploit-verifier`), tighten each `handoff.criteria` (e.g. *"every finding cites a file:line and a proof-of-concept transaction"*), and flesh out a `skills:` entry with your audit methodology (checklists, known-vuln catalog). Then:
+
+```bash
+fleetsmith validate fleet.yaml
+fleetsmith install fleet.yaml --into ~/code/my-contracts --scope project
+```
+
+Ask for it in Claude Code (or `/run-sec-audit` in opencode, or `goose run --recipe .goose/recipes/run-sec-audit.yaml`) and the orchestrator runs generate → verify, looping findings that fail verification back to the generator.
+
+### Reusable across every project
+
+If a fleet is generally useful (a personal code-reviewer, say), install it at **user scope** so its agents show up in every project without re-installing:
+
+```bash
+fleetsmith install fleet.yaml --scope user
+```
+
+### Don't want to hand-write the spec?
+
+Skip `init` entirely: open this repo in Claude Code and say **"build a harness for this project"** — the bundled [meta-fleet](#the-meta-fleet-build-a-harness-for-this-project) analyzes your codebase, designs the `fleet.yaml`, writes the skills, and QA-gates the result for you.
 
 ## The meta-fleet: "build a harness for this project"
 
