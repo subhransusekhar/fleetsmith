@@ -7,6 +7,7 @@ import { buildOpencode } from '../src/adapters/opencode.js';
 import { buildGoose } from '../src/adapters/goose.js';
 import { buildAll } from '../src/adapters/index.js';
 import { archetype, ARCHETYPES } from '../src/patterns/index.js';
+import { planInstall } from '../src/install.js';
 import YAML from 'yaml';
 
 function demoSpec() {
@@ -177,6 +178,40 @@ test('skills are emitted for claude-code and opencode with references', () => {
   const analyst = buildClaudeCode(spec, {}).files.get('.claude/agents/analyst.md');
   assert.match(analyst, /skills:\n\s+- requirements-analysis/);
   assert.match(analyst, /\*\*requirements-analysis\*\*/);
+});
+
+test('planInstall project scope passes files through verbatim into --into dir', () => {
+  const files = buildAll(demoSpec(), { today: '2026-07-04' });
+  const plan = planInstall(files, { scope: 'project', into: '/some/app' });
+  assert.equal(plan.baseDir, '/some/app');
+  assert.equal(plan.fileSet, files);
+  assert.deepEqual(plan.skipped, []);
+});
+
+test('planInstall user scope remaps tool roots to $HOME config and skips singletons', () => {
+  const files = buildAll(demoSpec(), { today: '2026-07-04' });
+  const plan = planInstall(files, { scope: 'user', home: '/home/u' });
+  const out = plan.fileSet.list();
+
+  // reusable definitions land in each tool's user-global config dir
+  assert.ok(out.includes('.claude/agents/analyst.md'));
+  assert.ok(out.includes('.config/opencode/agents/analyst.md'));
+  assert.ok(out.includes('.config/goose/recipes/analyst.yaml'));
+  assert.equal(plan.baseDir, '/home/u');
+
+  // no project-relative tool dirs leak through
+  assert.ok(!out.some((p) => p.startsWith('.opencode/') || p.startsWith('.goose/')));
+
+  // shared singletons + runtime workspace are skipped, with reasons
+  const skipped = plan.skipped.map((s) => s.path);
+  assert.ok(skipped.includes('CLAUDE.md'));
+  assert.ok(skipped.includes('AGENTS.md'));
+  assert.ok(skipped.some((p) => p.startsWith('_fleet/')));
+  assert.ok(plan.skipped.every((s) => s.reason));
+});
+
+test('planInstall rejects unknown scope', () => {
+  assert.throws(() => planInstall(buildAll(demoSpec(), {}), { scope: 'global' }), /Unknown install scope/);
 });
 
 test('generated output is machine-portable: relative paths only, no host-specific references', () => {

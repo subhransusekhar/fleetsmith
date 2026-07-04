@@ -1,0 +1,63 @@
+name: release
+
+# Tag a version to cut a release:  git tag v0.2.0 && git push --tags
+# Produces standalone binaries for linux/macos/windows and attaches them to
+# a GitHub Release. npm publish runs only if repo variable PUBLISH_NPM=true
+# and secret NPM_TOKEN is set.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  binaries:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: fleetsmith-linux-x64
+          - os: macos-latest
+            asset: fleetsmith-macos-arm64
+          - os: macos-13
+            asset: fleetsmith-macos-x64
+          - os: windows-latest
+            asset: fleetsmith-windows-x64.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm test
+      - run: npm run build:binary
+      - name: Stage asset (unix)
+        if: runner.os != 'Windows'
+        run: cp dist/bin/fleetsmith "${{ matrix.asset }}"
+      - name: Stage asset (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Copy-Item dist/bin/fleetsmith.exe "${{ matrix.asset }}"
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.asset }}
+          generate_release_notes: true
+
+  npm:
+    needs: binaries
+    runs-on: ubuntu-latest
+    if: ${{ vars.PUBLISH_NPM == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -19,27 +19,46 @@ Every agentic CLI grew its own harness format: Claude Code has subagents + Agent
 
 ## Installation
 
-Requires only **Node.js ≥ 18** (any OS). No build step, no global tooling, no editor/agent-specific setup; the single runtime dependency (`yaml`) is fetched from the npm registry.
+Pick whichever fits — in order of "least setup":
 
-**Zero-install (run from any machine or project):**
+**A. Standalone binary (no Node.js required).** Download the executable for your OS from the [latest release](https://github.com/subhransusekhar/fleetsmith/releases/latest) and run it directly:
+
+```bash
+# macOS (Apple Silicon) example
+curl -L -o fleetsmith https://github.com/subhransusekhar/fleetsmith/releases/latest/download/fleetsmith-macos-arm64
+chmod +x fleetsmith
+./fleetsmith version
+```
+
+Assets: `fleetsmith-linux-x64`, `fleetsmith-macos-arm64`, `fleetsmith-macos-x64`, `fleetsmith-windows-x64.exe`. Each is a single self-contained file (Node runtime + code + the one dependency baked in) — copy it onto any machine, no install step.
+
+**B. Global CLI via npm (needs Node.js ≥ 18):**
+
+```bash
+npm install -g fleetsmith      # then: fleetsmith <command>
+```
+
+**C. Zero-install via npx (needs Node.js ≥ 18):**
 
 ```bash
 npx --yes github:subhransusekhar/fleetsmith patterns
 npx --yes github:subhransusekhar/fleetsmith init my-fleet --pattern pipeline --domain "..."
-npx --yes github:subhransusekhar/fleetsmith build fleet.yaml --target all
 ```
 
-**Clone (for development, or to use the bundled meta-fleet):**
+**D. Clone (for development, or to use the bundled meta-fleet):**
 
 ```bash
 git clone https://github.com/subhransusekhar/fleetsmith.git
 cd fleetsmith
 npm ci
-npm test                      # 13 tests, node --test
-
-# optional: make the CLI available globally as `fleetsmith`
-npm link
+npm test                       # node --test
+npm link                       # optional: exposes `fleetsmith` globally
+npm run build:binary           # optional: build a standalone binary for this OS -> dist/bin/
 ```
+
+The only runtime dependency (`yaml`) is bundled into the binary and installed automatically by npm/npx. `esbuild` and `postject` are build-time-only devDependencies used to produce binaries — they never reach end users.
+
+> The examples below use `fleetsmith <command>`. If you didn't install globally, substitute `./fleetsmith`, `npx ... fleetsmith`, or `node src/cli.js` as appropriate.
 
 ## How to use
 
@@ -105,7 +124,28 @@ node src/cli.js build fleet.yaml --target all --dry-run  # list files without wr
 
 `--out DIR` writes elsewhere; `--force` overwrites existing files (re-runs). In combined builds, skills are emitted once to `.claude/skills/` — opencode and goose read that directory natively, so there's exactly one copy to maintain.
 
-### 4. Run the fleet in each tool
+### 4. Install into target apps
+
+`build` writes files into a directory. `install` is the same generation plus placement into where the tools actually look — with tool detection and two scopes:
+
+```bash
+# into another project/repo so its agents work in that repo
+fleetsmith install fleet.yaml --into /path/to/target-app --scope project
+
+# into your user-global tool config so the agents work in EVERY project
+fleetsmith install fleet.yaml --scope user
+
+fleetsmith install fleet.yaml --scope user --dry-run   # preview first
+```
+
+| Scope | Where files go | What's installed |
+|-------|----------------|------------------|
+| `project` (default) | the target repo (`--into DIR`, default `.`) | full harness: agents, skills, orchestrator, pointer files, `_fleet/` workspace |
+| `user` | `~/.claude/`, `~/.config/opencode/`, `~/.config/goose/` | reusable definitions only — agents, skills, commands, recipes |
+
+`user` scope deliberately skips the shared pointer files (`CLAUDE.md`, `AGENTS.md`) and the project-specific `_fleet/` runtime workspace, so it never clobbers your global config. `install` prints which tools it detected on the machine.
+
+### 5. Run the fleet in each tool
 
 | Tool | Invoke |
 |------|--------|
@@ -168,9 +208,27 @@ test/                    # node --test suite
 ## Development
 
 ```bash
-npm test                                  # schema, validator, all three adapters, merge behavior
+npm test                                  # schema, validator, adapters, install planner, portability
+npm run bundle                            # esbuild -> dist/fleetsmith.cjs (single-file, node dist/fleetsmith.cjs)
+npm run build:binary                      # bundle + Node SEA -> dist/bin/fleetsmith (standalone, this OS)
 npm run build:example                     # compile fleet.example.yaml into dist-example/
 ```
+
+## Releasing
+
+Binaries are produced by CI, not committed. To cut a production release:
+
+```bash
+npm version patch     # or minor / major — bumps package.json + creates a git tag
+git push --follow-tags
+```
+
+The `release` workflow (`.github/workflows/release.yml`) triggers on the `v*` tag:
+1. runs the test suite on Linux/macOS/Windows,
+2. builds a standalone binary per platform via `npm run build:binary` (esbuild bundle → Node [Single Executable Application](https://nodejs.org/api/single-executable-applications.html) → `postject`; macOS binaries are thinned with `lipo` and ad-hoc signed),
+3. attaches `fleetsmith-<os>-<arch>` assets to a GitHub Release with generated notes.
+
+`npm publish` runs in the same workflow only if the repo variable `PUBLISH_NPM=true` and secret `NPM_TOKEN` are set — otherwise releases are binary + GitHub-only. The published npm tarball contains just `src/`, `README.md`, and `LICENSE` (no tests, docs, or `node_modules`).
 
 ## License
 

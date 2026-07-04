@@ -1,4 +1,5 @@
 node_modules/
+dist/
 dist-example/
 _fleet/
 .claude/scheduled_tasks.lock
