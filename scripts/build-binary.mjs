@@ -72,11 +72,13 @@ if (isMac) {
 }
 
 // 5. Inject the blob with postject, matching the fuse baked into this build.
+// Invoke postject's JS entry directly with node — the `.bin/postject.cmd`
+// shim can't be spawned by execFileSync on Windows (EINVAL).
 const fuse = detectFuse(binPath);
-const postject = path.join('node_modules', '.bin', isWin ? 'postject.cmd' : 'postject');
+const postjectCli = path.join('node_modules', 'postject', 'dist', 'cli.js');
 const postjectArgs = [binPath, 'NODE_SEA_BLOB', 'dist/sea-prep.blob', '--sentinel-fuse', fuse];
 if (isMac) postjectArgs.push('--macho-segment-name', 'NODE_SEA');
-run(postject, postjectArgs);
+run(process.execPath, [postjectCli, ...postjectArgs]);
 
 // 6. macOS: ad-hoc re-sign so Gatekeeper will run it.
 if (isMac) {
