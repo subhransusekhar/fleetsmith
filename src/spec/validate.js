@@ -67,7 +67,9 @@ export function validateSpec(spec) {
     }
   }
   const cycle = findCycle(spec.agents);
-  if (cycle && !['supervisor', 'hierarchical', 'expert-pool'].includes(spec.fleet.pattern)) {
+  // generate-verify's producer<->checker loop and the supervisor family's
+  // delegate-and-return edges are intentional cycles
+  if (cycle && !['supervisor', 'hierarchical', 'expert-pool', 'generate-verify'].includes(spec.fleet.pattern)) {
     warn(`Handoff cycle detected (${cycle.join(' -> ')}); fine for supervisor loops, suspicious for ${spec.fleet.pattern}`);
   }
 
