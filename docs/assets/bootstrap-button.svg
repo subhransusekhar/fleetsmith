@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 56" role="img" aria-label="Copy the Claude Code bootstrap prompt">
+  <defs>
+    <linearGradient id="btn" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffc46b"/>
+      <stop offset="1" stop-color="#f7a83a"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="338" height="54" rx="13" fill="url(#btn)" stroke="#d98c22" stroke-width="1"/>
+  <polygon points="30,12 20,32 27,32 24,44 38,24 30,24 34,12" fill="#0b1120"/>
+  <text x="52" y="35" font-family="'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif" font-size="19" font-weight="800" fill="#0b1120">Bootstrap in Claude Code</text>
+</svg>

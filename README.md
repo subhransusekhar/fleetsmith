@@ -6,6 +6,59 @@
 
 **Meta agent-fleet builder.** Describe a fleet of AI agents once — roles, skills, handoff graph — and compile it into native harnesses for **Claude Code**, **opencode**, and **goose**. Say *"build a harness for this project"* in Claude Code and the bundled meta-fleet designs, authors, compiles, and QA-gates a domain-tailored harness for you.
 
+## ⚡ One-paste start in Claude Code — no install
+
+Spin fleetsmith up in a brand-new folder without installing anything globally. It bootstraps its own meta-fleet into the project and drives the CLI via `npx`.
+
+<p align="center">
+  <a href="https://raw.githubusercontent.com/subhransusekhar/fleetsmith/main/docs/assets/bootstrap-prompt.txt">
+    <img src="docs/assets/bootstrap-button.svg" alt="Bootstrap in Claude Code — open the prompt to copy" width="300">
+  </a>
+</p>
+
+1. Make an empty folder and open Claude Code in it:
+   ```bash
+   mkdir my-harness && cd my-harness && claude
+   ```
+2. **Copy the bootstrap prompt** — click the button above (opens the raw prompt to select-all-copy), or use the copy icon on the code block below.
+3. Paste it into Claude Code and send. It self-installs and walks you through building your first fleet.
+
+<details>
+<summary><b>📋 The bootstrap prompt</b> (click to expand — the block has a copy button)</summary>
+
+```text
+Set up fleetsmith in this empty folder, then help me build an AI agent harness — with NO global installation.
+
+Do this step by step:
+
+1) Verify prerequisites and report versions: run `node --version` (need Node >= 18) and `git --version`.
+
+2) Install the fleetsmith "meta-fleet" into THIS project without any global install: shallow-clone the repo and copy its `.claude/` directory here, then delete the clone. For example (adapt to my OS):
+   git clone --depth 1 https://github.com/subhransusekhar/fleetsmith .fleetsmith-src
+   cp -R .fleetsmith-src/.claude ./.claude
+   rm -rf .fleetsmith-src
+
+3) Confirm the fleetsmith CLI runs with zero install via npx:
+   npx --yes github:subhransusekhar/fleetsmith patterns
+   (If Node is unavailable, instead download the standalone binary for my platform from https://github.com/subhransusekhar/fleetsmith/releases/latest and use that in place of the npx command below.)
+
+4) Ask me ONE question: what domain or project should this agent fleet target? Then wait for my answer.
+
+5) Using my answer, scaffold and build the harness with the CLI:
+   npx --yes github:subhransusekhar/fleetsmith init <short-name> --pattern <pipeline|fanout|generate-verify|supervisor|expert-pool> --domain "<my domain>"
+   Show me the generated fleet.yaml, let me tweak it, then:
+   npx --yes github:subhransusekhar/fleetsmith validate fleet.yaml
+   npx --yes github:subhransusekhar/fleetsmith build fleet.yaml --target all
+
+6) Tell me how to run the fleet in Claude Code, opencode, and goose. Note that after I restart Claude Code in this folder, the `harness-builder` skill and fleet agents from `.claude/` will be loaded, so I can just say "build a harness for this project" and it runs automatically.
+
+Constraints: never install anything globally; prefer npx and the copied `.claude/`; keep everything inside this folder.
+```
+
+</details>
+
+> Prerequisite: Node.js ≥ 18 (for `npx`) and `git`. Truly zero-Node? The prompt falls back to the [standalone binary](#installation). Prefer a manual setup instead? See [Installation](#installation).
+
 ```
 fleet.yaml ──► fleetsmith ──┬──► .claude/agents/*.md + .claude/skills/*/SKILL.md + CLAUDE.md
                             ├──► .opencode/agents/*.md + commands/ + skills/ + AGENTS.md
