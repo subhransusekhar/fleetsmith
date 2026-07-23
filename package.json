@@ -1,6 +1,6 @@
 {
   "name": "fleetsmith",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Meta agent-fleet builder: compile one fleet spec into coordinated agent teams, skills, and handover protocols for Claude Code, opencode, and goose.",
   "type": "module",
   "bin": {
