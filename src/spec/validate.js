@@ -27,6 +27,17 @@ export function validateSpec(spec) {
   }
   if (!spec.fleet.domain) warn('fleet.domain is empty — generated descriptions will be generic');
 
+  // recurring loop (fleet.schedule)
+  if (spec.fleet.schedule) {
+    const sch = spec.fleet.schedule;
+    if (sch.cron && !/^\s*(\S+\s+){4}\S+\s*$/.test(sch.cron)) {
+      warn(`fleet.schedule.cron "${sch.cron}" is not a 5-field cron expression`);
+    }
+    if (sch.cron && sch.interval) {
+      warn('fleet.schedule sets both cron and interval — cron wins; interval is ignored');
+    }
+  }
+
   // agents
   if (spec.agents.length === 0) err('Fleet has no agents');
   const agentNames = new Set();
@@ -108,10 +119,20 @@ export function validateSpec(spec) {
     if (!attached) warn(`Skill "${s.name}" is not attached to any agent`);
   }
 
-  // orchestrator phases reference real agents
+  // orchestrator phases reference real agents; iteration loops are bounded
   for (const p of spec.orchestrator.phases ?? []) {
     for (const n of p.agents ?? []) {
       if (!agentNames.has(n)) err(`Orchestrator phase "${p.name}" references unknown agent "${n}"`);
+    }
+    if (p.loop) {
+      if (!Number.isInteger(p.loop.max) || p.loop.max < 1) {
+        err(`Orchestrator phase "${p.name}" loop.max must be a positive integer`);
+      } else if (p.loop.max > 10) {
+        warn(`Orchestrator phase "${p.name}" loop.max is ${p.loop.max} — high bounds risk long runaway loops; keep refinement loops tight`);
+      }
+      if (!p.loop.until && !p.loop.check) {
+        warn(`Orchestrator phase "${p.name}" loop has no exit condition (until/check) — it will always run to max iterations`);
+      }
     }
   }
 

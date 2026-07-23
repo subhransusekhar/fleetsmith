@@ -23,6 +23,7 @@ The fleet spec is the single tool-agnostic source of truth. `normalizeSpec` fill
 | `pattern` | `pipeline` | `pipeline`, `fanout`, `expert-pool`, `generate-verify`, `supervisor`, `hierarchical` |
 | `execution` | `subagents` | `team` (Claude Code agent teams; degrades to orchestrated subagents on opencode/goose), `subagents`, `hybrid` (per-phase `mode`) |
 | `workspace` | `_fleet` | coordination directory emitted into the project |
+| `schedule` | `null` | recurring-loop config — see [Loop engineering](#loop-engineering) |
 
 ## `agents[]`
 
@@ -64,10 +65,38 @@ The fleet spec is the single tool-agnostic source of truth. `normalizeSpec` fill
 |-----|---------|-------|
 | `name` | `run-<fleet>` | skill/agent/recipe name of the playbook |
 | `trigger` | `<domain> tasks` | phrase used in pointer files + descriptions |
-| `phases` | derived from pattern | array of `{name, mode, agents[], parallel?, gate?}` |
+| `phases` | derived from pattern | array of `{name, mode, agents[], parallel?, gate?, loop?}` |
 | `happyPath` / `failurePath` | derived | test scenarios embedded in the playbook |
 
-Pattern-derived phases: `pipeline` → one stage per agent; `fanout` → all-but-last parallel, last merges; `generate-verify` → first half generate, second half verify; `supervisor`/`hierarchical`/`expert-pool` → single Coordinate phase in team mode.
+Pattern-derived phases: `pipeline` → one stage per agent; `fanout` → all-but-last parallel, last merges; `generate-verify` → first half generate, second half verify (**the Verify phase gets a default iteration loop**); `supervisor`/`hierarchical`/`expert-pool` → single Coordinate phase in team mode.
+
+## Loop engineering
+
+Two orthogonal loop constructs; both are declared in the spec and translated onto each target's native loop primitive with a portable prose fallback.
+
+### Iteration loops — `orchestrator.phases[].loop`
+
+Turns a one-shot phase into a **repeat-until-condition** refinement loop (generate → verify → refine).
+
+| Key | Default | Notes |
+|-----|---------|-------|
+| `until` | `''` | human-readable exit condition — the loop's acceptance test |
+| `max` | `3` | hard iteration bound (safety valve); validator warns above 10 |
+| `check` | `null` | optional shell command, exit 0 = satisfied — the objective signal every target defers to |
+
+A bare integer is shorthand for `{ max: N }`. Translation: the orchestrator playbook renders a "repeat until, refine with last-pass failures, stop at max with a documented gap" callout on **every** target (orchestration is LLM-prose-driven everywhere). When `check` is set, **goose** additionally emits a native recipe-level `retry:` block (`max_retries` + shell `checks[]` + `on_failure`) so the loop is enforced deterministically.
+
+### Recurring loops — `fleet.schedule`
+
+Runs the whole fleet on a schedule/interval/self-paced cadence. `null` (default) = one-shot fleet.
+
+| Key | Default | Notes |
+|-----|---------|-------|
+| `cron` | `null` | 5-field cron expression (validator warns on malformed) |
+| `interval` | `null` | human interval (`1h`, `15m`) for `/loop`-style re-firing |
+| `note` | `''` | what each firing should accomplish |
+
+Neither `cron` nor `interval` → self-paced. Setting both warns (cron wins). Translation (rendered in the orchestrator's "Recurring runs" section): **Claude Code** → `/loop <interval> /<orch>` or the `schedule` skill for cron; **opencode** → cron/`while sleep` wrapper around `opencode run`; **goose** → `goose run --recipe` under cron / `goose schedule`.
 
 ## `handover`
 
@@ -81,4 +110,6 @@ Pattern-derived phases: `pipeline` → one stage per agent; `fanout` → all-but
 
 Errors (block build): missing/duplicate/non-kebab agent or skill names, unknown pattern/execution/model/capability/protocol values, handoff to unknown agent, agent referencing unknown skill, skill without description, orchestrator phase referencing unknown agent, empty fleet.
 
-Warnings: empty domain, roleless agent, handoff edge without artifact, handoff cycle outside supervisor-family patterns, disconnected agent, unattached skill, short skill description, skill body >500 lines.
+Errors also: phase `loop.max` not a positive integer.
+
+Warnings: empty domain, roleless agent, handoff edge without artifact, handoff cycle outside supervisor-family patterns, disconnected agent, unattached skill, short skill description, skill body >500 lines, `loop.max` >10, loop with no exit condition (no `until`/`check`), malformed `schedule.cron`, `schedule` with both cron and interval.

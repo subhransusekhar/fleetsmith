@@ -16,3 +16,4 @@ Meta agent-fleet builder: one `fleet.yaml` spec compiles into coordinated agents
 | Date | Change | Target | Reason |
 |------|--------|--------|--------|
 | 2026-07-04 | Initial meta-fleet (domain-analyst, fleet-architect, skill-smith, harness-qa + harness-builder skill) | all | - |
+| 2026-07-23 | Loop engineering: first-class `phases[].loop` (iteration) + `fleet.schedule` (recurring). Prose loop on every target; goose native `retry` for checked loops; `/loop`/cron/`goose schedule` for recurring. | all | Add iterative-refinement and recurring-run capability to generated fleets |

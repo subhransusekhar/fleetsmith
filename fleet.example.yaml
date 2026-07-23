@@ -10,6 +10,9 @@ fleet:
   pattern: pipeline          # pipeline | fanout | expert-pool | generate-verify | supervisor | hierarchical
   execution: hybrid          # team | subagents | hybrid
   workspace: _fleet
+  schedule:                  # recurring loop — omit for a one-shot fleet
+    cron: "0 3 * * 1"        # weekly Monday 03:00; or use `interval: 6h`, or neither for self-paced
+    note: "re-scan the API surface for new endpoints and regressions since last week"
 
 defaults:
   model: inherit             # smart | fast | cheap | inherit — adapters map to concrete models
@@ -98,13 +101,14 @@ orchestrator:
       mode: subagents
       agents: [threat-analyst]
       gate: Threat model contains at least one HIGH item with evidence, or explicitly states the surface is clean.
-    - name: Remediation
+    - name: Remediation + verification
       mode: subagents
-      agents: [hardening-engineer]
-    - name: Verification
-      mode: subagents
-      agents: [security-verifier]
-      gate: Every mitigation has a verdict; bypassed mitigations loop back to remediation (max 2 loops).
+      agents: [hardening-engineer, security-verifier]
+      loop:                  # iteration loop — refine until the exit condition holds
+        until: "security-verifier reports every mitigation effective with reproducible evidence; no mitigation is bypassable"
+        max: 3               # hard iteration bound (validator warns above 10)
+        check: "npm test"    # optional shell signal; exit 0 = satisfied. On goose this becomes a native retry.checks entry
+      gate: Every mitigation has a verdict with evidence.
 
 handover:
   strategy: file

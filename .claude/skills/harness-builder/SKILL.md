@@ -32,8 +32,12 @@ Invoke each agent with the Agent tool using its definition in `.claude/agents/` 
 **Gate:** the brief names concrete work types with inputs/outputs. A brief of adjectives goes back once with the gaps named.
 
 ### Phase 2: Fleet architecture
-`fleet-architect` designs `fleet.yaml` (pattern, roster, capabilities, handoff graph, skill stubs) and gets `validate` passing → `02-fleet-architect-to-skill-smith.md`.
+`fleet-architect` designs `fleet.yaml` (pattern, roster, capabilities, handoff graph, skill stubs, **loops**) and gets `validate` passing → `02-fleet-architect-to-skill-smith.md`.
 **Gate:** `node src/cli.js validate fleet.yaml` exits 0. Show the user the roster + pattern one-liner before proceeding; this is the cheapest moment for course correction.
+
+**Loop engineering** (design it here, don't bury it in prose — see `docs/spec.md` › Loop engineering):
+- **Iteration loop** — a phase that must repeat until quality holds (remediate→verify, draft→critique→refine, until-no-defects) gets a `loop: { until, max, check? }`. Keep `max` tight (≤ ~5). Add a shell `check` when a deterministic signal exists (`npm test`, a linter) — it becomes goose's native `retry.checks` and the objective signal every target defers to. `generate-verify` fleets get a default Verify loop for free.
+- **Recurring loop** — a fleet meant to run on a schedule (nightly audits, weekly scans, monitoring) gets `fleet.schedule: { cron | interval | note }`; omit for one-shot fleets. Neither cron nor interval = self-paced. Compiles to `/loop`/routines (Claude Code), a cron wrapper (opencode), and `goose run`/`goose schedule` (goose).
 
 ### Phase 3: Skill authoring
 `skill-smith` replaces every `TODO(skill-smith)` with researched methodology, adds references/scripts → `03-skill-smith-to-harness-qa.md`.

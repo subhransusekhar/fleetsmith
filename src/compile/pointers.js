@@ -21,7 +21,7 @@ For ${spec.orchestrator.trigger}, run the fleet orchestrator instead of working 
 - **opencode:** run \`/${spec.orchestrator.name}\`, or switch to the \`${spec.orchestrator.name}\` primary agent (fleet subagents live in \`.opencode/agents/\`).
 - **goose:** \`goose run --recipe .goose/recipes/${spec.orchestrator.name}.yaml\`
 - **Claude Code:** the \`${spec.orchestrator.name}\` skill triggers on domain requests (see CLAUDE.md).
-
+${schedulePointer(spec)}
 ## Coordination
 
 Fleet coordination is file-based under \`${spec.fleet.workspace}/\`: handoff documents in \`${spec.handover.dir}/\` (template provided) and a task ledger${spec.handover.ledger ? ` at \`${spec.fleet.workspace}/LEDGER.md\`` : ''}. Handoff files are the source of truth between agents — read them before resuming or auditing fleet work, and never delete them mid-run.
@@ -32,4 +32,12 @@ Fleet coordination is file-based under \`${spec.fleet.workspace}/\`: handoff doc
 |------|--------|--------|--------|
 | ${today} | Initial fleet build (fleetsmith) | all | - |
 `;
+}
+
+/** One-line recurring-loop pointer; empty when the fleet is one-shot. */
+function schedulePointer(spec) {
+  const sch = spec.fleet.schedule;
+  if (!sch) return '';
+  const cadence = sch.cron ? `on cron \`${sch.cron}\`` : sch.interval ? `every \`${sch.interval}\`` : 'self-paced';
+  return `\n**Recurring:** this fleet is built to run ${cadence} — see the "Recurring runs" section of the \`${spec.orchestrator.name}\` orchestrator for the per-tool scheduling command.\n`;
 }

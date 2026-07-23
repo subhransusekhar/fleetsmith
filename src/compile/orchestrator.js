@@ -49,6 +49,10 @@ export function compileOrchestratorBody(spec, target) {
         : ' Terminal agent — its output is (part of) the final deliverable.';
       s.push(`- \`${n}\`: ${a.goal || a.role}.${outEdges}`);
     }
+    if (phase.loop) {
+      s.push('');
+      s.push(loopCallout(phase.loop));
+    }
     if (phase.gate) {
       s.push('');
       s.push(`**Gate before next phase:** ${phase.gate}`);
@@ -78,6 +82,13 @@ export function compileOrchestratorBody(spec, target) {
   s.push('2. Summarize deliverables + gaps for the user.');
   s.push('3. Ask one short feedback question ("anything to improve in the result or the fleet workflow?") — if feedback arrives, route it: output quality → the agent\'s skill; role gaps → agent definition; ordering → this orchestrator; then record the change in the harness changelog.');
 
+  if (spec.fleet.schedule) {
+    s.push('');
+    s.push('## Recurring runs (loop engineering)');
+    s.push('');
+    s.push(scheduleSection(spec, target));
+  }
+
   s.push('');
   s.push('## Test scenarios');
   s.push('');
@@ -85,6 +96,92 @@ export function compileOrchestratorBody(spec, target) {
   s.push(`- **Failure path:** ${o.failurePath ?? 'kill one mid-pipeline agent (simulate by making its input unavailable); the run must complete with a documented gap, not stall.'}`);
 
   return s.join('\n');
+}
+
+/**
+ * Iteration-loop callout for a phase: a portable "repeat until condition"
+ * instruction. This is the loop-engineering core — every target's
+ * orchestration layer is LLM-prose-driven, so the loop reads the same
+ * everywhere; goose additionally enforces `check` via its native `retry` block.
+ */
+function loopCallout(loop) {
+  const lines = [];
+  lines.push(`**Loop — iterate until done (max ${loop.max} passes):**`);
+  const exit = loop.until || 'the phase output meets its acceptance criteria';
+  lines.push(
+    `- After each pass, evaluate the exit condition: _${exit}_. If it holds, stop looping and continue to the next phase.`
+  );
+  lines.push(
+    '- If it does not hold and passes remain, re-run this phase\'s agent(s) with the **specific failures from the last pass appended** to their brief — refine, do not restart from scratch. Each pass must reduce the outstanding gap; a pass that changes nothing ends the loop.'
+  );
+  if (loop.check) {
+    lines.push(
+      `- Objective signal: run \`${loop.check}\` (exit 0 = condition satisfied). Trust its result over any agent's self-assessment.`
+    );
+  }
+  lines.push(
+    `- On exhausting ${loop.max} passes without satisfying the condition, **stop** and proceed with the shortfall recorded in the ledger and the final report — a bounded, documented gap beats an unbounded loop.`
+  );
+  return lines.join('\n');
+}
+
+/** Recurring-loop translation, keyed by target. */
+function scheduleSection(spec, target) {
+  const sch = spec.fleet.schedule;
+  const orch = spec.orchestrator.name;
+  const what = sch.note || `run the ${spec.fleet.name} fleet`;
+  const cadence = sch.cron
+    ? `on cron \`${sch.cron}\``
+    : sch.interval
+      ? `every \`${sch.interval}\``
+      : 'self-paced (you pick the cadence, re-arming after each run)';
+  const lines = [`This fleet is meant to run **${cadence}** to ${what}. Each firing is a full fleet run: do the Phase 0 context check first so a recurring run resumes or refreshes state instead of clobbering the previous run's workspace.`, ''];
+
+  switch (target) {
+    case 'claude-code':
+      if (sch.cron) {
+        lines.push(`- **Cron (\`${sch.cron}\`):** use the \`schedule\` skill (cloud routines) to run \`/${orch}\` on that schedule. For an ad-hoc local loop instead, \`/loop /${orch}\` re-fires on the model's own cadence.`);
+      } else if (sch.interval) {
+        lines.push(`- **Interval:** \`/loop ${sch.interval} /${orch}\` — Claude Code re-fires the orchestrator every ${sch.interval}. Drop the interval (\`/loop /${orch}\`) to let the model self-pace via ScheduleWakeup.`);
+      } else {
+        lines.push(`- **Self-paced:** \`/loop /${orch}\` — the model paces itself, re-arming after each run.`);
+      }
+      break;
+    case 'opencode':
+      lines.push('- opencode has no built-in scheduler; wrap the orchestrator in cron or a loop:');
+      if (sch.cron) {
+        lines.push('  ```cron');
+        lines.push(`  ${sch.cron} cd ${spec.fleet.workspace ? '/path/to/project' : '.'} && opencode run --agent ${orch} "${what}"`);
+        lines.push('  ```');
+      } else {
+        const secs = intervalToShell(sch.interval);
+        lines.push('  ```sh');
+        lines.push(`  while true; do opencode run --agent ${orch} "${what}"; sleep ${secs}; done`);
+        lines.push('  ```');
+      }
+      break;
+    case 'goose':
+      lines.push(`- One firing: \`goose run --recipe .goose/recipes/${orch}.yaml --params request="${what}"\`.`);
+      if (sch.cron) {
+        lines.push(`- Schedule it with goose's scheduler (\`goose schedule add --cron "${sch.cron}" --recipe .goose/recipes/${orch}.yaml\`) or the equivalent cron entry wrapping the \`goose run\` above.`);
+      } else {
+        lines.push(`- For an interval, wrap the \`goose run\` above in cron or a \`while … sleep ${intervalToShell(sch.interval)}\` loop.`);
+      }
+      break;
+    default:
+      lines.push(`- Invoke \`${orch}\` on your platform's scheduler.`);
+  }
+  return lines.join('\n');
+}
+
+/** Best-effort human interval → seconds for shell snippets; defaults to 1h. */
+function intervalToShell(interval) {
+  if (!interval) return 3600;
+  const m = /^(\d+)\s*(s|m|h|d)?$/.exec(String(interval).trim());
+  if (!m) return interval; // pass through unknown formats verbatim
+  const n = Number(m[1]);
+  const mult = { s: 1, m: 60, h: 3600, d: 86400 }[m[2] ?? 'm'];
+  return n * mult;
 }
 
 function invocationSection(spec, target) {

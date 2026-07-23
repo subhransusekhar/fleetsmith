@@ -73,6 +73,7 @@ Every agentic CLI grew its own harness format: Claude Code has subagents + Agent
 - **One spec, three harnesses.** No hand-porting agents between tools.
 - **Capabilities, not tool names.** Agents declare `read/edit/run/web/spawn`; each adapter maps that onto the tool's permission model (Claude Code `tools:` allowlist, opencode `permission:` allow/deny maps, goose extensions + stated constraints).
 - **Handover as a first-class contract.** Every edge in the fleet carries an artifact + acceptance criteria. The generated protocol is file-based (the only channel all three tools share), so fleet behavior is portable, auditable, and resumable. Claude Code agent-team messaging is layered on top when available — the message is the doorbell, the file is the payload.
+- **Loop engineering, translated per tool.** Declare an iteration loop on a phase (`loop: { until, max, check }`, repeat-until-quality) or a recurring schedule on the fleet (`schedule: { cron, interval }`). Each compiles to a bounded prose loop on every target — plus goose's native `retry` for checked loops, and `/loop`/routines, cron wrappers, or `goose schedule` for recurring runs. See [`docs/spec.md`](docs/spec.md#loop-engineering).
 
 ## Installation
 
@@ -163,6 +164,8 @@ fleet:
   domain: "REST API security hardening"
   pattern: pipeline        # pipeline | fanout | expert-pool | generate-verify | supervisor | hierarchical
   execution: subagents     # team | subagents | hybrid
+  schedule:                # optional recurring loop — omit for a one-shot fleet
+    cron: "0 3 * * 1"      # or `interval: 6h`, or neither for self-paced
 
 agents:
   - name: threat-analyst
@@ -186,6 +189,12 @@ orchestrator:
   name: run-api-hardening
   phases:
     - { name: Threat modeling, agents: [threat-analyst], gate: "…" }
+    - name: Remediation + verification      # iteration loop — repeat until quality holds
+      agents: [hardening-engineer, security-verifier]
+      loop:
+        until: "every mitigation is effective with reproducible evidence"
+        max: 3                              # hard bound; validator warns above 10
+        check: "npm test"                   # optional shell signal → goose native retry
 ```
 
 See [`fleet.example.yaml`](fleet.example.yaml) for the full-featured version and [`docs/spec.md`](docs/spec.md) for every field.

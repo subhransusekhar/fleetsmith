@@ -225,6 +225,125 @@ test('generated output is machine-portable: relative paths only, no host-specifi
   }
 });
 
+// --- loop engineering -------------------------------------------------------
+
+function loopSpec() {
+  return normalizeSpec({
+    fleet: {
+      name: 'looped',
+      domain: 'iterative hardening',
+      schedule: { cron: '0 3 * * 1', note: 're-scan the surface' },
+    },
+    agents: [
+      { name: 'builder', capabilities: { read: true, edit: true, run: true }, handoff: { to: ['checker'], artifact: 'build.md' } },
+      { name: 'checker', capabilities: { read: true, run: true }, handoff: { to: [], artifact: 'verdict.md' } },
+    ],
+    orchestrator: {
+      phases: [
+        { name: 'Build', agents: ['builder'] },
+        {
+          name: 'Verify',
+          agents: ['checker'],
+          loop: { until: 'checker reports no defects', max: 4, check: 'npm test' },
+        },
+      ],
+    },
+  });
+}
+
+test('normalize canonicalizes phase loops and fleet schedule', () => {
+  const spec = loopSpec();
+  const verify = spec.orchestrator.phases.find((p) => p.name === 'Verify');
+  assert.deepEqual(verify.loop, { until: 'checker reports no defects', max: 4, check: 'npm test' });
+  assert.equal(spec.orchestrator.phases.find((p) => p.name === 'Build').loop, null);
+  assert.deepEqual(spec.fleet.schedule, { cron: '0 3 * * 1', interval: null, note: 're-scan the surface' });
+
+  // integer shorthand -> { max: N }; invalid max falls back to default 3
+  const short = normalizeSpec({
+    fleet: { name: 'x' },
+    agents: [{ name: 'a' }],
+    orchestrator: { phases: [{ name: 'P', agents: ['a'], loop: 5 }] },
+  });
+  assert.equal(short.orchestrator.phases[0].loop.max, 5);
+  const bad = normalizeSpec({
+    fleet: { name: 'x' },
+    agents: [{ name: 'a' }],
+    orchestrator: { phases: [{ name: 'P', agents: ['a'], loop: { until: 'done', max: 0 } }] },
+  });
+  assert.equal(bad.orchestrator.phases[0].loop.max, 3);
+});
+
+test('generate-verify pattern gets a default iteration loop on its Verify phase', () => {
+  const spec = normalizeSpec(archetype('generate-verify', 'gv', 'codegen with QA'));
+  const verify = spec.orchestrator.phases.find((p) => p.name === 'Verify');
+  assert.ok(verify.loop, 'Verify phase should carry a default loop');
+  assert.equal(verify.loop.max, 3);
+  assert.ok(verify.loop.until.length > 0);
+});
+
+test('orchestrator body renders the loop callout and scheduling section', () => {
+  const cc = buildClaudeCode(loopSpec(), {}).files.get('.claude/skills/run-looped/SKILL.md');
+  assert.match(cc, /Loop — iterate until done \(max 4 passes\)/);
+  assert.match(cc, /checker reports no defects/);
+  assert.match(cc, /npm test/); // objective check surfaced
+  // recurring-loop translation is target-specific
+  assert.match(cc, /Recurring runs \(loop engineering\)/);
+  assert.match(cc, /\/loop .* \/run-looped|schedule` skill/);
+
+  const oc = buildOpencode(loopSpec(), {}).files.get('.opencode/agents/run-looped.md');
+  assert.match(oc, /opencode run --agent run-looped/);
+
+  const goose = YAML.parse(buildGoose(loopSpec(), {}).files.get('.goose/recipes/run-looped.yaml'));
+  assert.match(goose.instructions, /goose run --recipe .goose\/recipes\/run-looped\.yaml/);
+});
+
+test('goose translates a checked loop into a native retry block', () => {
+  const goose = YAML.parse(buildGoose(loopSpec(), {}).files.get('.goose/recipes/run-looped.yaml'));
+  assert.ok(goose.retry, 'orchestrator recipe should carry a retry block');
+  assert.equal(goose.retry.max_retries, 4);
+  assert.deepEqual(goose.retry.checks, [{ type: 'shell', command: 'npm test' }]);
+  assert.ok(goose.retry.on_failure);
+
+  // a loop with no shell check stays prose-only: no retry block
+  const noCheck = normalizeSpec({
+    fleet: { name: 'nc' },
+    agents: [{ name: 'a', handoff: { to: [] } }],
+    orchestrator: { phases: [{ name: 'P', agents: ['a'], loop: { until: 'good enough', max: 2 } }] },
+  });
+  const g2 = YAML.parse(buildGoose(noCheck, {}).files.get('.goose/recipes/run-nc.yaml'));
+  assert.equal(g2.retry, undefined);
+});
+
+test('schedule surfaces in pointer files; absent schedule emits no recurring section', () => {
+  const agents = buildOpencode(loopSpec(), { today: '2026-07-23' }).files.get('AGENTS.md');
+  assert.match(agents, /\*\*Recurring:\*\*/);
+  assert.match(agents, /0 3 \* \* 1/);
+
+  // one-shot fleet: no schedule, no recurring section anywhere
+  const plain = buildClaudeCode(demoSpec(), {}).files.get('.claude/skills/run-demo/SKILL.md');
+  assert.doesNotMatch(plain, /Recurring runs/);
+  const plainPtr = buildOpencode(demoSpec(), {}).files.get('AGENTS.md');
+  assert.doesNotMatch(plainPtr, /Recurring:/);
+});
+
+test('validate flags runaway loop bounds, missing exit conditions, and schedule conflicts', () => {
+  const spec = normalizeSpec({
+    fleet: { name: 'w', domain: 'd', schedule: { cron: '0 0 * * *', interval: '1h' } },
+    agents: [{ name: 'a', handoff: { to: [] } }],
+    orchestrator: {
+      phases: [
+        { name: 'Big', agents: ['a'], loop: { until: 'never', max: 25 } },
+        { name: 'Open', agents: ['a'], loop: { max: 2 } },
+      ],
+    },
+  });
+  const { warnings, errors } = validateSpec(spec);
+  assert.deepEqual(errors, []);
+  assert.ok(warnings.some((w) => w.includes('loop.max is 25')));
+  assert.ok(warnings.some((w) => w.includes('no exit condition')));
+  assert.ok(warnings.some((w) => w.includes('both cron and interval')));
+});
+
 test('team execution adds team protocol block on claude-code only', () => {
   const raw = archetype('supervisor', 'sup', 'supervision');
   const spec = normalizeSpec(raw);

@@ -27,6 +27,11 @@ import { agentsMdPointer } from '../compile/pointers.js';
  *    so recipes reference skills by name only.
  *  - Handover rides the same file protocol — recipes inherit the working
  *    directory, so the fleet workspace behaves identically.
+ *  - Loop engineering: a phase iteration loop that declares a shell `check`
+ *    compiles to goose's native recipe-level `retry` block (max_retries +
+ *    shell checks), so the loop is enforced deterministically, not just in
+ *    prose. Loops without a check, and recurring `schedule`, stay in the
+ *    orchestrator instructions (shared prose).
  */
 
 const CAP_EXTENSIONS = {
@@ -125,6 +130,7 @@ function orchestratorRecipe(spec) {
       },
     ],
     extensions: [{ type: 'builtin', name: 'developer' }],
+    retry: retryBlock(spec),
     sub_recipes: spec.agents.map((a) => ({
       name: a.name,
       path: `.goose/recipes/${a.name}.yaml`,
@@ -132,6 +138,22 @@ function orchestratorRecipe(spec) {
     })),
   };
   return YAML.stringify(prune(recipe), { lineWidth: 0 });
+}
+
+/**
+ * Translate phase iteration loops that carry a shell `check` into goose's
+ * native recipe-level `retry`. goose retries the whole recipe until every
+ * check passes (exit 0) or `max_retries` is hit — the deterministic backstop
+ * behind the orchestrator's prose loop. Loops without a check stay prose-only.
+ */
+function retryBlock(spec) {
+  const checked = (spec.orchestrator.phases ?? []).filter((p) => p.loop && p.loop.check);
+  if (checked.length === 0) return undefined;
+  return {
+    max_retries: Math.max(...checked.map((p) => p.loop.max)),
+    checks: checked.map((p) => ({ type: 'shell', command: p.loop.check })),
+    on_failure: 'Record the unmet check in the ledger and final report, then stop — never loop unbounded.',
+  };
 }
 
 function emitSkill(out, dir, skill) {

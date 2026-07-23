@@ -18,6 +18,7 @@ Design the fleet: pattern, execution mode, agent roster, capability grants, hand
 - **Split agents on four axes only:** expertise, parallelism, context isolation, reusability. If a split serves none of these, merge.
 - **Least capability.** Grant `edit`/`run`/`web`/`spawn` only where the role requires it; analysts read, builders edit, verifiers run.
 - **Every handoff edge gets an artifact contract** (`artifact` + 2-4 `criteria` that are checkable, not aspirational).
+- **Loop engineering, when the work is iterative or recurring** (see `docs/spec.md` › Loop engineering). A phase that must repeat until quality holds (remediate→verify, draft→critique→refine) gets `loop: { until, max, check? }` — keep `max` tight (≤ ~5) and add a shell `check` (`npm test`, a linter) whenever a deterministic pass/fail signal exists, since it compiles to goose's native `retry`. A fleet meant to run on a schedule (nightly audit, weekly scan) gets `fleet.schedule: { cron | interval | note }`; omit for one-shot fleets. Don't bury "loop back up to N times" in a `gate` string — make it a `loop`.
 - **Every producing agent gets 1-N skills** carrying its methodology; name skills by method ("api-contract-review"), not by agent.
 - Skill descriptions must be pushy: what it does + concrete trigger situations + follow-up keywords (re-run, update, fix the X part).
 
