@@ -1,5 +1,6 @@
 import { FileSet } from '../lib/fs-utils.js';
 import { title, isVerifier } from '../compile/agent-prompt.js';
+import { claudeAgentFiles } from './claude-code.js';
 import { DEFAULT_HANDOFF_SCHEMA } from '../spec/schema.js';
 
 /**
@@ -22,18 +23,28 @@ import { DEFAULT_HANDOFF_SCHEMA } from '../spec/schema.js';
  * because a workflow run that dies mid-phase should leave the same recoverable
  * state a skill-driven run does.
  *
- * Relationship to the other targets: additive. This target emits only the
- * workflow script — `--target all` still emits the full Claude Code harness,
- * and the workflow reuses its `.claude/agents/` definitions via `agentType`,
- * so agent prompts, tools, and models are defined in exactly one place.
+ * Relationship to the other targets: additive. The workflow drives the same
+ * `.claude/agents/` definitions the claude-code target emits, via `agentType`,
+ * so prompts, tools, and model tiers are defined in exactly one place. Those
+ * definitions are emitted here too (from the shared emitter, so the content is
+ * identical) — otherwise a standalone `--target claude-workflow` build would
+ * produce a script that throws on its first agent call.
  *
  * Constraints worth knowing before editing this file:
  *  - Workflow scripts are plain JavaScript, not TypeScript.
+ *  - `meta` must be the first statement and a pure literal — no variables,
+ *    calls, or interpolation. Discovery registers the workflow under
+ *    `meta.name`, not the filename, so the two must agree.
  *  - There is no filesystem or Node API access inside a script, so a shell
  *    `check` cannot be run by the script itself — an agent runs it and reports
  *    the result back through a schema.
  *  - `Date.now()`, `Math.random()` and argless `new Date()` throw, since they
- *    would break run resumption.
+ *    would break run resumption. Anything that varies the prompt text between
+ *    runs also destroys the resume cache, which is why every prompt here is
+ *    built deterministically from the spec.
+ *  - `parallel()` takes thunks, not promises, and `phase:` must be passed in
+ *    each agent's opts inside a fan-out — the global `phase()` cursor races
+ *    when calls are concurrent.
  */
 
 const MODEL_MAP = { smart: 'opus', fast: 'sonnet', cheap: 'haiku' };
@@ -41,7 +52,21 @@ const EFFORT_MAP = { minimal: 'low', low: 'low', medium: 'medium', high: 'high',
 
 export function buildClaudeWorkflow(spec, options = {}) {
   const out = new FileSet();
+
+  // The script's filename and `meta.name` must agree: discovery registers the
+  // workflow under meta.name, so a mismatch loads fine and then is invocable
+  // under a name that does not match the file anyone would go looking in.
   out.add(`.claude/workflows/${spec.orchestrator.name}.js`, workflowScript(spec));
+
+  // `agentType` resolves against the same registry the Agent tool uses, so the
+  // agent definitions must exist on disk or the first agent() call fails with
+  // "agent type not found". Emitting them here means this target produces
+  // something runnable on its own rather than only alongside `--target
+  // claude-code`; the shared emitter guarantees identical content either way.
+  if (options.agentDefinitions !== false) {
+    for (const [p, content] of claudeAgentFiles(spec)) out.add(p, content);
+  }
+
   if (options.readme !== false) {
     out.add(`${spec.fleet.workspace}/WORKFLOW.md`, workflowReadme(spec));
   }
@@ -386,12 +411,21 @@ model reads and follows.
 Invoke it with \`/${spec.orchestrator.name}\` in Claude Code, or watch a run with
 \`/workflows\`.
 
+Invoke it as \`/${spec.orchestrator.name}\` — workflows are registered under
+\`meta.name\`, which this generator keeps equal to the filename.
+
 ## How it relates to the rest of the harness
 
 The workflow does not replace the skill orchestrator — both drive the same
-agents. Each agent call uses \`agentType\`, which loads the definition from
-\`.claude/agents/<name>.md\`, so prompts, tools, and model tiers live in one
-place and stay in sync.
+agents. Each agent call uses \`agentType\`, which resolves against the same
+registry the Agent tool uses, so \`.claude/agents/<name>.md\` supplies the
+prompt, tools, model, and permission mode. Those definitions are emitted
+alongside this script for that reason; if you delete them, every agent call
+fails with "agent type not found".
+
+One consequence worth knowing: an \`Agent(<name>)\` deny rule in
+\`.claude/settings.json\` will also block the workflow from invoking that agent,
+since both go through the same permission check.
 
 Agents still write handoff files under \`${spec.handover.dir}/\`${
     spec.handover.ledger ? ` and update \`${spec.fleet.workspace}/LEDGER.md\`` : ''

@@ -79,22 +79,56 @@ users cannot execute, next to three that they can — and it would read as thoug
 the fleet needs it. Opt-in also keeps the blast radius small while the target is
 unproven against a real run.
 
+## Contract verification (2026-08-01)
+
+The runtime contract was verified against the docs and the authoring prompt
+shipped in Claude Code v2.1.220. Results that changed the prototype:
+
+- **`agentType` composes with `schema` — confirmed.** It resolves against the
+  same registry the Agent tool uses, and the definition's system prompt, tools,
+  `disallowedTools`, `model`, and `permissionMode` all apply (`permissionMode`
+  defaults to `acceptEdits`). With a schema, the runtime appends the
+  StructuredOutput tool and instruction to that agent. This was the open
+  question the value proposition rested on, and it holds.
+- **Discovery keys on `meta.name`, not the filename.** A mismatch produces a
+  workflow that loads but answers to a name that does not match its file. The
+  generator derives both from `orchestrator.name`, and a test now asserts they
+  agree.
+- **An unknown `agentType` throws**, so a standalone `--target claude-workflow`
+  build was emitting a script guaranteed to fail on its first call. Fixed: the
+  target now also emits the agent definitions, from the same emitter the
+  claude-code target uses so the content cannot drift.
+- **An `Agent(<name>)` deny rule blocks the workflow too** — same permission
+  check. Noted in the generated README.
+- **`parallel()` takes thunks, not promises** (the prototype already emitted
+  `() => agent(...)`), and **`phase:` must be in each agent's opts inside a
+  fan-out** because the global `phase()` cursor races (already emitted).
+- Corrections to assumptions that did not affect output: `run_in_background` is
+  not an option; `isolation` accepts only `'worktree'`; a failed agent returns
+  `null` rather than throwing.
+
+Also worth recording for a future emitter: resume caching is a **chained hash
+over (prompt, opts) in start order**, so the longest unchanged *prefix* is
+reused and everything after the first change re-runs. Deterministic prompt
+construction is therefore what makes resume cheap — the same reason
+`Date.now()`/`Math.random()` are banned outright.
+
 ## What would move this to a full "go" in v0.5
 
 1. **Run it.** The prototype is verified structurally — syntax, wiring, control
-   flow — but has not driven a real fleet end to end. Everything below depends
-   on that.
-2. **Confirm `agentType` composes with `schema` as expected**, and that the
-   subagent definition's `tools`/`model` genuinely apply on this path. If the
-   agent definition is ignored, the value proposition (one definition, two
-   drivers) collapses and each call would have to restate the prompt.
-3. **Decide what to do about `expert-pool` and `supervisor`.** Both are
+   flow, and now the runtime contract — but has not driven a real fleet end to
+   end. Everything below depends on that.
+2. **Decide what to do about `expert-pool` and `supervisor`.** Both are
    dynamic-routing patterns; compiling them to a fixed graph produces a script
    that misrepresents the fleet. The honest options are to refuse the target for
    those patterns, or to emit a single delegating agent rather than a graph.
-4. **Measure it.** The claim is lower context use and better resumption. That is
+3. **Measure it.** The claim is lower context use and better resumption. That is
    testable against the skill orchestrator on the same fleet, and should be
    measured rather than asserted before this is recommended to anyone.
+4. **Consider `workflowSizeGuideline`.** The default is `medium` (~15 agents).
+   A large generated fleet with a multi-pass loop can exceed that; the guideline
+   is advisory, but the generated README should say so rather than let users
+   discover it from a warning mid-run.
 
 ## Recommendation
 

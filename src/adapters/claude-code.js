@@ -44,12 +44,8 @@ const SUBAGENT_FORBIDDEN_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'Wo
 
 export function buildClaudeCode(spec, options = {}) {
   const out = new FileSet();
-  const team = spec.fleet.execution !== 'subagents';
 
-  const parallelEditors = parallelEditingAgents(spec);
-  for (const [i, agent] of spec.agents.entries()) {
-    out.add(`.claude/agents/${agent.name}.md`, agentFile(agent, spec, team, i, parallelEditors));
-  }
+  for (const [p, content] of claudeAgentFiles(spec)) out.add(p, content);
 
   for (const skill of spec.skills) {
     emitSkill(out, `.claude/skills/${skill.name}`, skill, spec);
@@ -77,6 +73,25 @@ export function buildClaudeCode(spec, options = {}) {
   }
 
   return out;
+}
+
+/**
+ * The `.claude/agents/` definitions on their own, keyed by path.
+ *
+ * Exported because the workflow target resolves `agentType` against this same
+ * registry: a workflow script whose agents are not on disk fails at the first
+ * `agent()` call with "agent type not found". Sharing the emitter keeps the two
+ * targets from drifting into subtly different definitions.
+ */
+export function claudeAgentFiles(spec) {
+  const team = spec.fleet.execution !== 'subagents';
+  const parallelEditors = parallelEditingAgents(spec);
+  return new Map(
+    spec.agents.map((agent, i) => [
+      `.claude/agents/${agent.name}.md`,
+      agentFile(agent, spec, team, i, parallelEditors),
+    ])
+  );
 }
 
 function agentFile(agent, spec, team, index = 0, parallelEditors = new Set()) {

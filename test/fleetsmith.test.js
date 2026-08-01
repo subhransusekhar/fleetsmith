@@ -784,6 +784,32 @@ test('every archetype compiles to a syntactically valid workflow script', () => 
   }
 });
 
+test('workflow filename matches meta.name — discovery keys on the name, not the file', () => {
+  for (const pattern of Object.keys(ARCHETYPES)) {
+    const spec = normalizeSpec(archetype(pattern, `n-${pattern}`, 'naming check'));
+    const files = buildClaudeWorkflow(spec, {});
+    const scriptPath = files.list().find((p) => p.startsWith('.claude/workflows/'));
+    const declared = /name":\s*"([^"]+)"/.exec(files.files.get(scriptPath))[1];
+    assert.equal(`.claude/workflows/${declared}.js`, scriptPath);
+  }
+});
+
+test('workflow target emits the agent definitions it resolves via agentType', () => {
+  // An unknown agentType throws at the first agent() call, so a standalone
+  // build that shipped only the script would be guaranteed to fail.
+  const files = buildClaudeWorkflow(demoSpec(), {});
+  const paths = files.list();
+  for (const name of ['analyst', 'builder', 'reviewer']) {
+    assert.ok(paths.includes(`.claude/agents/${name}.md`), `missing definition for ${name}`);
+  }
+  // and they are byte-identical to what the claude-code target emits, so the
+  // two targets cannot drift into different definitions of the same agent
+  const cc = buildClaudeCode(demoSpec(), {});
+  for (const p of paths.filter((x) => x.startsWith('.claude/agents/'))) {
+    assert.equal(files.files.get(p), cc.files.get(p), `${p} differs between targets`);
+  }
+});
+
 test('workflow reuses the .claude/agents definitions rather than restating them', () => {
   const spec = normalizeSpec({
     fleet: { name: 'wf', domain: 'd' },
