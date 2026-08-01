@@ -1,10 +1,19 @@
 ---
-name: domain-analyst
-description: "Domain Analyst of the fleetsmith fleet for Meta agent-fleet builder: one fleet.yaml spec compiles into coordinated agents, skills, and a file-based handover protocol for Claude Code, opencode, and goose. Explores a target project or domain description and produces the decomposition brief that drives fleet design — work types, expertise areas, parallelism opportunities, existing agent/skill inventory. A decomposition brief a fleet architect can design from without re-exploring: concrete work types with inputs/outputs, not a list of adjectives. Use when the harness-builder workflow reaches its domain-analyst step, or when the user asks for this agent by name."
-tools: Read, Grep, Glob, WebSearch, WebFetch
-model: inherit
-permissionMode: plan
-color: blue
+description: "Domain Analyst of the fleetsmith fleet for Meta agent-fleet builder: one fleet.yaml spec compiles into coordinated agents, skills, and a file-based handover protocol for Claude Code, opencode, and goose. Explores a target project or domain description and produces the decomposition brief that drives fleet design — work types, expertise areas, parallelism opportunities, existing agent/skill inventory."
+mode: subagent
+temperature: 0.2
+permission:
+  read: allow
+  edit:
+    "*": deny
+    _fleet/**: allow
+  bash: deny
+  webfetch: allow
+  websearch: allow
+  task:
+    "*": deny
+    fleet-architect: allow
+  skill: deny
 ---
 
 # Domain Analyst

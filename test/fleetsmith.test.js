@@ -732,6 +732,39 @@ test('buildAll merges targets without collisions and dedups shared files', () =>
   assert.ok(paths.some((p) => p.startsWith('.goose/')));
 });
 
+test('orchestrator name colliding with an agent name does not cause a file collision', () => {
+  // When the orchestrator shares a name with an agent, the orchestrator file
+  // replaces the agent file (the orchestrator IS that agent, promoted to
+  // primary mode). Without this, FileSet.add throws on the duplicate path.
+  const spec = normalizeSpec({
+    fleet: { name: 'collide', domain: 'd' },
+    orchestrator: { name: 'lead', trigger: 'stuff' },
+    agents: [
+      { name: 'lead', role: 'the lead', handoff: { to: ['worker'] } },
+      { name: 'worker', role: 'the worker', handoff: { to: [] } },
+    ],
+  });
+
+  // opencode: orchestrator file replaces the agent file
+  const oc = buildOpencode(spec, {});
+  assert.ok(oc.files.has('.opencode/agents/lead.md'));
+  assert.ok(oc.files.has('.opencode/agents/worker.md'));
+  assert.match(oc.files.get('.opencode/agents/lead.md'), /mode: primary/);
+  // orchestrator must not list itself in the task permission map (self-delegation)
+  assert.doesNotMatch(oc.files.get('.opencode/agents/lead.md'), /lead: allow/);
+
+  // goose: orchestrator recipe replaces the agent recipe; sub_recipes excludes self
+  const goose = buildGoose(spec, {});
+  assert.ok(goose.files.has('.goose/recipes/lead.yaml'));
+  assert.ok(goose.files.has('.goose/recipes/worker.yaml'));
+  const orch = YAML.parse(goose.files.get('.goose/recipes/lead.yaml'));
+  assert.ok(!orch.sub_recipes.some((s) => s.name === 'lead'), 'orchestrator lists itself as a sub_recipe');
+
+  // validator warns so authors know one file is missing
+  const { warnings } = validateSpec(spec);
+  assert.ok(warnings.some((w) => /shares a name with an agent/.test(w)));
+});
+
 test('buildAll emits skills once (.claude/skills) — opencode and goose read it natively', () => {
   const raw = archetype('pipeline', 'demo', 'demo domain');
   raw.skills = [

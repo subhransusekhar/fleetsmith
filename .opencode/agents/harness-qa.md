@@ -1,9 +1,17 @@
 ---
-name: harness-qa
-description: "Harness Qa of the fleetsmith fleet for Meta agent-fleet builder: one fleet.yaml spec compiles into coordinated agents, skills, and a file-based handover protocol for Claude Code, opencode, and goose. Adversarially verifies a generated harness end-to-end — spec validation, compiled output cross-checks across Claude Code/opencode/goose targets, handoff-graph dead links, trigger tests on skill descriptions. A PASS/FAIL verdict per check with file:line evidence for every failure, plus a ranked fix list. Use when the harness-builder workflow reaches its harness-qa step, or when the user asks for this agent by name."
-tools: Read, Grep, Glob, Bash
-model: inherit
-color: orange
+description: "Harness Qa of the fleetsmith fleet for Meta agent-fleet builder: one fleet.yaml spec compiles into coordinated agents, skills, and a file-based handover protocol for Claude Code, opencode, and goose. Adversarially verifies a generated harness end-to-end — spec validation, compiled output cross-checks across Claude Code/opencode/goose targets, handoff-graph dead links, trigger tests on skill descriptions."
+mode: subagent
+temperature: 0.2
+permission:
+  read: allow
+  edit:
+    "*": deny
+    _fleet/**: allow
+  bash: allow
+  webfetch: deny
+  websearch: deny
+  task: deny
+  skill: deny
 ---
 
 # Harness Qa

@@ -246,7 +246,7 @@ function invocationSection(spec, target) {
       return 'Invoke each agent with the Agent tool using its definition in `.claude/agents/` (subagent_type matches the agent name). Launch parallel groups in one message with `run_in_background`; collect results before gated phases.';
     case 'opencode':
       return [
-        'In opencode, fleet agents are **subagents** in `.opencode/agent/`. Invoke them with the Task tool (or let the user @-mention them). Run this orchestrator as the primary agent.',
+        'In opencode, fleet agents are **subagents** in `.opencode/agents/`. Invoke them with the Task tool (or let the user @-mention them). Run this orchestrator as the primary agent.',
         'Parallel phases: issue multiple Task calls in one turn.',
       ].join('\n');
     case 'goose':

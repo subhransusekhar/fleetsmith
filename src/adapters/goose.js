@@ -52,7 +52,15 @@ const CAP_EXTENSIONS = {
 export function buildGoose(spec, options = {}) {
   const out = new FileSet();
 
+  const orchestratorIsAgent = spec.agents.some((a) => a.name === spec.orchestrator.name);
+
   for (const agent of spec.agents) {
+    // When the orchestrator name collides with an agent name, the orchestrator
+    // recipe replaces the agent recipe — a recipe cannot be both a sub_recipe
+    // target and the top-level orchestrator, so the orchestrator wins.
+    if (orchestratorIsAgent && agent.name === spec.orchestrator.name) {
+      continue;
+    }
     out.add(`.goose/recipes/${agent.name}.yaml`, agentRecipe(agent, spec));
   }
 
@@ -231,11 +239,13 @@ function orchestratorRecipe(spec) {
     ],
     extensions: [{ type: 'builtin', name: 'developer' }],
     retry: retryBlock(spec),
-    sub_recipes: spec.agents.map((a) => ({
-      name: a.name,
-      path: `.goose/recipes/${a.name}.yaml`,
-      description: (a.goal || a.role || a.name).slice(0, 200),
-    })),
+    sub_recipes: spec.agents
+      .filter((a) => a.name !== spec.orchestrator.name)
+      .map((a) => ({
+        name: a.name,
+        path: `.goose/recipes/${a.name}.yaml`,
+        description: (a.goal || a.role || a.name).slice(0, 200),
+      })),
   };
   return YAML.stringify(prune(recipe), { lineWidth: 0 });
 }

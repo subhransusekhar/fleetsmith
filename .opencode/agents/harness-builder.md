@@ -1,7 +1,16 @@
 ---
-name: harness-builder
-description: 'Orchestrates the fleetsmith agent fleet for Meta agent-fleet builder: one fleet.yaml spec compiles into coordinated agents, skills, and a file-based handover protocol for Claude Code, opencode, and goose: domain-analyst, fleet-architect, skill-smith, harness-qa. Use for any building an agent harness for a project or domain — creating an agent fleet or team, generating agents and skills for a codebase, setting up a multi-agent workflow, or extending, auditing, or porting an existing fleet across Claude Code, opencode, and goose request — including re-runs, updates, partial fixes ("redo the X part"), and improvements to previous results. Simple factual questions can be answered directly without the fleet.'
-argument-hint: "[what the fleet should work on]"
+description: "Orchestrates the fleetsmith fleet for Meta agent-fleet builder: one fleet.yaml spec compiles into coordinated agents, skills, and a file-based handover protocol for Claude Code, opencode, and goose (domain-analyst, fleet-architect, skill-smith, harness-qa). Use for building an agent harness for a project or domain — creating an agent fleet or team, generating agents and skills for a codebase, setting up a multi-agent workflow, or extending, auditing, or porting an existing fleet across Claude Code, opencode, and goose, including re-runs and partial fixes."
+mode: primary
+permission:
+  read: allow
+  edit: allow
+  bash: allow
+  task:
+    "*": deny
+    domain-analyst: allow
+    fleet-architect: allow
+    skill-smith: allow
+    harness-qa: allow
 ---
 
 # Harness Builder
@@ -21,7 +30,8 @@ Before anything, check `_fleet/`:
 
 ## Invocation
 
-Invoke each agent with the Agent tool using its definition in `.claude/agents/` (subagent_type matches the agent name). Launch parallel groups in one message with `run_in_background`; collect results before gated phases.
+In opencode, fleet agents are **subagents** in `.opencode/agents/`. Invoke them with the Task tool (or let the user @-mention them). Run this orchestrator as the primary agent.
+Parallel phases: issue multiple Task calls in one turn.
 
 ## Phases
 
@@ -98,12 +108,3 @@ Between passes, re-run this phase's agent(s) with the **specific failures from t
 
 - **Happy path:** run the full pipeline across all agents on a small representative input; every handoff file exists and the ledger is fully done.
 - **Failure path:** kill one mid-pipeline agent (simulate by making its input unavailable); the run must complete with a documented gap, not stall.
-
-## Workspace state, as of right now
-
-```!
-ls -1 _fleet/handoffs/*.md 2>/dev/null | grep -v HANDOFF.template || echo "(no handoffs yet — this is an initial run)"
-echo "--- ledger ---"; cat _fleet/LEDGER.md 2>/dev/null || echo "(no ledger yet)"
-```
-
-This is the real state of the workspace for this invocation. Run the Phase 0 check against it rather than re-reading the same files.

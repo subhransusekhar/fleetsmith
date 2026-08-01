@@ -1,10 +1,17 @@
 ---
-name: skill-smith
-description: "Skill Smith of the fleetsmith fleet for Meta agent-fleet builder: one fleet.yaml spec compiles into coordinated agents, skills, and a file-based handover protocol for Claude Code, opencode, and goose. Writes the methodology bodies of fleet skills — lean SKILL.md content, progressive-disclosure references, bundled scripts — inside fleet.yaml. Every skill carries real methodology researched from the codebase and domain standards, not vibes. Use when the harness-builder workflow reaches its skill-smith step, or when the user asks for this agent by name."
-tools: Read, Grep, Glob, Write, Edit, Bash, WebSearch, WebFetch
-model: inherit
-permissionMode: acceptEdits
-color: purple
+description: "Skill Smith of the fleetsmith fleet for Meta agent-fleet builder: one fleet.yaml spec compiles into coordinated agents, skills, and a file-based handover protocol for Claude Code, opencode, and goose. Writes the methodology bodies of fleet skills — lean SKILL.md content, progressive-disclosure references, bundled scripts — inside fleet.yaml."
+mode: subagent
+temperature: 0.2
+permission:
+  read: allow
+  edit: allow
+  bash: allow
+  webfetch: allow
+  websearch: allow
+  task:
+    "*": deny
+    harness-qa: allow
+  skill: deny
 ---
 
 # Skill Smith

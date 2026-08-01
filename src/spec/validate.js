@@ -64,6 +64,16 @@ export function validateSpec(spec) {
   const agentNames = new Set();
   const skillNames = new Set(spec.skills.map((s) => s.name));
 
+  // Orchestrator sharing an agent name is legal (the orchestrator IS that
+  // agent, promoted to primary mode) but it changes how adapters emit files:
+  // the orchestrator definition overwrites the agent definition rather than
+  // sitting beside it. Flag it so authors know why one file is missing.
+  if (spec.agents.some((a) => a.name === spec.orchestrator.name)) {
+    warn(
+      `Orchestrator "${spec.orchestrator.name}" shares a name with an agent — the orchestrator file replaces the agent file (the orchestrator IS that agent, promoted to primary mode)`
+    );
+  }
+
   for (const a of spec.agents) {
     if (agentNames.has(a.name)) err(`Duplicate agent name: ${a.name}`);
     agentNames.add(a.name);

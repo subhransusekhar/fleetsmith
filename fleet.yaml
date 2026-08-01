@@ -1,0 +1,106 @@
+# fleetsmith meta-fleet — the fleet that builds fleets.
+# Build:    node src/cli.js build fleet.yaml --target all --out . --force
+# Validate: node src/cli.js validate fleet.yaml
+#
+# The orchestrator is the `harness-builder` skill (already in
+# .claude/skills/); the four agents are the meta-fleet specialists.
+# This spec makes them portable across Claude Code, opencode, and goose
+# instead of pinning them to .claude/agents/ alone.
+
+version: 1
+
+fleet:
+  name: fleetsmith
+  domain: "Meta agent-fleet builder: one fleet.yaml spec compiles into coordinated agents, skills, and a file-based handover protocol for Claude Code, opencode, and goose"
+  pattern: pipeline
+  execution: subagents
+  workspace: _fleet
+
+defaults:
+  model: inherit
+  capabilities: { read: true }
+
+agents:
+  - name: domain-analyst
+    role: "Explores a target project or domain description and produces the decomposition brief that drives fleet design — work types, expertise areas, parallelism opportunities, existing agent/skill inventory."
+    goal: "A decomposition brief a fleet architect can design from without re-exploring: concrete work types with inputs/outputs, not a list of adjectives."
+    model: smart
+    capabilities: { read: true, web: true }
+    handoff:
+      to: [fleet-architect]
+      artifact: 01-domain-analyst-to-fleet-architect.md
+      criteria:
+        - "Brief names 3-7 concrete work types, each with input, output, and required expertise"
+        - "Existing harness inventory included so the new fleet extends rather than collides"
+        - "Recommended fleet size is justified (3 focused agents beat 5 vague ones)"
+
+  - name: fleet-architect
+    role: "Takes a domain decomposition brief and designs the fleet — pattern choice, execution mode, agent roster with capabilities, handoff graph with artifact contracts — as a valid fleet.yaml."
+    goal: "A fleet.yaml that validates cleanly and compiles into working harnesses for every target."
+    model: smart
+    capabilities: { read: true, edit: true, run: true }
+    handoff:
+      to: [skill-smith]
+      artifact: 02-fleet-architect-to-skill-smith.md
+      criteria:
+        - "Pattern matches the data flow, not fashion"
+        - "Every handoff edge has an artifact contract with 2-4 checkable criteria"
+        - "Least capability: edit/run/web/spawn granted only where the role requires"
+        - "validate exits 0 with every warning either fixed or explicitly justified"
+
+  - name: skill-smith
+    role: "Writes the methodology bodies of fleet skills — lean SKILL.md content, progressive-disclosure references, bundled scripts — inside fleet.yaml."
+    goal: "Every skill carries real methodology researched from the codebase and domain standards, not vibes."
+    model: smart
+    capabilities: { read: true, edit: true, run: true, web: true }
+    handoff:
+      to: [harness-qa]
+      artifact: 03-skill-smith-to-harness-qa.md
+      criteria:
+        - "Every TODO(skill-smith) marker replaced with researched methodology"
+        - "Skill bodies under 500 lines; detail pushed into references/"
+        - "Descriptions are pushy (triggers + follow-up keywords), third person, under 1536 chars"
+
+  - name: harness-qa
+    role: "Adversarially verifies a generated harness end-to-end — spec validation, compiled output cross-checks across Claude Code/opencode/goose targets, handoff-graph dead links, trigger tests on skill descriptions."
+    goal: "A PASS/FAIL verdict per check with file:line evidence for every failure, plus a ranked fix list."
+    model: smart
+    capabilities: { read: true, run: true }
+    principles:
+      - "Boundary-crossing comparison is the value, not existence checks — 'file exists' is not a finding"
+      - "Every defect needs reproducible evidence: a command and its output, or file:line"
+      - "Never fix files yourself — you verify; producers fix"
+    handoff:
+      to: []
+      artifact: 04-harness-qa-verdict.md
+
+orchestrator:
+  name: harness-builder
+  trigger: "building an agent harness for a project or domain — creating an agent fleet or team, generating agents and skills for a codebase, setting up a multi-agent workflow, or extending, auditing, or porting an existing fleet across Claude Code, opencode, and goose"
+  phases:
+    - name: Domain analysis
+      mode: subagents
+      agents: [domain-analyst]
+      gate: "The brief names concrete work types with inputs/outputs. A brief of adjectives goes back once with the gaps named."
+    - name: Fleet architecture
+      mode: subagents
+      agents: [fleet-architect]
+      gate: "fleet.yaml validates (exit 0). Show the user the roster + pattern one-liner before proceeding — cheapest moment for course correction."
+    - name: Skill authoring
+      mode: subagents
+      agents: [skill-smith]
+    - name: Compile
+      mode: subagents
+      agents: [fleet-architect]
+      gate: "Orchestrator runs `node src/cli.js build fleet.yaml --target <targets> --out <root> --force` itself (no agent needed). Build emits all requested targets without collisions."
+    - name: QA gate
+      mode: subagents
+      agents: [harness-qa]
+      loop:
+        until: "harness-qa reports PASS on every check, or two repair loops are exhausted and the fleet ships with documented gaps"
+        max: 2
+      gate: "FAIL findings route back — architecture flaws to fleet-architect, shallow skills to skill-smith, adapter bugs to the orchestrator (fix fleetsmith source, add a regression test, rebuild)."
+
+handover:
+  strategy: file
+  ledger: true

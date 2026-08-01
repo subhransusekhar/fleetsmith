@@ -39,11 +39,22 @@ const EFFORT_VARIANT = { minimal: undefined, low: undefined, medium: undefined, 
 export function buildOpencode(spec, options = {}) {
   const out = new FileSet();
 
+  const orchestratorIsAgent = spec.agents.some((a) => a.name === spec.orchestrator.name);
+
   for (const agent of spec.agents) {
-    out.add(`.opencode/agents/${agent.name}.md`, agentFile(agent, spec));
+    // When the orchestrator name collides with an agent name, the orchestrator
+    // file overwrites the agent file rather than sitting beside it — the
+    // orchestrator IS that agent, promoted to primary mode.
+    if (orchestratorIsAgent && agent.name === spec.orchestrator.name) {
+      out.add(`.opencode/agents/${agent.name}.md`, orchestratorAgent(spec));
+    } else {
+      out.add(`.opencode/agents/${agent.name}.md`, agentFile(agent, spec));
+    }
   }
 
-  out.add(`.opencode/agents/${spec.orchestrator.name}.md`, orchestratorAgent(spec));
+  if (!orchestratorIsAgent) {
+    out.add(`.opencode/agents/${spec.orchestrator.name}.md`, orchestratorAgent(spec));
+  }
   out.add(`.opencode/commands/${spec.orchestrator.name}.md`, kickoffCommand(spec));
   out.add('.opencode/commands/fleet-status.md', statusCommand(spec));
   out.add('opencode.json', opencodeConfig(spec));
@@ -136,7 +147,7 @@ function orchestratorAgent(spec) {
         read: 'allow',
         edit: 'allow',
         bash: 'allow',
-        task: { '*': 'deny', ...Object.fromEntries(spec.agents.map((a) => [a.name, 'allow'])) },
+        task: { '*': 'deny', ...Object.fromEntries(spec.agents.filter((a) => a.name !== spec.orchestrator.name).map((a) => [a.name, 'allow'])) },
       },
     },
     compileOrchestratorBody(spec, 'opencode')

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob",
+      "Write(_fleet/**)",
+      "Edit(_fleet/**)",
+      "Write",
+      "Edit",
+      "Bash",
+      "WebSearch",
+      "WebFetch",
+      "Bash(sh _fleet/scripts/validate-handoff.sh:*)"
+    ]
+  },
+  "hooks": {
+    "SubagentStop": [
+      {
+        "matcher": "domain-analyst|fleet-architect|skill-smith|harness-qa",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/_fleet/scripts/validate-handoff.sh\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

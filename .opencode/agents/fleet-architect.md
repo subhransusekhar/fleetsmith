@@ -1,10 +1,17 @@
 ---
-name: fleet-architect
-description: "Fleet Architect of the fleetsmith fleet for Meta agent-fleet builder: one fleet.yaml spec compiles into coordinated agents, skills, and a file-based handover protocol for Claude Code, opencode, and goose. Takes a domain decomposition brief and designs the fleet — pattern choice, execution mode, agent roster with capabilities, handoff graph with artifact contracts — as a valid fleet.yaml. A fleet.yaml that validates cleanly and compiles into working harnesses for every target. Use when the harness-builder workflow reaches its fleet-architect step, or when the user asks for this agent by name."
-tools: Read, Grep, Glob, Write, Edit, Bash
-model: inherit
-permissionMode: acceptEdits
-color: green
+description: "Fleet Architect of the fleetsmith fleet for Meta agent-fleet builder: one fleet.yaml spec compiles into coordinated agents, skills, and a file-based handover protocol for Claude Code, opencode, and goose. Takes a domain decomposition brief and designs the fleet — pattern choice, execution mode, agent roster with capabilities, handoff graph with artifact contracts — as a valid fleet.yaml."
+mode: subagent
+temperature: 0.2
+permission:
+  read: allow
+  edit: allow
+  bash: allow
+  webfetch: deny
+  websearch: deny
+  task:
+    "*": deny
+    skill-smith: allow
+  skill: deny
 ---
 
 # Fleet Architect
