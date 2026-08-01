@@ -4,7 +4,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { normalizeSpec } from './spec/schema.js';
 import { validateSpec } from './spec/validate.js';
-import { ADAPTERS, buildAll } from './adapters/index.js';
+import { ADAPTERS, buildAll, DEFAULT_TARGETS } from './adapters/index.js';
 import { ARCHETYPES, archetype } from './patterns/index.js';
 import { planInstall, detectTools } from './install.js';
 
@@ -19,7 +19,8 @@ Usage:
   fleetsmith version
 
 Patterns: ${Object.keys(ARCHETYPES).join(', ')}
-Targets:  ${Object.keys(ADAPTERS).join(', ')}, all
+Targets:  ${DEFAULT_TARGETS.join(', ')}, all
+          claude-workflow (experimental; opt-in, not part of "all")
 
 install scopes:
   project  install into a target app repo (default; layout the tools discover in a project)

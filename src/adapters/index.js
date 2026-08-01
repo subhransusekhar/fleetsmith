@@ -1,13 +1,23 @@
 import { buildClaudeCode } from './claude-code.js';
 import { buildOpencode } from './opencode.js';
 import { buildGoose } from './goose.js';
+import { buildClaudeWorkflow } from './claude-workflow.js';
 import { FileSet } from '../lib/fs-utils.js';
 
 export const ADAPTERS = {
   'claude-code': buildClaudeCode,
   opencode: buildOpencode,
   goose: buildGoose,
+  'claude-workflow': buildClaudeWorkflow,
 };
+
+/**
+ * Targets included in `--target all`. The workflow target is opt-in: it needs
+ * a paid Claude Code plan, only runs there, and layers on top of the
+ * claude-code output rather than standing alone — so asking for "everything"
+ * should not silently produce a script most users cannot run.
+ */
+export const DEFAULT_TARGETS = ['claude-code', 'opencode', 'goose'];
 
 /**
  * Build every target. Each adapter's files are disjoint by construction
@@ -25,7 +35,8 @@ export function buildAll(spec, options = {}) {
     opencode: { ...options, emitSkills: false },
     goose: { ...options, emitSkills: false },
   };
-  for (const [name, build] of Object.entries(ADAPTERS)) {
+  for (const name of DEFAULT_TARGETS) {
+    const build = ADAPTERS[name];
     const fs = build(spec, perAdapter[name] ?? options);
     for (const [p, c] of fs.files) {
       if (out.files.has(p)) {

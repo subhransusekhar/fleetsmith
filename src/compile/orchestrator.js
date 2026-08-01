@@ -63,10 +63,23 @@ export function compileOrchestratorBody(spec, target) {
   s.push('## Data flow');
   s.push('');
   s.push(`- Durable handovers are file-based: agents write \`${spec.handover.dir}/{seq}-{from}-to-{to}.md\` per the bundled template. Verify each expected handoff file exists before starting the next phase; a missing file means the phase is not done, whatever the agent claimed.`);
+  s.push(
+    '- **Pass work by citing files, not by restating them.** When briefing the next agent, give the handoff path and what to do with it; do not summarize its contents into the brief. Every paraphrase between producer and consumer loses detail the producer thought was obvious, and those losses compound down the chain — the file is the contract, you are the router.'
+  );
+  s.push(
+    '- Handoffs carry pointers (paths, queries, commands), not pasted file contents. An agent that needs the detail reads the source; an agent that does not shouldn\'t pay for it.'
+  );
   if (spec.fleet.execution !== 'subagents' && target === 'claude-code') {
     s.push('- In team mode, messages and the shared task list coordinate timing; files remain the source of truth for content.');
   }
   s.push(`- Final deliverables go to the user-specified path; intermediates stay in \`${spec.fleet.workspace}/\` for audit.`);
+  if (spec.handover.ledger) {
+    s.push(
+      `- Ledger discipline: write a row when a phase **starts**, not only when it finishes — a run that is interrupted mid-phase must be resumable by reading \`${spec.fleet.workspace}/LEDGER.md\` alone. Each pass, rewrite the open-items block rather than only appending to it; restating what is still outstanding keeps the objective in view as the run gets long.`
+    );
+  }
+  s.push('');
+  s.push('**Precedence.** Where this playbook conflicts with a skill, the skill wins for methodology and this playbook wins for sequencing, scope, and handoffs. Where it conflicts with the user\'s explicit instruction, the user wins — say what you are overriding and why.');
 
   s.push('');
   s.push('## Error handling');
@@ -108,20 +121,30 @@ function loopCallout(loop) {
   const lines = [];
   lines.push(`**Loop — iterate until done (max ${loop.max} passes):**`);
   const exit = loop.until || 'the phase output meets its acceptance criteria';
+  lines.push('');
+  lines.push('Stop on whichever of these three comes first:');
   lines.push(
-    `- After each pass, evaluate the exit condition: _${exit}_. If it holds, stop looping and continue to the next phase.`
+    `1. **Success** — the exit condition holds: _${exit}_.${
+      loop.check
+        ? ` The objective signal is \`${loop.check}\` (exit 0 = satisfied); trust it over any agent's self-assessment, and record the command and its actual output in the ledger — not your conclusion about it.`
+        : ' Require evidence for the call, not an assertion that it looks done.'
+    }`
   );
   lines.push(
-    '- If it does not hold and passes remain, re-run this phase\'s agent(s) with the **specific failures from the last pass appended** to their brief — refine, do not restart from scratch. Each pass must reduce the outstanding gap; a pass that changes nothing ends the loop.'
+    `2. **No progress** — ${loop.noProgress} consecutive passes produce no material change. A pass that fixes nothing will not start fixing things on the next attempt; stop and report the sticking point.`
+  );
+  lines.push(
+    `3. **Cap** — ${loop.max} passes are spent. Proceed with the shortfall recorded in the ledger and the final report; a bounded, documented gap beats an unbounded loop.`
+  );
+  lines.push('');
+  lines.push(
+    "Between passes, re-run this phase's agent(s) with the **specific failures from the last pass appended** to their brief — refine, do not restart from scratch."
   );
   if (loop.check) {
     lines.push(
-      `- Objective signal: run \`${loop.check}\` (exit 0 = condition satisfied). Trust its result over any agent's self-assessment.`
+      `When the check is test-shaped, verify the implementation actually does the work rather than only that \`${loop.check}\` exits 0 — an agent that can see the check can satisfy it without satisfying the requirement.`
     );
   }
-  lines.push(
-    `- On exhausting ${loop.max} passes without satisfying the condition, **stop** and proceed with the shortfall recorded in the ledger and the final report — a bounded, documented gap beats an unbounded loop.`
-  );
   return lines.join('\n');
 }
 
@@ -163,15 +186,36 @@ function scheduleSection(spec, target) {
     case 'goose':
       lines.push(`- One firing: \`goose run --recipe .goose/recipes/${orch}.yaml --params request="${what}"\`.`);
       if (sch.cron) {
-        lines.push(`- Schedule it with goose's scheduler (\`goose schedule add --cron "${sch.cron}" --recipe .goose/recipes/${orch}.yaml\`) or the equivalent cron entry wrapping the \`goose run\` above.`);
+        // goose's scheduler parses 5- or 6-field cron only (7 fields is a parse
+        // error, despite older docs). Emit 6-field so the seconds column is
+        // explicit rather than implicitly prepended.
+        lines.push(
+          `- Schedule it: \`goose schedule add --schedule-id ${orch} --cron "${toSixFieldCron(sch.cron)}" --recipe-source .goose/recipes/${orch}.yaml\`. ` +
+            `goose accepts 5- or 6-field cron only (6-field shown; the leading field is seconds).`
+        );
+        lines.push(
+          `- **\`schedule add\` snapshots the recipe** into goose's own store — regenerating this harness does not update an already-scheduled job. Remove and re-add it (\`goose schedule remove --schedule-id ${orch}\`) after a rebuild.`
+        );
       } else {
         lines.push(`- For an interval, wrap the \`goose run\` above in cron or a \`while … sleep ${intervalToShell(sch.interval)}\` loop.`);
       }
+      lines.push('- Sub-recipe delegation requires `GOOSE_MODE=auto`; every other mode disables subagents, so a scheduled run would silently execute without its fleet.');
       break;
     default:
       lines.push(`- Invoke \`${orch}\` on your platform's scheduler.`);
   }
   return lines.join('\n');
+}
+
+/**
+ * goose's scheduler (tokio_cron_scheduler) accepts 5- or 6-field cron only;
+ * a 5-field expression is auto-converted by prepending a seconds field. The
+ * spec carries standard 5-field cron, so make the seconds column explicit.
+ * Anything that is not 5 fields passes through untouched.
+ */
+function toSixFieldCron(cron) {
+  const fields = String(cron).trim().split(/\s+/);
+  return fields.length === 5 ? `0 ${fields.join(' ')}` : String(cron).trim();
 }
 
 /** Best-effort human interval → seconds for shell snippets; defaults to 1h. */

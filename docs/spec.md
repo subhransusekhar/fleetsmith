@@ -2,6 +2,8 @@
 
 The fleet spec is the single tool-agnostic source of truth. `normalizeSpec` fills defaults; `validateSpec` enforces the rules below; adapters never read raw specs.
 
+**Targets.** `--target all` builds `claude-code`, `opencode`, and `goose`. A fourth target, `claude-workflow`, is **experimental and opt-in**: it compiles the phase graph into a Claude Code [dynamic workflow](https://code.claude.com/docs/en/workflows) script that reuses the `.claude/agents/` definitions via `agentType`. It is excluded from `all` because it requires a paid plan and only runs on Claude Code — see [`docs/research/spike-claude-workflows-target.md`](research/spike-claude-workflows-target.md) for what it buys, what it costs, and when the skill orchestrator is the better choice.
+
 ## Top level
 
 | Key | Type | Default | Notes |
@@ -22,8 +24,19 @@ The fleet spec is the single tool-agnostic source of truth. `normalizeSpec` fill
 | `domain` | `''` | one-line domain statement; feeds every description — leaving it empty makes the harness generic (validator warns) |
 | `pattern` | `pipeline` | `pipeline`, `fanout`, `expert-pool`, `generate-verify`, `supervisor`, `hierarchical` |
 | `execution` | `subagents` | `team` (Claude Code agent teams; degrades to orchestrated subagents on opencode/goose), `subagents`, `hybrid` (per-phase `mode`) |
-| `workspace` | `_fleet` | coordination directory emitted into the project |
+| `workspace` | `_fleet` | coordination directory emitted into the project. Must be a safe relative path (`[A-Za-z0-9._-/]`, no leading `/`, no `..`) — it is interpolated into generated shell scripts and config, so anything else is an error |
 | `schedule` | `null` | recurring-loop config — see [Loop engineering](#loop-engineering) |
+| `mcp` | `null` | map `name -> {type, url \| command, args, env}`. Compiles to `.mcp.json` (Claude Code), `opencode.json` `mcp`, and goose recipe `extensions`. Validator errors if a remote server has no `url` or a stdio server no `command` |
+| `allowParallelWrites` | `false` | escape hatch for the single-writer rule (see [Validation rules](#validation-rules)) — set only when concurrent writers provably touch disjoint paths |
+
+## `defaults`
+
+| Key | Default | Notes |
+|-----|---------|-------|
+| `model` | `inherit` | tier inherited by every agent |
+| `capabilities` | `{read: true}` | capability defaults for every agent |
+| `opencodeModels` | `null` | map tier → concrete `provider/model-id`, e.g. `{smart: "anthropic/claude-opus-5"}`. opencode needs provider-qualified ids, so tiering is emitted **only** when supplied — fleetsmith never guesses a provider string |
+| `gooseModels` | `null` | same, for goose `settings.goose_model` |
 
 ## `agents[]`
 
@@ -38,6 +51,10 @@ The fleet spec is the single tool-agnostic source of truth. `normalizeSpec` fill
 | `principles` | `[]` | working principles injected verbatim |
 | `prompt` | `''` | free-form extra instructions (appended last) |
 | `handoff` | see below | outgoing edges |
+| `effort` | `null` | `minimal` / `low` / `medium` / `high` / `max` reasoning budget. Claude Code `effort` (`minimal`→`low`); opencode `variant`; goose has no equivalent (ignored). Absent = inherit the session default |
+| `turns` | `null` | positive integer hard turn cap. Claude Code `maxTurns`, opencode `steps`, goose `settings.max_turns`. Validator warns above 200 |
+| `hidden` | `false` | hide from `@`-mention autocomplete (opencode only; no-op elsewhere) — for internal fleet agents |
+| `memory` | `false` | durable cross-session notes. Claude Code `memory: project`; other targets get a prose instruction to keep notes in the fleet workspace |
 
 ### `agents[].handoff`
 
@@ -47,6 +64,7 @@ The fleet spec is the single tool-agnostic source of truth. `normalizeSpec` fill
 | `artifact` | `null` | primary artifact contract filename (validator warns if edges exist without one) |
 | `criteria` | `[]` | acceptance criteria — compiled into the producer's prompt as hard requirements |
 | `protocol` | `file` | `file` (portable, default), `task`/`message` reserved for team-mode emphasis |
+| `schema` | `null` | machine-checkable artifact contract: map `field -> description`, or `true` for the default four-field delegation brief (`objective`, `output_format`, `sources_and_tools`, `boundaries`). Compiles to goose `response.json_schema`; on Claude Code/opencode it shapes the handoff template and the `SubagentStop` validator gate |
 
 ## `skills[]`
 
@@ -58,6 +76,8 @@ The fleet spec is the single tool-agnostic source of truth. `normalizeSpec` fill
 | `references` | map `filename -> content`, loaded on demand |
 | `scripts` | map `filename -> content`, executable helpers |
 | `assets` | map `filename -> content` |
+| `freedom` | `high` / `medium` (default) / `low` — how much latitude the methodology gives. `low` emits exact-command framing for fragile, consistency-critical work; `high` emits heuristics |
+| `triggers` | `{should: [...], shouldNot: [...]}` example prompts. Compiled into `evals/evals.json` so triggering can be measured separately from output quality |
 
 ## `orchestrator`
 
@@ -83,8 +103,13 @@ Turns a one-shot phase into a **repeat-until-condition** refinement loop (genera
 | `until` | `''` | human-readable exit condition — the loop's acceptance test |
 | `max` | `3` | hard iteration bound (safety valve); validator warns above 10 |
 | `check` | `null` | optional shell command, exit 0 = satisfied — the objective signal every target defers to |
+| `noProgress` | `2` | consecutive no-change passes that end the loop early |
 
-A bare integer is shorthand for `{ max: N }`. Translation: the orchestrator playbook renders a "repeat until, refine with last-pass failures, stop at max with a documented gap" callout on **every** target (orchestration is LLM-prose-driven everywhere). When `check` is set, **goose** additionally emits a native recipe-level `retry:` block (`max_retries` + shell `checks[]` + `on_failure`) so the loop is enforced deterministically.
+A bare integer is shorthand for `{ max: N }`.
+
+**Three-part stop rule.** The playbook renders all three exits on every target: **success** (the `until` condition, with `check` as the objective signal whose command and output go in the ledger — not the agent's opinion of them), **no progress** (`noProgress` consecutive passes with no material change; a pass that fixes nothing will not start fixing things), and **cap** (`max` passes, then proceed with a documented gap). A cap alone burns the whole budget on a loop that stopped improving after pass one. Where the check is test-shaped, the callout also warns against satisfying the check without satisfying the requirement.
+
+When `check` is set, **goose** additionally emits a native recipe-level `retry:` block (`max_retries` + shell `checks[]` + `on_failure`) so the loop is enforced deterministically.
 
 ### Recurring loops — `fleet.schedule`
 
@@ -110,6 +135,6 @@ Neither `cron` nor `interval` → self-paced. Setting both warns (cron wins). Tr
 
 Errors (block build): missing/duplicate/non-kebab agent or skill names, unknown pattern/execution/model/capability/protocol values, handoff to unknown agent, agent referencing unknown skill, skill without description, orchestrator phase referencing unknown agent, empty fleet.
 
-Errors also: phase `loop.max` not a positive integer.
+Errors also: phase `loop.max` not a positive integer, unknown `agents[].effort` tier, unknown `skills[].freedom` level, `fleet.mcp` entry missing `url` (remote) or `command` (stdio), `fleet.workspace` / `handover.dir` not a safe relative path, a skill `description` over 1,536 chars (it would be truncated in the skill listing, cutting off its trigger vocabulary), and a `parallel` phase containing more than one editing agent (override with `fleet.allowParallelWrites` only when the writers provably touch disjoint paths).
 
-Warnings: empty domain, roleless agent, handoff edge without artifact, handoff cycle outside supervisor-family patterns, disconnected agent, unattached skill, short skill description, skill body >500 lines, `loop.max` >10, loop with no exit condition (no `until`/`check`), malformed `schedule.cron`, `schedule` with both cron and interval.
+Warnings: empty domain, roleless agent, handoff edge without artifact, handoff cycle outside supervisor-family patterns, disconnected agent, unattached skill, short skill description, skill body >500 lines, `agents[].turns` >200, `loop.max` >10, loop with no exit condition (no `until`/`check`), malformed `schedule.cron`, `schedule` with both cron and interval.

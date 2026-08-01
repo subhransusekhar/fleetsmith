@@ -16,13 +16,34 @@
 export function handoffTemplate() {
   return `# Handoff: {from} -> {to}
 
-- **Date:** {date}
 - **Task:** {one-line task statement}
 - **Status:** ready | blocked | partial
 
+## Objective
+{What the receiving agent must accomplish, in one sentence. Not what you did —
+what they now have to do.}
+
+## Output format
+{The exact shape the receiver should produce: file, sections, schema, length.}
+
+## Sources and tools
+{Where to look and what to use — file paths, queries, commands, URLs. Carry
+POINTERS, not pasted contents: a path the receiver reads on demand beats a wall
+of text they must re-read every turn.}
+
+## Boundaries
+{Explicit out-of-scope items and stopping conditions, so two agents do not
+independently do the same work or wander past the edge of the task.}
+
 ## Context digest
-{3-8 bullets: decisions made, constraints discovered, dead ends already tried.
-Write for a reader with ZERO shared context — they did not see your conversation.}
+{3-8 bullets: decisions made and why, constraints discovered, assumptions in
+force. Write for a reader with ZERO shared context — they did not see your
+conversation and cannot ask you.}
+
+## Failed approaches
+{What you tried that did not work, and how it failed. Keep this even when it
+looks like noise: without the evidence, the receiver repeats your dead ends.
+When context is compacted, preserve this section.}
 
 ## Artifacts
 | Path | What it is | State |
@@ -56,7 +77,7 @@ Never delete rows — mark them dropped with a reason.
  * The protocol block injected into every generated agent prompt.
  * `incoming` / `outgoing` are agent names for context wiring.
  */
-export function protocolBlock({ agent, dir, ledgerPath, incoming, outgoing, artifact, criteria }) {
+export function protocolBlock({ agent, dir, ledgerPath, incoming, outgoing, artifact, criteria, schema }) {
   const lines = [];
   lines.push('## Handover protocol');
   lines.push('');
@@ -94,7 +115,25 @@ export function protocolBlock({ agent, dir, ledgerPath, incoming, outgoing, arti
     lines.push('**Your handoffs are accepted only if:**');
     for (const c of criteria) lines.push(`- ${c}`);
   }
+  if (outgoing.length > 0 && schema) {
+    lines.push('');
+    lines.push('**Required sections in your handoff file** (a gate checks these; a missing one sends you back):');
+    for (const [field, desc] of Object.entries(schema)) {
+      lines.push(`- \`${sectionHeading(field)}\` — ${desc}`);
+    }
+  }
+  lines.push('');
+  lines.push('**What you return to the orchestrator:**');
+  lines.push(
+    'A distilled summary of roughly 1,000–2,000 tokens: what you found or produced, the artifact paths, and open questions. Not your search trace, not the file contents — the files are already on disk and re-narrating them costs the orchestrator context it needs for every remaining phase.'
+  );
   return lines.join('\n');
+}
+
+/** `output_format` -> `Output format`: schema field names as template headings. */
+function sectionHeading(field) {
+  const words = String(field).replace(/[_-]+/g, ' ').trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 /**

@@ -74,6 +74,19 @@ Every agentic CLI grew its own harness format: Claude Code has subagents + Agent
 - **Capabilities, not tool names.** Agents declare `read/edit/run/web/spawn`; each adapter maps that onto the tool's permission model (Claude Code `tools:` allowlist, opencode `permission:` allow/deny maps, goose extensions + stated constraints).
 - **Handover as a first-class contract.** Every edge in the fleet carries an artifact + acceptance criteria. The generated protocol is file-based (the only channel all three tools share), so fleet behavior is portable, auditable, and resumable. Claude Code agent-team messaging is layered on top when available — the message is the doorbell, the file is the payload.
 - **Loop engineering, translated per tool.** Declare an iteration loop on a phase (`loop: { until, max, check }`, repeat-until-quality) or a recurring schedule on the fleet (`schedule: { cron, interval }`). Each compiles to a bounded prose loop on every target — plus goose's native `retry` for checked loops, and `/loop`/routines, cron wrappers, or `goose schedule` for recurring runs. See [`docs/spec.md`](docs/spec.md#loop-engineering).
+- **Enforced contracts, not advisory ones.** Where a target can check something deterministically, fleetsmith emits the check rather than an instruction: a Claude Code `SubagentStop` hook that blocks an agent until its handoff file is complete, opencode `permission.task` maps that compile the handoff graph (a denied agent disappears from the task tool entirely), and goose `response.json_schema` that validates the handoff summary at runtime.
+
+### What v0.4 adds
+
+Generated harnesses now carry the platform features and research-backed techniques verified in [August 2026 research](docs/research/) — see [`docs/research/platform-optimizations-2026-08.md`](docs/research/platform-optimizations-2026-08.md) and [`docs/research/harness-best-practices-2026-08.md`](docs/research/harness-best-practices-2026-08.md) for the evidence, and [the milestone](docs/milestones/v0.4.0-harness-optimizations.md) for the task-by-task breakdown.
+
+- **Cost control on all three targets.** `model` tiers previously only reached Claude Code; `effort` and `turns` now compile to Claude Code `effort`/`maxTurns`, opencode `variant`/`steps`, and goose `settings.max_turns`. Supply `defaults.opencodeModels` / `defaults.gooseModels` to get concrete model routing there too.
+- **Two correctness traps closed.** opencode's `subagent_depth` defaults to `1`, which silently prevents a subagent from delegating — generated `opencode.json` raises it. goose runs different sub-recipes *sequentially* unless the prompt asks for parallelism, so a fleet's declared parallel phases quietly lost all concurrency; the orchestrator prompt now asks.
+- **Prompts built for caching.** Agent bodies are invariant for a given spec — no dates, no run counters — so a repeatedly-run fleet keeps its prompt cache instead of rebuilding it every time. Per-run state lives in handoff files, and the orchestrator's live workspace state is injected at expansion time rather than read back turn by turn.
+- **Handoffs carry a real brief.** Every handoff declares objective, output format, sources and tools, boundaries, and failed approaches; orchestrators are told to cite handoff files rather than restate them, since each paraphrase between producer and consumer loses detail that compounds down the chain.
+- **Loops stop three ways** — success, no progress, or cap — instead of only burning the iteration budget, and objective checks are recorded with their actual output rather than an agent's assessment of it.
+- **Design-smell lint.** `fleetsmith validate` now blocks parallel writers (with an explicit opt-out), errors on skill descriptions that would silently truncate, and flags skill anti-patterns and phases that split one context in two.
+- **Skills ship trigger corpora.** Each skill gets `evals/evals.json` with should-trigger / should-not-trigger prompts, because whether a skill fires and whether its output is good are different properties — and a skill that never fires looks exactly like one that was never written.
 
 ## Installation
 
@@ -323,6 +336,31 @@ files.write(projectRoot, { force: false });
 
 Adapters are pure functions `spec -> FileSet`; adding a target (Cursor, Codex CLI, …) means one new file in `src/adapters/`.
 
+## Use fleetsmith inside opencode (plugin)
+
+There are two, separate integrations with opencode — don't conflate them:
+
+1. **The fleet you generate is already native opencode.** `build --target opencode` (or `all`) emits `.opencode/agents/`, `.opencode/commands/`, skills, and `permission:` maps that opencode reads directly. No plugin required — this is the primary path.
+2. **fleetsmith the *builder* can run as an opencode plugin**, exposing the compiler as in-session tools so an agent can scaffold/validate/build/install fleets without shelling out to the CLI.
+
+Enable the plugin by dropping one file in `.opencode/plugins/fleetsmith.js`:
+
+```js
+export { Fleetsmith } from 'fleetsmith/opencode';
+```
+
+or listing it in `opencode.json`:
+
+```json
+{ "plugin": ["fleetsmith/opencode"] }
+```
+
+That registers five tools — `fleet_patterns`, `fleet_validate`, `fleet_build`, `fleet_init`, `fleet_install` — all resolving paths against the project root. Set `FLEETSMITH_OPENCODE_AUTOBUILD=1` to also recompile the harness on every `fleet.yaml` edit (a `file.edited` hook the static CLI can't offer).
+
+The plugin edge is the only place that touches opencode's `@opencode-ai/plugin` (an optional peer dependency provided by the opencode runtime); the core library stays dependency-light (`yaml` only). Tool logic lives in `src/opencode-plugin.js`; the entry is `src/opencode.js`.
+
+> Version note: opencode's plugin/`tool` API is version-specific — verify the tool-registration shape (and the `file.edited` payload) against your installed opencode before relying on it.
+
 ## Design notes
 
 - **Validation is graph-aware:** unknown handoff targets, orphaned agents, cycles (allowed for supervisor patterns, flagged otherwise), skills nobody uses, missing artifact contracts, Agent Skills spec limits (name ≤ 64 chars, description ≤ 1024).
@@ -339,7 +377,9 @@ src/
 ├── adapters/            # claude-code, opencode, goose — pure spec -> FileSet
 ├── compile/             # shared prompt/orchestrator/pointer compilers
 ├── handover/            # portable file-based handoff protocol
-└── patterns/            # fleet archetypes for `init`
+├── patterns/            # fleet archetypes for `init`
+├── opencode-plugin.js   # opencode plugin core (tools) — no peer dep, testable
+└── opencode.js          # opencode plugin entry (imports @opencode-ai/plugin)
 .claude/                 # the meta-fleet (agents + harness-builder skill)
 docs/spec.md             # full fleet.yaml reference
 docs/research/           # format + interop research (4 docs, cited)
