@@ -1,6 +1,8 @@
 # Claude Code Extensibility Formats — Programmatic Reference (2025–2026)
 
-Researched 2026-07-04 from official docs at `code.claude.com/docs/en/*`. All field names, allowed values, and paths are exact. Items marked *extension* are not part of the portable Agent Skills open standard.
+Researched 2026-07-04 from official docs at `code.claude.com/docs/en/*`; **re-verified 2026-08-01** against v2.1.219 docs + changelog. All field names, allowed values, and paths are exact. Items marked *extension* are not part of the portable Agent Skills open standard.
+
+**Note:** `docs.anthropic.com/en/docs/claude-code/*` now 301-redirects to `code.claude.com/docs/en/*` — always cite the latter. See `platform-optimizations-2026-08.md` §1 for the current full surface (subagent frontmatter, hook events, caching economics, workflows, scheduled-task caveats).
 
 ## 1. Subagents — `.claude/agents/*.md`
 

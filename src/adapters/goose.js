@@ -1,16 +1,18 @@
 import YAML from 'yaml';
 import { FileSet } from '../lib/fs-utils.js';
 import { prune, mdWithFrontmatter } from '../lib/md.js';
-import { compileAgentBody, title } from '../compile/agent-prompt.js';
+import { compileAgentBody, title, isVerifier } from '../compile/agent-prompt.js';
 import { handoffTemplate, ledgerTemplate } from '../handover/protocol.js';
 import { compileOrchestratorBody } from '../compile/orchestrator.js';
 import { agentsMdPointer } from '../compile/pointers.js';
+import { skillEvals, evalsReadme } from '../compile/evals.js';
 
 /**
- * goose adapter (Block goose, recipe format v1.0.0, skills need goose >= 1.25).
+ * goose adapter (aaif-goose/goose, recipe format v1.0.0, skills need goose >= 1.25).
  * Emits:
  *   .goose/recipes/<name>.yaml       — one recipe per fleet agent
  *   .goose/recipes/<orch>.yaml       — orchestrator recipe wiring sub_recipes
+ *   .agents/checks/<verifier>.md     — `goose review` checks for verifier roles
  *   .goose/skills/<name>/SKILL.md    — skills (suppressed in combined builds:
  *                                      goose auto-discovers .claude/skills/ too)
  *   AGENTS.md                        — tool-neutral pointer (goose loads
@@ -22,6 +24,13 @@ import { agentsMdPointer } from '../compile/pointers.js';
  *  - goose has no per-tool permission granularity; capabilities map to which
  *    extensions a recipe enables, and read-only intent is a stated constraint
  *    in instructions, not a sandbox.
+ *  - Every fleet agent needs a recipe even though goose reads `.claude/agents/`
+ *    natively: only a recipe can be the target of a `sub_recipes` entry and
+ *    take a pinned `task_brief` parameter, which is how the orchestrator
+ *    delegates. The overlap is the delegation contract, not duplication.
+ *  - Different sub-recipes run SEQUENTIALLY unless the prompt asks otherwise,
+ *    and there is no YAML key for it — hence `parallelPrompt()`. Without it a
+ *    fleet's declared parallel phases silently run one at a time.
  *  - Skills are auto-discovered by goose's Summon extension from project
  *    skill directories (./.goose/skills/, ./.claude/skills/, ./.agents/skills/),
  *    so recipes reference skills by name only.
@@ -49,12 +58,20 @@ export function buildGoose(spec, options = {}) {
 
   out.add(`.goose/recipes/${spec.orchestrator.name}.yaml`, orchestratorRecipe(spec));
 
+  // Verifier agents also get a `goose review` check, which runs reviewers in
+  // parallel with per-check model overrides — strictly better than driving the
+  // same verification serially through a sub-recipe.
+  for (const agent of spec.agents.filter((a) => isVerifier(a, spec))) {
+    out.add(`.agents/checks/${agent.name}.md`, reviewCheck(agent, spec));
+  }
+
   // In `--target all` builds, skills are emitted once to .claude/skills/,
   // which goose auto-discovers alongside .goose/skills/.
   if (options.emitSkills !== false) {
     for (const skill of spec.skills) {
-      emitSkill(out, `.goose/skills/${skill.name}`, skill);
+      emitSkill(out, `.goose/skills/${skill.name}`, skill, spec);
     }
+    if (spec.skills.length > 0) out.add(`${spec.fleet.workspace}/evals/README.md`, evalsReadme(spec));
   }
 
   out.add(`${spec.handover.dir}/HANDOFF.template.md`, handoffTemplate());
@@ -89,8 +106,86 @@ function agentRecipe(agent, spec) {
       },
     ],
     extensions: capsToExtensions(agent.capabilities),
+    settings: agentSettings(agent, spec),
+    response: handoffResponseSchema(agent),
   };
   return YAML.stringify(prune(recipe), { lineWidth: 0 });
+}
+
+/**
+ * Per-agent model tier and turn cap. A model id is emitted only when the
+ * author mapped tiers to concrete goose model names — guessing one produces a
+ * recipe that fails at load. `max_turns` is worth setting regardless: without
+ * it a sub-recipe inherits a bound generous enough to be no bound at all.
+ */
+function agentSettings(agent, spec) {
+  const settings = {};
+  const model = spec.defaults.gooseModels?.[agent.model];
+  if (model) settings.goose_model = model;
+  if (agent.turns) settings.max_turns = agent.turns;
+  return Object.keys(settings).length > 0 ? settings : undefined;
+}
+
+/**
+ * A declared handoff schema becomes goose's native structured output: goose
+ * validates the final message against it and re-prompts itself when it does
+ * not conform, so the contract is enforced by the runtime rather than by the
+ * agent remembering. The markdown handoff file remains the durable artifact;
+ * this is the machine-checkable summary of it.
+ */
+function handoffResponseSchema(agent) {
+  const schema = agent.handoff.schema;
+  if (!schema || agent.handoff.to.length === 0) return undefined;
+  const fields = Object.keys(schema);
+  return {
+    json_schema: {
+      type: 'object',
+      required: [...fields, 'handoff_file'],
+      properties: {
+        ...Object.fromEntries(fields.map((f) => [f, { type: 'string', description: schema[f] }])),
+        handoff_file: { type: 'string', description: 'Path to the handoff markdown file you wrote.' },
+      },
+    },
+  };
+}
+
+/**
+ * A `goose review` check: the same acceptance criteria the verifier agent
+ * enforces, in the form goose's own review orchestrator can run. Checks run in
+ * parallel and each may pin its own model, so a fleet with several verifiers
+ * gets concurrency for free.
+ *
+ * The filename must equal `name`, and the body is the reviewer's instructions.
+ */
+function reviewCheck(agent, spec) {
+  const criteria = agent.handoff.criteria ?? [];
+  const body = [
+    `# ${title(agent.name)}`,
+    '',
+    agent.role || `Reviews work produced by the ${spec.fleet.name} fleet.`,
+    '',
+    '## What to check',
+    '',
+    ...(criteria.length > 0
+      ? criteria.map((c) => `- ${c}`)
+      : [`- ${agent.goal || 'The work satisfies the requirements it was given.'}`]),
+    '',
+    '## How to report',
+    '',
+    'Flag only what affects correctness or the stated requirements. A reviewer asked for problems will always produce some; reporting weak findings as defects sends the fleet into rework it does not need, so mark anything else optional.',
+    '',
+    'Every finding needs reproducible evidence — a command and its output, or `file:line`. Where the acceptance test is a command, confirm the work actually does what was asked rather than only that the command exits 0.',
+  ].join('\n');
+
+  return mdWithFrontmatter(
+    {
+      name: agent.name,
+      description: (agent.goal || agent.role || `Review gate for ${spec.fleet.name}`).slice(0, 200),
+      model: spec.defaults.gooseModels?.[agent.model] ?? undefined,
+      'turn-limit': agent.turns ?? 25,
+    },
+    body
+  );
 }
 
 function readOnlyClause(agent) {
@@ -111,6 +206,11 @@ function capsToExtensions(caps) {
       seen.set(ext.name, ext);
     }
   }
+  // Declaring an `extensions:` block at all suppresses goose's default
+  // platform extensions, which is where `summon` — and therefore delegation —
+  // lives. Recipes that declare `sub_recipes` get it re-injected automatically;
+  // an agent recipe that spawns does not, and would silently lose the ability.
+  if (caps.spawn) seen.set('summon', { type: 'platform', name: 'summon' });
   return [...seen.values()];
 }
 
@@ -120,7 +220,7 @@ function orchestratorRecipe(spec) {
     title: `${title(spec.orchestrator.name)} — ${spec.fleet.name} orchestrator`,
     description: `Orchestrates the ${spec.fleet.name} fleet (${spec.agents.map((a) => a.name).join(', ')})`.slice(0, 200),
     instructions: compileOrchestratorBody(spec, 'goose'),
-    prompt: 'Run the fleet on this request: {{ request }}',
+    prompt: `Run the fleet on this request: {{ request }}${parallelPrompt(spec)}`,
     parameters: [
       {
         key: 'request',
@@ -141,6 +241,25 @@ function orchestratorRecipe(spec) {
 }
 
 /**
+ * goose runs *different* sub-recipes sequentially unless the prompt says
+ * otherwise — there is no YAML key for it, and the request has to be in the
+ * prompt rather than the instructions to reliably take effect. Without this,
+ * a fleet whose phases are declared parallel still executes one agent at a
+ * time and the declared concurrency is silently lost.
+ */
+function parallelPrompt(spec) {
+  const parallel = (spec.orchestrator.phases ?? []).filter((p) => p.parallel && (p.agents ?? []).length > 1);
+  if (parallel.length === 0) return '';
+  const groups = parallel
+    .map((p) => `${p.name} (${p.agents.map((n) => `\`${n}\``).join(', ')})`)
+    .join('; ');
+  return (
+    `\n\nRun these phases' sub-recipes **in parallel** — launch them simultaneously in one step rather than one after another: ${groups}. ` +
+    'Every other phase runs sequentially, and a phase does not start until the previous one is verified complete.'
+  );
+}
+
+/**
  * Translate phase iteration loops that carry a shell `check` into goose's
  * native recipe-level `retry`. goose retries the whole recipe until every
  * check passes (exit 0) or `max_retries` is hit — the deterministic backstop
@@ -156,7 +275,8 @@ function retryBlock(spec) {
   };
 }
 
-function emitSkill(out, dir, skill) {
+function emitSkill(out, dir, skill, spec) {
+  out.add(`${dir}/evals/evals.json`, skillEvals(skill, spec));
   out.add(
     `${dir}/SKILL.md`,
     mdWithFrontmatter({ name: skill.name, description: skill.description }, skill.body || `# ${title(skill.name)}\n\n(TODO: methodology)`)

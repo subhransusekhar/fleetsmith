@@ -1,10 +1,19 @@
-# Block goose Extensibility Formats — Code Generator Reference (2025–2026)
+# goose Extensibility Formats — Code Generator Reference (2025–2026)
 
-Researched 2026-07-04 from official docs (`block.github.io/goose/docs`, mirror `goose-docs.ai`) and block/goose source.
+Researched 2026-07-04; **re-verified 2026-08-01** against source. See `platform-optimizations-2026-08.md` §3 for the full current surface.
+
+**Canonical locations (changed since the original pass):** docs live at **`https://goose-docs.ai/docs`** (the old `block.github.io/goose/docs` now 404s) and the repo is **`github.com/aaif-goose/goose`** (`block/goose` 301-redirects). The project moved out of Block.
+
+**Corrections applied 2026-08-01:**
+- There is **no `context[]` recipe field** — it is absent from the `Recipe` struct (`crates/goose/src/recipe/mod.rs`).
+- **`GOOSE_LEAD_MODEL` no longer exists.** Cost control is `GOOSE_FAST_MODEL` (auxiliary calls) plus per-recipe `settings.goose_model`.
+- The **Temporal scheduler backend is gone**; `scheduler.rs` uses `tokio_cron_scheduler` with local-timezone jobs. Cron accepts **only 5- or 6-field** expressions (5-field auto-prepends `0` for seconds); 7 fields is a parse error, despite docs claiming otherwise.
+- Subagents are **disabled in every `GOOSE_MODE` except `auto`**.
+- goose now also discovers **custom agents** from `.claude/agents/`, `.agents/agents/`, `.goose/agents/` — the `.claude/` tree is natively consumable.
 
 ## 1. Recipes (YAML, Jinja/MiniJinja `{{ param }}` templating)
 
-**Top-level fields:** `version` (default `"1.0.0"`), `title` (**req**), `description` (**req**), `instructions`* (system-level), `prompt`* (initial user message; **required for headless `goose run`**), `parameters[]`, `extensions[]`, `settings`, `response`, `retry`, `sub_recipes[]`, `activities[]` (Desktop chips), `author` (`contact`,`metadata`), `context[]`. *At least one of instructions/prompt.
+**Top-level fields:** `version` (default `"1.0.0"`), `title` (**req**), `description` (**req**), `instructions`* (system-level), `prompt`* (initial user message; **required for headless `goose run`**), `parameters[]`, `extensions[]`, `settings`, `response`, `retry`, `sub_recipes[]`, `activities[]` (Desktop chips — **ignored by CLI and scheduled jobs**), `author` (`contact`,`metadata`). *At least one of instructions/prompt.
 
 **`parameters[]`:** `key` (req), `input_type` (req: `string`|`number`|`boolean`|`date`|`file`|`select`), `requirement` (req: `required`|`optional`|`user_prompt`), `description` (req), `default` (only/required for `optional`; not allowed for `file`), `options[]` (required for `select`). `user_prompt` → interactive prompt if unsupplied.
 
@@ -22,11 +31,21 @@ Researched 2026-07-04 from official docs (`block.github.io/goose/docs`, mirror `
 
 **Subagents:** ephemeral, spawned from natural language (platform extension). Max turns 25 default (`GOOSE_SUBAGENT_MAX_TURNS` / `settings.max_turns`), 5-min timeout, **max 10 concurrent** (hard-coded, shared budget), inherit all extensions. Sequential by default; parallel on "parallel"/"simultaneously"/"concurrently". Parallel failure → only successful results returned.
 
-**`sub_recipes[]`:** `name` (req; becomes tool name), `path` (req), `values` (pin params), `sequential_when_repeated` (bool), `description` (guidance for selection). Each exposed as a callable tool; returns `response` json or final text.
+**`sub_recipes[]`:** `name` (req; becomes tool name), `path` (req), `values` (pin params), `sequential_when_repeated` (bool), `description` (guidance for selection). Each exposed as a callable tool; runs in an **isolated session**; **nesting is forbidden** (a sub-recipe may not declare its own `sub_recipes`); returns `response` json or final text.
+
+**Parallelism (verified 2026-08-01):** *different* sub-recipes run **sequentially by default** — the only way to parallelize them is prose in the `prompt` ("run these in parallel"); there is no YAML key. The *same* sub-recipe repeated runs **in parallel by default** (`sequential_when_repeated: true` is the brake). Concurrency is capped by `GOOSE_MAX_BACKGROUND_TASKS` (default 5) alongside the documented 10-worker limit.
+
+**Scheduling:** `goose schedule add --schedule-id <id> --cron "<5-or-6-field>" --recipe-source <path>`. Adding **snapshots the recipe** into `~/.local/share/goose/scheduled_recipes` — regenerating fleet files does *not* update an existing scheduled job; re-add it. Subagents cannot manage schedules.
 
 ## 3. Extensions & `config.yaml`
 
-`~/.config/goose/config.yaml`: `GOOSE_PROVIDER`, `GOOSE_MODEL`, `GOOSE_MODE` (`auto`|`approve`|`chat`|`smart_approve`), `extensions:` map. Six types as above; `builtin` needs only `name`/`enabled`/`timeout`/`bundled`; `stdio` adds `cmd`/`args`/`env_keys`; `streamable_http` adds `uri`/`headers`.
+`~/.config/goose/config.yaml`: `GOOSE_PROVIDER`, `GOOSE_MODEL`, `GOOSE_MODE` (`auto`|`approve`|`chat`|`smart_approve`), `extensions:` **map keyed by name** (not a list). Six types as above; `builtin` needs only `name`/`enabled`/`timeout`/`bundled`; `stdio` adds `cmd`/`args`/`env_keys`; `streamable_http` adds `uri`/`headers`.
+
+**Generator gotchas (verified 2026-08-01):**
+- **An explicit `extensions:` block suppresses the default platform extensions.** A recipe that lists extensions *and* needs delegation must include `- type: platform` / `name: summon`, or the `delegate`/`load` tools vanish. Recipes declaring `sub_recipes` get `summon` auto-injected and are exempt.
+- `available_tools` is a per-extension tool allowlist — the cheapest reliability lever, since docs warn goose "performs best with fewer than 25 total tools".
+- `env_keys` triggers an interactive keyring prompt on first run (scans sub-recipes too) — a hang risk in CI; pre-seed those variables for headless runs.
+- Cost/context env levers: `GOOSE_FAST_MODEL`, `GOOSE_AUTO_COMPACT_THRESHOLD` (default 0.8), `GOOSE_TOOL_CALL_CUTOFF`, `GOOSE_DISABLE_SESSION_NAMING` (removes one model call per session — free savings on scheduled runs).
 
 ## 4. `.goosehints` & AGENTS.md
 

@@ -39,6 +39,26 @@ const USER_SKIP = [
     match: (p) => p.startsWith('_fleet/'),
     reason: 'project runtime workspace — belongs in the project where the fleet runs',
   },
+  // These would land on top of the user's own global config. The permission
+  // allowlist and SubagentStop hooks are derived from one fleet's needs and
+  // have no business applying to every project; loop.md would likewise
+  // override the default /loop prompt everywhere.
+  {
+    match: (p) => p === '.claude/settings.json',
+    reason: 'fleet-specific permissions and hooks — installing globally would overwrite your own ~/.claude/settings.json',
+  },
+  {
+    match: (p) => p === '.claude/loop.md',
+    reason: 'fleet-specific recurring-run prompt — installing globally would override /loop in every project',
+  },
+  {
+    match: (p) => p === 'opencode.json',
+    reason: 'project config (subagent_depth, default_agent) — belongs in the project where the fleet runs',
+  },
+  {
+    match: (p) => p.startsWith('.agents/checks/'),
+    reason: 'goose review checks are resolved per project — belongs in the project where the fleet runs',
+  },
 ];
 
 /**

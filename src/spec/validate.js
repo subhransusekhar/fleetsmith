@@ -4,8 +4,11 @@ import {
   CAPABILITIES,
   MODEL_TIERS,
   HANDOFF_PROTOCOLS,
+  EFFORT_LEVELS,
+  FREEDOM_LEVELS,
 } from './schema.js';
 import { slugify } from '../lib/md.js';
+import { lintSpec } from './lint.js';
 
 /**
  * Semantic validation of a normalized fleet spec.
@@ -26,6 +29,24 @@ export function validateSpec(spec) {
     err(`fleet.execution "${spec.fleet.execution}" is not one of: ${EXECUTION_MODES.join(', ')}`);
   }
   if (!spec.fleet.domain) warn('fleet.domain is empty — generated descriptions will be generic');
+
+  // The workspace and handoff dir are interpolated into generated shell
+  // scripts, JSON config, and glob patterns. A value containing quotes or
+  // shell metacharacters would break out of those contexts — in the
+  // SubagentStop gate that means arbitrary command execution on whoever runs
+  // the harness, which matters because fleet specs are meant to be shared.
+  // Absolute paths and `..` would also write outside the project.
+  for (const [key, value] of [
+    ['fleet.workspace', spec.fleet.workspace],
+    ['handover.dir', spec.handover.dir],
+  ]) {
+    if (!isSafeRelativePath(value)) {
+      err(
+        `${key} "${value}" is not a safe relative path — use only letters, digits, dot, dash, underscore and forward slash, ` +
+          'with no leading slash and no ".." segment. This value is interpolated into generated shell scripts and config.'
+      );
+    }
+  }
 
   // recurring loop (fleet.schedule)
   if (spec.fleet.schedule) {
@@ -63,6 +84,12 @@ export function validateSpec(spec) {
     }
     for (const s of a.skills) {
       if (!skillNames.has(s)) err(`Agent "${a.name}" references unknown skill "${s}"`);
+    }
+    if (a.effort !== null && !EFFORT_LEVELS.includes(a.effort)) {
+      err(`Agent "${a.name}" effort "${a.effort}" is not one of: ${EFFORT_LEVELS.join(', ')}`);
+    }
+    if (a.turns !== null && a.turns > 200) {
+      warn(`Agent "${a.name}" turns is ${a.turns} — a cap that high is not a cap; most agent roles finish well under 50`);
     }
   }
 
@@ -117,6 +144,17 @@ export function validateSpec(spec) {
     }
     const attached = spec.agents.some((a) => a.skills.includes(s.name));
     if (!attached) warn(`Skill "${s.name}" is not attached to any agent`);
+    if (!FREEDOM_LEVELS.includes(s.freedom)) {
+      err(`Skill "${s.name}" freedom "${s.freedom}" is not one of: ${FREEDOM_LEVELS.join(', ')}`);
+    }
+  }
+
+  // MCP servers: a stdio server needs a command, a remote one needs a url.
+  // Getting this wrong produces a config the target refuses to load.
+  for (const [name, m] of Object.entries(spec.fleet.mcp ?? {})) {
+    const remote = m.type === 'http' || m.type === 'sse' || m.type === 'ws' || m.type === 'remote';
+    if (remote && !m.url) err(`fleet.mcp."${name}" is type "${m.type}" but has no url`);
+    if (!remote && !m.command) err(`fleet.mcp."${name}" is type "${m.type}" but has no command`);
   }
 
   // orchestrator phases reference real agents; iteration loops are bounded
@@ -136,7 +174,23 @@ export function validateSpec(spec) {
     }
   }
 
+  // Design smells: structurally valid specs that would behave badly at run time.
+  const lint = lintSpec(spec);
+  errors.push(...lint.errors);
+  warnings.push(...lint.warnings);
+
   return { errors, warnings, ok: errors.length === 0 };
+}
+
+/**
+ * A project-relative path safe to interpolate into shell, JSON, YAML, and
+ * globs: no quotes or metacharacters, not absolute, no parent traversal.
+ */
+function isSafeRelativePath(p) {
+  if (typeof p !== 'string' || p.length === 0) return false;
+  if (!/^[A-Za-z0-9._\-/]+$/.test(p)) return false;
+  if (p.startsWith('/')) return false;
+  return !p.split('/').includes('..');
 }
 
 /** DFS cycle detection over the handoff graph; returns one cycle path or null. */

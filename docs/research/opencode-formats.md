@@ -1,6 +1,8 @@
 # opencode Extensibility Formats — Code Generator Reference (2025–2026)
 
-Researched 2026-07-04 against `anomalyco/opencode` (`dev` branch — `sst/opencode` redirects here) docs source and `opencode.ai/docs`.
+Researched 2026-07-04 against `anomalyco/opencode` (`dev` branch — `sst/opencode` redirects here) docs source and `opencode.ai/docs`; **re-verified 2026-08-01** against the live `opencode.ai/config.json` schema and loader source. See `platform-optimizations-2026-08.md` §2 for the full current surface.
+
+**Correctness trap found 2026-08-01:** `opencode.json` `subagent_depth` defaults to **1**, which prevents subagents from launching subagents. Any generated fleet whose subagent delegates further silently fails unless the config raises it.
 
 **Critical convention:** current opencode uses **plural** directory names — `.opencode/agents/`, `.opencode/commands/`, `.opencode/skills/<name>/`, `.opencode/plugins/`. (Singular may still resolve for back-compat; generate plural.) Config JSON keys are **singular**: `"agent"`, `"command"`. Config file: `opencode.json`/`.jsonc` with `"$schema": "https://opencode.ai/config.json"`.
 
@@ -59,3 +61,4 @@ JS/TS at `.opencode/plugins/*.{ts,js}` (project) / `~/.config/opencode/plugins/`
 - Orchestrator = `mode: primary` with `task` permission allowlisting exactly the fleet agents.
 - Kickoff `/command` targets the orchestrator agent with `$ARGUMENTS`.
 - Combined builds emit skills only to `.claude/skills/` (read natively by opencode); solo opencode builds emit `.opencode/skills/`.
+- **Plugin surface (§6):** beyond emitting native files, fleetsmith itself ships as an opencode plugin (`fleetsmith/opencode`) that registers `fleet_*` custom tools via the `tool` helper from `@opencode-ai/plugin`, plus an opt-in `file.edited` autobuild hook. The peer-dep import is isolated in `src/opencode.js`; tool logic in `src/opencode-plugin.js` stays testable with a stub `tool`. Verify the `tool` API + `file.edited` payload against the pinned opencode version.
