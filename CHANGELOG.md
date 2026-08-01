@@ -9,25 +9,33 @@ building, since every new field normalizes to a default.
 
 ## [Unreleased]
 
-### Changed — model tiers no longer pin a model
+## [0.4.1] — 2026-08-01
 
-`smart` / `fast` / `cheap` are intents about how much judgment a role needs, and
-they no longer bind to a model name on their own. Every generated agent now emits
-`model: inherit` (and nothing at all on opencode/goose) unless the spec supplies
-`defaults.claudeModels` / `opencodeModels` / `gooseModels`.
+### Fixed — orchestrator/agent name collision
 
-Previously the Claude Code adapter resolved `smart` to `opus` unconditionally,
-which made generated fleets fail for anyone without Opus on their plan and
-overrode the model a user had deliberately chosen for the session — the opposite
-of what a tier should mean. opencode and goose already worked this way; Claude
-Code was the inconsistent one.
+When `orchestrator.name` matched an agent name (e.g. `consolidateai-harness-lead`
+acting as both orchestrator and agent), `FileSet.add` threw `"written twice"`
+on the opencode and goose targets — the orchestrator file and the agent file
+targeted the same path. The orchestrator file now replaces the agent file (the
+orchestrator IS that agent, promoted to primary mode). Goose `sub_recipes` and
+opencode `permission.task` maps exclude self-delegation. The validator warns so
+authors know one file is missing.
 
-Supplying a map is the opt-in to pinning. Entries override individual tiers and
-any tier left unnamed falls back to that target's conventional alias.
-`agents[].effort` and `agents[].turns` still give per-role cost control without
-pinning anything.
+### Changed — meta-fleet un-pinned from Claude Code
 
-This repo's own meta-fleet agents were pinned to `opus` and are now `inherit`.
+The fleetsmith meta-fleet agents (`domain-analyst`, `fleet-architect`,
+`skill-smith`, `harness-qa`) existed only as hand-written `.claude/agents/*.md`
+files, and the `harness-builder` orchestrator skill hardcoded `.claude/agents/`
+and `model: "opus"`. Added a `fleet.yaml` and compiled to all three targets —
+agents now exist in `.opencode/agents/` and `.goose/recipes/` with
+`model: inherit` everywhere. Each target's orchestrator invocation section
+references its own agent directory, not Claude Code's.
+
+### Fixed — opencode orchestrator path typo
+
+The opencode invocation section in `compileOrchestratorBody` referenced
+`.opencode/agent/` (singular); corrected to `.opencode/agents/` to match the
+adapter output and opencode's loader.
 
 ## [0.4.0] — 2026-08-01
 
@@ -180,6 +188,7 @@ and a file-based handover protocol for Claude Code (`.claude/`), opencode
 (`.opencode/`), and goose (`.goose/recipes/`), plus the portability guarantees the
 generated output still holds to.
 
+[0.4.1]: https://github.com/subhransusekhar/fleetsmith/releases/tag/v0.4.1
 [0.4.0]: https://github.com/subhransusekhar/fleetsmith/releases/tag/v0.4.0
 [0.3.0]: https://github.com/subhransusekhar/fleetsmith/releases/tag/v0.3.0
 [0.2.0]: https://github.com/subhransusekhar/fleetsmith/releases/tag/v0.2.0
