@@ -12,6 +12,11 @@ permissions:
   contents: write
 
 jobs:
+  # Both macOS slices are built on the arm64 runner. The Intel `macos-13`
+  # runner queued indefinitely and was cancelled at GitHub's 24h limit on every
+  # release, which is how v0.3.0 shipped with no macOS x64 binary at all.
+  # Injection is Mach-O surgery — postject never executes the target — so an
+  # arm64 host can cross-build a working x86_64 binary from the official node.
   binaries:
     strategy:
       fail-fast: false
@@ -21,8 +26,6 @@ jobs:
             asset: fleetsmith-linux-x64
           - os: macos-latest
             asset: fleetsmith-macos-arm64
-          - os: macos-13
-            asset: fleetsmith-macos-x64
           - os: windows-latest
             asset: fleetsmith-windows-x64.exe
     runs-on: ${{ matrix.os }}
@@ -41,10 +44,23 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: Copy-Item dist/bin/fleetsmith.exe "${{ matrix.asset }}"
+
+      # Cross-build the Intel slice on the same runner.
+      - name: Build macOS x64
+        if: matrix.os == 'macos-latest'
+        run: npm run build:binary:macos-x64
+      - name: Verify it really is x86_64
+        if: matrix.os == 'macos-latest'
+        run: |
+          lipo -archs dist/bin/fleetsmith-x64 | grep -qx x86_64
+          cp dist/bin/fleetsmith-x64 fleetsmith-macos-x64
+
       - name: Attach to release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.asset }}
+          files: |
+            ${{ matrix.asset }}
+            ${{ matrix.os == 'macos-latest' && 'fleetsmith-macos-x64' || '' }}
           generate_release_notes: true
 
   npm:
