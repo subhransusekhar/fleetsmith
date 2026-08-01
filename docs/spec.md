@@ -2,6 +2,8 @@
 
 The fleet spec is the single tool-agnostic source of truth. `normalizeSpec` fills defaults; `validateSpec` enforces the rules below; adapters never read raw specs.
 
+**Targets.** `--target all` builds `claude-code`, `opencode`, and `goose`. A fourth target, `claude-workflow`, is **experimental and opt-in**: it compiles the phase graph into a Claude Code [dynamic workflow](https://code.claude.com/docs/en/workflows) script that reuses the `.claude/agents/` definitions via `agentType`. It is excluded from `all` because it requires a paid plan and only runs on Claude Code — see [`docs/research/spike-claude-workflows-target.md`](research/spike-claude-workflows-target.md) for what it buys, what it costs, and when the skill orchestrator is the better choice.
+
 ## Top level
 
 | Key | Type | Default | Notes |

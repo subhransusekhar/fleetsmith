@@ -9,7 +9,8 @@ import { validateSpec } from '../src/spec/validate.js';
 import { buildClaudeCode } from '../src/adapters/claude-code.js';
 import { buildOpencode } from '../src/adapters/opencode.js';
 import { buildGoose } from '../src/adapters/goose.js';
-import { buildAll } from '../src/adapters/index.js';
+import { buildAll, ADAPTERS, DEFAULT_TARGETS } from '../src/adapters/index.js';
+import { buildClaudeWorkflow } from '../src/adapters/claude-workflow.js';
 import { archetype, ARCHETYPES } from '../src/patterns/index.js';
 import { planInstall } from '../src/install.js';
 import { buildFleetsmithTools, opValidate, opBuild, opInit, opPatterns } from '../src/opencode-plugin.js';
@@ -746,6 +747,117 @@ test('skills are emitted for claude-code and opencode with references', () => {
   const analyst = buildClaudeCode(spec, {}).files.get('.claude/agents/analyst.md');
   assert.match(analyst, /skills:\n\s+- requirements-analysis/);
   assert.match(analyst, /\*\*requirements-analysis\*\*/);
+});
+
+// --- claude-workflow target (experimental) ----------------------------------
+
+/**
+ * Workflow scripts are plain JS whose body runs inside an async function, so
+ * `export const meta` is module-level while the rest may use top-level await
+ * and return. Check the two halves in the contexts they actually run in.
+ */
+function assertWorkflowParses(src, label) {
+  const split = src.indexOf('\n\nconst ');
+  assert.ok(split > 0, `${label}: could not locate end of meta block`);
+  // meta half: valid ESM
+  assert.doesNotThrow(
+    () => new Function(`return ${src.slice(src.indexOf('=') + 1, split)}`),
+    `${label}: meta block is not a valid literal`
+  );
+  // body half: valid inside an async function
+  assert.doesNotThrow(
+    () => new Function('agent', 'parallel', 'pipeline', 'phase', 'log', 'args', 'budget', `return (async () => {${src.slice(split)}})`),
+    `${label}: body is not valid in an async context`
+  );
+}
+
+test('every archetype compiles to a syntactically valid workflow script', () => {
+  for (const pattern of Object.keys(ARCHETYPES)) {
+    const spec = normalizeSpec(archetype(pattern, `wf-${pattern}`, 'workflow check'));
+    const files = buildClaudeWorkflow(spec, {});
+    const src = files.files.get(`.claude/workflows/run-wf-${pattern}.js`);
+    assert.ok(src, `${pattern}: no workflow emitted`);
+    assertWorkflowParses(src, pattern);
+    // meta must be a pure literal — no interpolation, no calls
+    assert.match(src, /^export const meta = \{/);
+    assert.doesNotMatch(src.slice(0, src.indexOf('\n\nconst ')), /\$\{|\(\)/);
+  }
+});
+
+test('workflow reuses the .claude/agents definitions rather than restating them', () => {
+  const spec = normalizeSpec({
+    fleet: { name: 'wf', domain: 'd' },
+    agents: [
+      { name: 'first', model: 'cheap', effort: 'low', handoff: { to: ['second'], artifact: 'a.md' } },
+      { name: 'second', handoff: { to: [] } },
+    ],
+  });
+  const src = buildClaudeWorkflow(spec, {}).files.get('.claude/workflows/run-wf.js');
+
+  // agentType points at the emitted subagent definition, so prompts/tools/model
+  // stay defined in exactly one place
+  assert.match(src, /agentType: "first"/);
+  assert.match(src, /model: "haiku"/);
+  assert.match(src, /effort: "low"/);
+  // structured results, so passing work between phases costs no context
+  assert.match(src, /schema: SCHEMA_FIRST/);
+  // handoff files remain the durable artifact
+  assert.match(src, /_fleet\/handoffs/);
+  assert.match(src, /The file is the durable artifact/);
+});
+
+test('workflow turns a phase loop into real control flow with all three stops', () => {
+  const src = buildClaudeWorkflow(loopSpec(), {}).files.get('.claude/workflows/run-looped.js');
+  assert.match(src, /while \(verifyPass < 4 && !verifyDone\)/); // cap
+  assert.match(src, /if \(verifyStale >= 2\)/); // no-progress
+  assert.match(src, /verifyDone = !!verifyCheck\?\.passed/); // success via the shell check
+  // the script cannot run shell itself, so an agent runs the command and reports it
+  assert.match(src, /Run exactly this command and report the result/);
+  assert.match(src, /npm test/);
+  assert.match(src, /model: 'haiku'/); // a command runner does not need a strong model
+
+  // `checker` reviews rather than produces, so it is asked to re-check its own
+  // prior findings — handing it "fix these" would blame it for what it reported
+  assert.match(src, /confirm each is genuinely resolved/);
+
+  // a producing agent in a loop gets the opposite framing
+  const producerLoop = normalizeSpec({
+    fleet: { name: 'pl', domain: 'd' },
+    agents: [{ name: 'writer', capabilities: { read: true, edit: true }, handoff: { to: [] } }],
+    orchestrator: { phases: [{ name: 'Refine', agents: ['writer'], loop: { until: 'it reads well', max: 3 } }] },
+  });
+  const psrc = buildClaudeWorkflow(producerLoop, {}).files.get('.claude/workflows/run-pl.js');
+  assert.match(psrc, /fix these specifically, do not restart from scratch/);
+});
+
+test('workflow runs parallel phases concurrently and isolates concurrent editors', () => {
+  const spec = normalizeSpec({
+    fleet: { name: 'par', domain: 'd' },
+    agents: [
+      { name: 'w-a', capabilities: { read: true, edit: true }, handoff: { to: ['merge'] } },
+      { name: 'w-b', capabilities: { read: true, edit: true }, handoff: { to: ['merge'] } },
+      { name: 'merge', capabilities: { read: true, edit: true }, handoff: { to: [] } },
+    ],
+    orchestrator: {
+      phases: [
+        { name: 'Fan out', agents: ['w-a', 'w-b'], parallel: true },
+        { name: 'Merge', agents: ['merge'] },
+      ],
+    },
+  });
+  const src = buildClaudeWorkflow(spec, {}).files.get('.claude/workflows/run-par.js');
+  assert.match(src, /await parallel\(\[/);
+  // concurrent writers get worktrees for the same reason they do on the main target
+  assert.match(src, /isolation: 'worktree'/);
+});
+
+test('claude-workflow is opt-in — "all" does not silently emit a paid-plan-only script', () => {
+  const all = buildAll(demoSpec(), {}).list();
+  assert.ok(!all.some((p) => p.startsWith('.claude/workflows/')));
+  assert.deepEqual(DEFAULT_TARGETS, ['claude-code', 'opencode', 'goose']);
+  // but it is reachable explicitly
+  assert.ok(ADAPTERS['claude-workflow']);
+  assert.ok(buildClaudeWorkflow(demoSpec(), {}).list().includes('.claude/workflows/run-demo.js'));
 });
 
 test('planInstall project scope passes files through verbatim into --into dir', () => {
