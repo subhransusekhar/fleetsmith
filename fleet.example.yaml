@@ -15,8 +15,21 @@ fleet:
     note: "re-scan the API surface for new endpoints and regressions since last week"
 
 defaults:
-  model: inherit             # smart | fast | cheap | inherit — adapters map to concrete models
+  model: inherit             # smart | fast | cheap | inherit — a relative intent, not a model name
   capabilities: { read: true }
+
+  # Tiers stay unbound by default: every agent inherits the model of whatever
+  # session or agent invoked it. That is what makes a fleet portable — a pinned
+  # model overrides the user's choice and fails outright where it is not on
+  # their plan or provider.
+  #
+  # Uncomment a map to bind this fleet's tiers to real models. Supplying one is
+  # the decision to pin; tiers you leave out fall back to the conventional
+  # alias for that target.
+  #
+  # claudeModels:   { smart: opus, fast: sonnet, cheap: haiku }
+  # opencodeModels: { smart: anthropic/claude-opus-5, cheap: anthropic/claude-haiku-4-5 }
+  # gooseModels:    { smart: claude-opus-5, cheap: claude-haiku-4-5 }
 
 agents:
   - name: threat-analyst

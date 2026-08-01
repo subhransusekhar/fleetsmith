@@ -2,7 +2,7 @@
 name: harness-qa
 description: QA agent of the fleetsmith meta-fleet. Verifies a generated harness end-to-end — spec validation, compiled output cross-checks across Claude Code/opencode/goose targets, handoff-graph dead links, trigger tests on skill descriptions. Use as the final gate of harness-builder, and for any "audit the harness", "check the fleet", or drift-detection request.
 tools: Read, Grep, Glob, Bash
-model: opus
+model: inherit
 ---
 
 # Harness QA

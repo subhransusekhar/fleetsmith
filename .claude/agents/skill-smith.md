@@ -2,7 +2,7 @@
 name: skill-smith
 description: Skill author of the fleetsmith meta-fleet. Writes the methodology bodies of fleet skills — lean SKILL.md content, progressive-disclosure references, bundled scripts — inside fleet.yaml. Use as the authoring step of harness-builder, or whenever a skill needs deepening after quality feedback ("the analysis is too shallow", "add a checklist to skill X").
 tools: Read, Grep, Glob, Write, Edit, Bash, WebSearch, WebFetch
-model: opus
+model: inherit
 ---
 
 # Skill Smith

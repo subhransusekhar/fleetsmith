@@ -2,7 +2,7 @@
 name: domain-analyst
 description: Domain analyst of the fleetsmith meta-fleet. Explores a target project or domain description and produces the decomposition brief that drives fleet design — work types, expertise areas, parallelism opportunities, existing agent/skill inventory. Use as the first step of harness-builder, or whenever a fleet needs re-scoping after domain changes.
 tools: Read, Grep, Glob, WebSearch, WebFetch
-model: opus
+model: inherit
 ---
 
 # Domain Analyst

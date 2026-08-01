@@ -99,8 +99,16 @@ export function normalizeSpec(raw) {
   spec.defaults.model ??= 'inherit';
   spec.defaults.capabilities = { ...DEFAULT_CAPS, ...(spec.defaults.capabilities ?? {}) };
   // Concrete per-target model ids, keyed by abstract tier. Adapters emit model
-  // selection only when the author supplies these — guessing provider strings
-  // produces configs that fail to load.
+  // selection only when the author supplies these; otherwise every agent
+  // inherits the model of whoever invoked it.
+  //
+  // Inheriting is the right default even where a tier *could* be resolved to a
+  // real name. A pinned model overrides the session: a fleet that hardcodes
+  // Opus spawns Opus even when the user deliberately chose something cheaper,
+  // and simply fails where that model is not available on their plan or
+  // provider. Tier stays an intent in the spec; binding it to a name is a
+  // deployment decision the author opts into.
+  spec.defaults.claudeModels = normalizeModelMap(spec.defaults.claudeModels);
   spec.defaults.opencodeModels = normalizeModelMap(spec.defaults.opencodeModels);
   spec.defaults.gooseModels = normalizeModelMap(spec.defaults.gooseModels);
 

@@ -7,6 +7,28 @@ this project follows [semantic versioning](https://semver.org/), and while it is
 pre-1.0 the fleet spec may gain fields in minor releases — existing specs keep
 building, since every new field normalizes to a default.
 
+## [Unreleased]
+
+### Changed — model tiers no longer pin a model
+
+`smart` / `fast` / `cheap` are intents about how much judgment a role needs, and
+they no longer bind to a model name on their own. Every generated agent now emits
+`model: inherit` (and nothing at all on opencode/goose) unless the spec supplies
+`defaults.claudeModels` / `opencodeModels` / `gooseModels`.
+
+Previously the Claude Code adapter resolved `smart` to `opus` unconditionally,
+which made generated fleets fail for anyone without Opus on their plan and
+overrode the model a user had deliberately chosen for the session — the opposite
+of what a tier should mean. opencode and goose already worked this way; Claude
+Code was the inconsistent one.
+
+Supplying a map is the opt-in to pinning. Entries override individual tiers and
+any tier left unnamed falls back to that target's conventional alias.
+`agents[].effort` and `agents[].turns` still give per-role cost control without
+pinning anything.
+
+This repo's own meta-fleet agents were pinned to `opus` and are now `inherit`.
+
 ## [0.4.0] — 2026-08-01
 
 Harness optimizations across all three targets, compiled from the platform and

@@ -24,7 +24,18 @@ const TOOL_MAP = {
   spawn: ['Agent'],
 };
 
-const MODEL_MAP = { smart: 'opus', fast: 'sonnet', cheap: 'haiku', inherit: 'inherit' };
+/**
+ * Abstract tier → concrete Claude Code model alias. Applied ONLY when the spec
+ * supplies `defaults.claudeModels`; otherwise every agent emits `inherit`.
+ *
+ * `model:` in subagent frontmatter is an override, not a preference — an agent
+ * pinned to `opus` spawns Opus even when the session is deliberately running
+ * something cheaper, and fails outright where that model is not on the user's
+ * plan. Since a fleet is meant to be portable across plans, providers, and the
+ * other two targets, the tier stays an intent in the spec and only becomes a
+ * name when an author opts in. Same rule as opencode and goose.
+ */
+const DEFAULT_CLAUDE_MODELS = { smart: 'opus', fast: 'sonnet', cheap: 'haiku' };
 
 /**
  * Abstract effort tiers → Claude Code's `effort` values. The platform has no
@@ -105,7 +116,7 @@ function agentFile(agent, spec, team, index = 0, parallelEditors = new Set()) {
       name: agent.name,
       description: agentDescription(agent, spec),
       tools: tools.join(', '),
-      model: MODEL_MAP[agent.model] ?? 'inherit',
+      model: resolveModel(agent, spec),
       // Preloads skill content into the subagent's context. Note: when the
       // definition is reused as an agent-team teammate, Claude Code ignores
       // this field — the body's "load your skills" instruction covers that path.
@@ -145,6 +156,21 @@ function worktreeClause() {
     '## Isolation',
     'You run in your own git worktree because another agent edits files in the same phase. It branches from the repository default branch, not the caller\'s working tree, so do not assume uncommitted work from earlier phases is present — read what you need from the handoff files. Commands that try to escape the worktree fail rather than touching the main checkout.',
   ].join('\n');
+}
+
+/**
+ * `inherit` unless the spec opted into concrete model names.
+ *
+ * Supplying `defaults.claudeModels` at all is the decision to pin this fleet's
+ * tiers; entries in it override individual tiers, and any tier left unnamed
+ * falls back to the conventional alias. So `{smart: 'claude-opus-5'}` pins
+ * smart to that exact id and still resolves `cheap` to `haiku` — the author
+ * asked for tiering, not for one agent to be special.
+ */
+function resolveModel(agent, spec) {
+  const map = spec.defaults.claudeModels;
+  if (!map) return 'inherit';
+  return map[agent.model] ?? DEFAULT_CLAUDE_MODELS[agent.model] ?? 'inherit';
 }
 
 /**

@@ -35,8 +35,19 @@ The fleet spec is the single tool-agnostic source of truth. `normalizeSpec` fill
 |-----|---------|-------|
 | `model` | `inherit` | tier inherited by every agent |
 | `capabilities` | `{read: true}` | capability defaults for every agent |
-| `opencodeModels` | `null` | map tier → concrete `provider/model-id`, e.g. `{smart: "anthropic/claude-opus-5"}`. opencode needs provider-qualified ids, so tiering is emitted **only** when supplied — fleetsmith never guesses a provider string |
+| `claudeModels` | `null` | map tier → Claude Code alias or id, e.g. `{smart: opus, cheap: haiku}` |
+| `opencodeModels` | `null` | same, using provider-qualified ids: `{smart: "anthropic/claude-opus-5"}` |
 | `gooseModels` | `null` | same, for goose `settings.goose_model` |
+
+### Model tiers are intents, not names
+
+`smart` / `fast` / `cheap` say how much judgment a role needs. They do **not** bind to a model unless you supply the matching map above — without one, every generated agent inherits the model of whatever session or agent invoked it.
+
+That default is deliberate. A pinned model is an override, not a preference: an agent pinned to `opus` spawns Opus even when the user deliberately started a cheaper session, and fails outright where that model is not on their plan or provider. Since the same spec compiles for three tools and any provider behind them, binding a tier to a name is a deployment decision the author opts into rather than something the compiler guesses.
+
+Supplying a map is that opt-in. Entries override individual tiers; tiers you leave out fall back to the conventional alias for that target, so `claudeModels: {smart: claude-opus-5}` still resolves `cheap` to `haiku`.
+
+Cost control that does not require pinning: `agents[].effort` and `agents[].turns` both work on an inherited model.
 
 ## `agents[]`
 
@@ -45,7 +56,7 @@ The fleet spec is the single tool-agnostic source of truth. `normalizeSpec` fill
 | `name` | required | kebab-case; also the subagent/recipe filename |
 | `role` | `''` | one sentence, "who am I" |
 | `goal` | `''` | measurable outcome, feeds description + orchestrator |
-| `model` | `defaults.model` | `smart` / `fast` / `cheap` / `inherit` — mapped per adapter (Claude Code: opus/sonnet/haiku/inherit) |
+| `model` | `defaults.model` | `smart` / `fast` / `cheap` / `inherit` — an intent. Emits `inherit` on every target unless `defaults.<target>Models` binds it (see [Model tiers](#model-tiers-are-intents-not-names)) |
 | `capabilities` | `{read: true}` | `read`, `edit`, `run`, `web`, `spawn` booleans — mapped to Claude Code `tools:` allowlist, opencode `tools:` booleans, goose extensions (+ stated read-only constraint, since goose has no tool-level sandbox) |
 | `skills` | `[]` | names from `skills[]`; compiled prompt instructs the agent to load them |
 | `principles` | `[]` | working principles injected verbatim |

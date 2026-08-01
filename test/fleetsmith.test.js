@@ -285,6 +285,39 @@ test('claude-code emits effort, maxTurns, memory, permissionMode and a stable co
   assert.doesNotMatch(plain, /effort:|maxTurns:|memory:|isolation:/);
 });
 
+test('claude-code agents inherit the session model unless the spec opts into pinning', () => {
+  const raw = {
+    fleet: { name: 'mdl', domain: 'd' },
+    agents: [
+      { name: 'thinker', model: 'smart', handoff: { to: ['worker'] } },
+      { name: 'worker', model: 'cheap', handoff: { to: [] } },
+    ],
+  };
+
+  // Default: no tier is bound to a name. A pinned model overrides the session,
+  // so a fleet that hardcoded opus would spawn opus on a Sonnet session and
+  // fail outright where opus is not on the user's plan.
+  const plain = buildClaudeCode(normalizeSpec(raw), {});
+  assert.match(plain.files.get('.claude/agents/thinker.md'), /^model: inherit$/m);
+  assert.match(plain.files.get('.claude/agents/worker.md'), /^model: inherit$/m);
+
+  // Opting in binds the tiers the author supplied.
+  const pinned = buildClaudeCode(
+    normalizeSpec({ ...raw, defaults: { claudeModels: { smart: 'opus', cheap: 'haiku' } } }),
+    {}
+  );
+  assert.match(pinned.files.get('.claude/agents/thinker.md'), /^model: opus$/m);
+  assert.match(pinned.files.get('.claude/agents/worker.md'), /^model: haiku$/m);
+
+  // A partial map leaves the tiers it does not name on inherit.
+  const partial = buildClaudeCode(
+    normalizeSpec({ ...raw, defaults: { claudeModels: { smart: 'opus' } } }),
+    {}
+  );
+  assert.match(partial.files.get('.claude/agents/thinker.md'), /^model: opus$/m);
+  assert.match(partial.files.get('.claude/agents/worker.md'), /^model: haiku$/m);
+});
+
 test('claude-code isolates concurrent editors in worktrees, unless opted out', () => {
   const raw = {
     fleet: { name: 'par', domain: 'parallel edits' },
@@ -823,8 +856,23 @@ test('workflow reuses the .claude/agents definitions rather than restating them'
   // agentType points at the emitted subagent definition, so prompts/tools/model
   // stay defined in exactly one place
   assert.match(src, /agentType: "first"/);
-  assert.match(src, /model: "haiku"/);
   assert.match(src, /effort: "low"/);
+  // no model override by default — the agent definition and session decide
+  assert.doesNotMatch(src, /model:/);
+
+  // opting in pins the tier
+  const pinned = buildClaudeWorkflow(
+    normalizeSpec({
+      fleet: { name: 'wf', domain: 'd' },
+      defaults: { claudeModels: { cheap: 'haiku' } },
+      agents: [
+        { name: 'first', model: 'cheap', handoff: { to: ['second'], artifact: 'a.md' } },
+        { name: 'second', handoff: { to: [] } },
+      ],
+    }),
+    {}
+  ).files.get('.claude/workflows/run-wf.js');
+  assert.match(pinned, /model: "haiku"/);
   // structured results, so passing work between phases costs no context
   assert.match(src, /schema: SCHEMA_FIRST/);
   // handoff files remain the durable artifact
@@ -983,6 +1031,23 @@ test('skills ship trigger corpora and a fleet-level evals guide', () => {
   const readme = files.files.get('_fleet/evals/README.md');
   assert.match(readme, /fresh session is not optional/);
   assert.match(readme, /edit the `description`, not the prompt/);
+});
+
+test('nothing fleetsmith ships out of the box binds an agent to a named model', () => {
+  // A generated harness has to run on whatever plan and provider the user has.
+  // Emitting a concrete model anywhere without an explicit opt-in would make
+  // the fleet fail for anyone lacking that exact model.
+  for (const pattern of Object.keys(ARCHETYPES)) {
+    const spec = normalizeSpec(archetype(pattern, `p-${pattern}`, 'no pinning'));
+    for (const [p, content] of buildAll(spec, {}).files) {
+      if (p.startsWith('.claude/agents/')) {
+        assert.match(content, /^model: inherit$/m, `${p} pins a model`);
+      }
+      if (p.startsWith('.opencode/agents/') || p.endsWith('.yaml')) {
+        assert.doesNotMatch(content, /^\s*(model|goose_model):\s*\S/m, `${p} pins a model`);
+      }
+    }
+  }
 });
 
 test('generated output is machine-portable: relative paths only, no host-specific references', () => {
