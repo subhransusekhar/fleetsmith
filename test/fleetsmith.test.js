@@ -20,6 +20,8 @@ import { applyOps, canonicalize } from '../src/evolve/patch.js';
 import { runEval, runTriggerTests, runEvalFleets, compare, classifyDelta, calibrate } from '../src/eval/index.js';
 import { judgeSkills, formatJudge, parseVerdict, agreement, CRITERIA } from '../src/eval/judge.js';
 import { runExecCases, formatExec, execStability } from '../src/eval/exec.js';
+import { runContract, ITEM_KINDS } from '../src/memory/port.js';
+import { fileBackend } from '../src/memory/file.js';
 import { computeHealth, formatHealth } from '../src/health/index.js';
 import { addBullet, bump, dedupe, parsePlaybook, renderPlaybook, MAX_BULLETS, MAX_BULLET_CHARS } from '../src/playbook/index.js';
 import { protectedManifest, violations } from '../src/evolve/protected.js';
@@ -3141,4 +3143,103 @@ test('workspace permission uses Edit(path), never the inert Write(path)', () => 
     !scoped.some((a) => a.startsWith('Write(')),
     `scoped Write(...) rules are inert: ${scoped.join(', ')}`
   );
+});
+
+// --- v0.6.0 M1/M2: memory port + file backend -------------------------------
+
+function memFixture() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-mem-'));
+  const spec = normalizeSpec({
+    fleet: { name: 'm' },
+    agents: [{ name: 'analyst', role: 'r' }],
+    skills: [{ name: 's', description: 'd' }],
+  });
+  return { dir, spec, backend: fileBackend({ spec, cwd: dir }) };
+}
+
+test('the file backend satisfies the memory contract', async () => {
+  // One suite, run against every backend, so the file backend and any future
+  // adapter are held to the same behaviour rather than to two test files that
+  // drift apart.
+  const { dir } = memFixture();
+  await runContract(() => {
+    const spec = normalizeSpec({ fleet: { name: 'm' }, agents: [{ name: 'analyst', role: 'r' }] });
+    return fileBackend({ spec, cwd: fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-contract-')) });
+  }, assert);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('recall without a purpose is refused, in every backend', async () => {
+  // The strictest backend rejects purposeless queries outright. Allowing them
+  // here would let the file backend accept what the real one refuses, which is
+  // how a portable interface stops being portable.
+  const { dir, backend } = memFixture();
+  await assert.rejects(() => backend.recall('anything', {}), /purpose/i);
+  await assert.rejects(() => backend.recall('anything', { purpose: '  ' }), /purpose/i);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a lesson written through the port is the same artifact playbook add writes', async () => {
+  const { dir, spec, backend } = memFixture();
+  await backend.remember({
+    kind: 'lesson',
+    text: 'Read the ledger before starting a phase.',
+    subject: 'analyst',
+    origin: 'evolved',
+  });
+  // Not a parallel store: it lands in the committed playbook, in the format
+  // the compiler already reads.
+  const file = path.join(dir, spec.fleet.shared, 'playbooks/analyst.md');
+  assert.ok(fs.existsSync(file));
+  assert.match(fs.readFileSync(file, 'utf8'), /Read the ledger before starting a phase\./);
+  assert.equal(parsePlaybook(fs.readFileSync(file, 'utf8')).length, 1);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('events are not writable through the port', async () => {
+  // A shell script owns that append-only log; a second writer is how a log
+  // gets corrupted.
+  const { dir, backend } = memFixture();
+  await assert.rejects(
+    () => backend.remember({ kind: 'event', text: 'gate_block', origin: 'evolved' }),
+    /recorded by the run logger/
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('forget evicts by utility, and justify stops finding what was forgotten', async () => {
+  const { dir, backend } = memFixture();
+  const { id } = await backend.remember({
+    kind: 'lesson',
+    text: 'A lesson that will prove unhelpful in practice.',
+    subject: 'analyst',
+    origin: 'evolved',
+    evidence: ['feedback: unhelpful'],
+  });
+  await backend.count('analyst', id, 'harmful');
+  await backend.count('analyst', id, 'harmful');
+
+  assert.ok(await backend.justify(id), 'justify finds it before eviction');
+  const { removed } = await backend.forget({ subject: 'analyst', utilityBelow: 0.5 });
+  assert.deepEqual(removed, [id]);
+  assert.equal(await backend.justify(id), null);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('justify returns provenance, not just the text', async () => {
+  const { dir, backend } = memFixture();
+  const { id } = await backend.remember({
+    kind: 'lesson',
+    text: 'Write the handoff before finishing.',
+    subject: 'analyst',
+    origin: 'evolved',
+    evidence: ['gate_block: no handoff file', 'run ada-1'],
+  });
+  const why = await backend.justify(id);
+  // "Why does this exist" is the audit question the DGM lineage argument turns
+  // on; text alone does not answer it.
+  assert.deepEqual(why.evidence, ['gate_block: no handoff file', 'run ada-1']);
+  assert.equal(why.origin, 'evolved');
+  assert.deepEqual(why.counters, { helpful: 1, harmful: 0 });
+  fs.rmSync(dir, { recursive: true, force: true });
 });

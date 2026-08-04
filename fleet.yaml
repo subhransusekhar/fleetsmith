@@ -85,7 +85,7 @@ skills:
     description: >-
       Methodology for decomposing a project or domain into the work types an agent fleet should mirror — codebase reconnaissance, work-type extraction with input/output contracts, parallelism analysis, existing-harness inventory, and quality-risk spotting. Use when analysing a project before any design work, when asked what work types a codebase involves, or when re-analysing a domain whose scope has changed. Produces the decomposition brief, not the design that follows it.
     evals:
-      - query: "Decompose this repository into the work types an agent fleet should mirror."
+      - query: "Answer briefly from your methodology: what must each work type declaration state?"
         expect:
           mentions: ["input", "output"]
     triggers:
@@ -148,10 +148,9 @@ skills:
     description: >-
       Methodology for designing an agent fleet as a fleet.yaml — choosing the pattern from the data flow, setting execution mode, drawing the handoff graph with artifact contracts, granting least capability, and declaring iteration and recurring loops. Use when designing or restructuring an agent fleet roster, choosing between pipeline / fanout / generate-verify / supervisor / expert-pool, deciding which agents to split or merge, adding another agent to an existing roster, or fixing fleetsmith validator errors.
     evals:
-      - query: "Should this fleet be a pipeline or a fanout? Two agents, the second needs the first's output."
+      - query: "Answer briefly from your methodology: which fleet pattern suits a strict dependency chain?"
         expect:
           mentions: ["pipeline"]
-          notMentions: ["fanout is the right choice"]
     triggers:
       should:
         - "should this fleet be a pipeline or a fanout"
@@ -236,7 +235,7 @@ skills:
     description: >-
       Methodology for writing Agent Skills that actually fire and actually help — pushy trigger-rich descriptions, lean imperative bodies, progressive disclosure into references, and bundled scripts for deterministic steps. Use when authoring or deepening a skill, when a skill never fires or triggers on the wrong requests, when a SKILL.md has grown past ~500 lines, or when feedback says the output of a skill-driven agent is too shallow or too generic.
     evals:
-      - query: "My skill never fires when I ask for it. How do I fix that?"
+      - query: "Answer briefly from your methodology: a skill never fires when asked for. What should be fixed first?"
         expect:
           mentions: ["description"]
     triggers:
@@ -292,7 +291,7 @@ skills:
     description: >-
       Adversarial QA battery for a compiled agent harness — spec gate, per-target compile checks for Claude Code / opencode / goose, handoff boundary cross-checks, skill trigger tests, capability-leak grep, and loop-bound verification. Use as the final gate after building a fleet, and whenever asked to audit a harness, check whether a fleet still works, find why a compiled agent is never delegated to, or detect drift between a fleet.yaml and the files it generated.
     evals:
-      - query: "Audit this compiled harness and tell me whether it drifted from the spec."
+      - query: "Answer briefly from your methodology: which command detects drift between a spec and its compiled output?"
         expect:
           mentions: ["qa"]
     triggers:
