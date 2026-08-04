@@ -102,7 +102,7 @@ Between passes, re-run this phase's agent(s) with the **specific failures from t
 
 1. Confirm every ledger row is done/dropped with a reason.
 2. Summarize deliverables + gaps for the user.
-3. Ask one short feedback question ("anything to improve in the result or the fleet workflow?") — if feedback arrives, route it: output quality → the agent's skill; role gaps → agent definition; ordering → this orchestrator; then record the change in the harness changelog.
+3. Ask one short feedback question ("anything to improve in the result or the fleet workflow?") — if feedback arrives, route it: output quality → the agent's skill; role gaps → agent definition; ordering → this orchestrator; then append a row to `_fleet/CHANGELOG.md` recording what changed, where, and why. That file survives rebuilds; CLAUDE.md and AGENTS.md do not.
 
 ## Test scenarios
 

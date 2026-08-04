@@ -13,6 +13,7 @@ import { buildAll, ADAPTERS, DEFAULT_TARGETS } from '../src/adapters/index.js';
 import { buildClaudeWorkflow } from '../src/adapters/claude-workflow.js';
 import { archetype, ARCHETYPES } from '../src/patterns/index.js';
 import { planInstall } from '../src/install.js';
+import { FileSet } from '../src/lib/fs-utils.js';
 import { buildFleetsmithTools, opValidate, opBuild, opInit, opPatterns } from '../src/opencode-plugin.js';
 import { validatorScript } from '../src/adapters/claude-settings.js';
 import YAML from 'yaml';
@@ -1334,4 +1335,81 @@ test('compaction hook re-injects the fleet ledger, and no-ops without one', asyn
   assert.equal(output.context.length, 2);
   assert.match(output.context[1], /LEDGER\.md/);
   assert.match(output.context[1], /scan \| analyst/);
+});
+
+// --- T1: append-aware changelog (preserve file class) -----------------------
+
+test('changelog lives in the workspace, not in the regenerated pointers', () => {
+  const spec = demoSpec();
+  const cc = buildClaudeCode(spec, {});
+  const oc = buildOpencode(spec, {});
+
+  assert.ok(cc.files.has(`${spec.fleet.workspace}/CHANGELOG.md`), 'claude-code emits the workspace changelog');
+  assert.ok(oc.files.has(`${spec.fleet.workspace}/CHANGELOG.md`), 'opencode emits the workspace changelog');
+
+  // The pointers must reference it, never carry the table themselves —
+  // they are regenerated on every build and would destroy recorded history.
+  const claudeMd = cc.files.get('CLAUDE.md');
+  const agentsMd = oc.files.get('AGENTS.md');
+  for (const [name, body] of [['CLAUDE.md', claudeMd], ['AGENTS.md', agentsMd]]) {
+    assert.match(body, /CHANGELOG\.md/, `${name} points at the workspace changelog`);
+    assert.doesNotMatch(body, /Initial fleet build/, `${name} still inlines a changelog row`);
+  }
+});
+
+test('changelog is in the preserve class and survives build --force', () => {
+  const spec = demoSpec();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-preserve-'));
+  const rel = `${spec.fleet.workspace}/CHANGELOG.md`;
+  const abs = path.join(dir, rel);
+
+  buildClaudeCode(spec, {}).write(dir, { force: true });
+  assert.ok(fs.existsSync(abs), 'changelog seeded on first build');
+  assert.ok(spec.fleet.workspace && buildClaudeCode(spec, {}).preserved.has(rel), 'marked preserved');
+
+  // A run (or an evolution proposal) appends a row.
+  const learned = fs.readFileSync(abs, 'utf8') + '| 2026-08-05 | tightened analyst brief | claude-code | evolved | QA found a dead handoff link |\n';
+  fs.writeFileSync(abs, learned);
+
+  // The rebuild that would previously have clobbered it.
+  buildClaudeCode(spec, {}).write(dir, { force: true });
+  assert.equal(fs.readFileSync(abs, 'utf8'), learned, 'build --force destroyed the recorded learning');
+
+  // The explicit opt-out still works.
+  buildClaudeCode(spec, {}).write(dir, { force: true, forcePreserved: true });
+  assert.doesNotMatch(fs.readFileSync(abs, 'utf8'), /tightened analyst brief/, '--force-preserved should reset the file');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('pointers are byte-stable across rebuilds', () => {
+  const spec = demoSpec();
+  // Previously CLAUDE.md/AGENTS.md embedded today's date, so two builds on
+  // different days produced diffs with no spec change behind them.
+  const a = buildAll(spec, { today: '2026-08-04' });
+  const b = buildAll(spec, { today: '2026-09-01' });
+  for (const p of ['CLAUDE.md', 'AGENTS.md']) {
+    assert.equal(a.files.get(p), b.files.get(p), `${p} is not byte-stable across builds`);
+  }
+});
+
+test('buildAll and install carry the preserve flag through merges', () => {
+  const spec = demoSpec();
+  const rel = `${spec.fleet.workspace}/CHANGELOG.md`;
+
+  const all = buildAll(spec, {});
+  assert.ok(all.preserved.has(rel), 'buildAll dropped the preserve flag');
+
+  // Project scope passes the FileSet through, so the flag must still be set
+  // when the CLI writes it.
+  const project = planInstall(all, { scope: 'project' });
+  assert.ok(project.fileSet.preserved.has(rel), 'project install dropped the preserve flag');
+
+  // User scope rebuilds the FileSet with remapped paths; the flag has to
+  // survive that rewrite. (_fleet/ itself is skipped at user scope, so use a
+  // remapped path to exercise the carry.)
+  const synthetic = new FileSet();
+  synthetic.add('.claude/skills/demo/SKILL.md', 'body', { preserve: true });
+  const user = planInstall(synthetic, { scope: 'user', home: '/tmp/nonexistent-home' });
+  assert.equal(user.fileSet.preserved.size, 1, 'user-scope remap dropped the preserve flag');
 });

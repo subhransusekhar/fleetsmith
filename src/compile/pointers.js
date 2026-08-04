@@ -9,7 +9,7 @@
  * Claude Code keeps its own CLAUDE.md pointer (it reads AGENTS.md only via
  * @import or symlink).
  */
-export function agentsMdPointer(spec, today = 'YYYY-MM-DD') {
+export function agentsMdPointer(spec) {
   return `# ${spec.fleet.name} — agent harness
 
 **Goal:** ${spec.fleet.domain || spec.fleet.name}
@@ -28,9 +28,7 @@ Fleet coordination is file-based under \`${spec.fleet.workspace}/\`: handoff doc
 
 ## Changelog
 
-| Date | Change | Target | Reason |
-|------|--------|--------|--------|
-| ${today} | Initial fleet build (fleetsmith) | all | - |
+Harness changes are recorded in \`${spec.fleet.workspace}/CHANGELOG.md\` — append a row there rather than editing this file, which is regenerated on every build.
 `;
 }
 

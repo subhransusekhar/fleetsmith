@@ -1,7 +1,7 @@
 import { FileSet } from '../lib/fs-utils.js';
 import { mdWithFrontmatter } from '../lib/md.js';
 import { compileAgentBody, title } from '../compile/agent-prompt.js';
-import { handoffTemplate, ledgerTemplate } from '../handover/protocol.js';
+import { handoffTemplate, ledgerTemplate, changelogTemplate } from '../handover/protocol.js';
 import { compileOrchestratorBody } from '../compile/orchestrator.js';
 import { agentsMdPointer } from '../compile/pointers.js';
 import { skillEvals, evalsReadme } from '../compile/evals.js';
@@ -72,9 +72,14 @@ export function buildOpencode(spec, options = {}) {
   if (spec.handover.ledger) {
     out.add(`${spec.fleet.workspace}/LEDGER.md`, ledgerTemplate(spec.fleet.name));
   }
+  out.add(
+    `${spec.fleet.workspace}/CHANGELOG.md`,
+    changelogTemplate(spec.fleet.name, options.today),
+    { preserve: true }
+  );
 
   if (options.agentsMd !== false) {
-    out.add('AGENTS.md', agentsMdPointer(spec, options.today));
+    out.add('AGENTS.md', agentsMdPointer(spec));
   }
 
   return out;

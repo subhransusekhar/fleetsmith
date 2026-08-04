@@ -16,6 +16,4 @@ Fleet coordination is file-based under `_fleet/`: handoff documents in `_fleet/h
 
 ## Changelog
 
-| Date | Change | Target | Reason |
-|------|--------|--------|--------|
-| 2026-08-01 | Initial fleet build (fleetsmith) | all | - |
+Harness changes are recorded in `_fleet/CHANGELOG.md` — append a row there rather than editing this file, which is regenerated on every build.

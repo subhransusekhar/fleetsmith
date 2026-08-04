@@ -74,6 +74,31 @@ Never delete rows — mark them dropped with a reason.
 }
 
 /**
+ * The harness changelog — the fleet's own learning record.
+ *
+ * It lives in the workspace, not in CLAUDE.md/AGENTS.md, because those are
+ * regenerated on every build: a changelog kept there is destroyed by the next
+ * `build --force`, taking every recorded learning with it. This file is
+ * emitted in the "preserve" class (seeded once, never overwritten), so rows
+ * appended by a run — or by an evolution proposal — survive rebuilds.
+ */
+export function changelogTemplate(fleetName, today = 'YYYY-MM-DD') {
+  return `# ${fleetName} — Harness Changelog
+
+Append-only record of changes to this harness: what changed, where it landed,
+and why. The orchestrator writes a row whenever feedback is routed into a
+skill, agent, or orchestrator change. Never rewrite history — add a row.
+
+\`Origin\` is \`human\` for hand-authored changes and \`evolved\` for changes
+proposed by an automated evolution cycle.
+
+| Date | Change | Target | Origin | Reason |
+|------|--------|--------|--------|--------|
+| ${today} | Initial fleet build (fleetsmith) | all | human | - |
+`;
+}
+
+/**
  * The protocol block injected into every generated agent prompt.
  * `incoming` / `outgoing` are agent names for context wiring.
  */

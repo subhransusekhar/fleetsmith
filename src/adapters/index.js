@@ -45,7 +45,7 @@ export function buildAll(spec, options = {}) {
         }
         continue;
       }
-      out.add(p, c);
+      out.add(p, c, { preserve: fs.preserved.has(p) });
     }
   }
   return out;

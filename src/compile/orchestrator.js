@@ -93,7 +93,7 @@ export function compileOrchestratorBody(spec, target) {
   s.push('');
   s.push(`1. Confirm every ledger row is done/dropped with a reason.`);
   s.push('2. Summarize deliverables + gaps for the user.');
-  s.push('3. Ask one short feedback question ("anything to improve in the result or the fleet workflow?") — if feedback arrives, route it: output quality → the agent\'s skill; role gaps → agent definition; ordering → this orchestrator; then record the change in the harness changelog.');
+  s.push(`3. Ask one short feedback question ("anything to improve in the result or the fleet workflow?") — if feedback arrives, route it: output quality → the agent's skill; role gaps → agent definition; ordering → this orchestrator; then append a row to \`${spec.fleet.workspace}/CHANGELOG.md\` recording what changed, where, and why. That file survives rebuilds; CLAUDE.md and AGENTS.md do not.`);
 
   if (spec.fleet.schedule) {
     s.push('');

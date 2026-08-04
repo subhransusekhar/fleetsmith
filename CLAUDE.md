@@ -6,7 +6,4 @@
 
 **Handover gate:** `.claude/settings.json` registers a `SubagentStop` hook running `_fleet/scripts/validate-handoff.sh`, which blocks a fleet agent from finishing until its handoff file exists and carries every required section. Note that project-level hooks do not run until this workspace is trusted — until you accept that dialog the gate is silently skipped and the fleet degrades to advisory instructions.
 
-**Changelog:**
-| Date | Change | Target | Reason |
-|------|--------|--------|--------|
-| 2026-08-01 | Initial fleet build (fleetsmith) | all | - |
+**Changelog:** harness changes are recorded in `_fleet/CHANGELOG.md` — append a row there rather than editing this file, which is regenerated on every build.

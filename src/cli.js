@@ -13,7 +13,7 @@ const USAGE = `fleetsmith — meta agent-fleet builder
 Usage:
   fleetsmith init [name] --pattern <p> [--domain "..."] [--out fleet.yaml]
   fleetsmith validate <fleet.yaml>
-  fleetsmith build <fleet.yaml> [--target claude-code|opencode|goose|all] [--out DIR] [--dry-run] [--force]
+  fleetsmith build <fleet.yaml> [--target claude-code|opencode|goose|all] [--out DIR] [--dry-run] [--force] [--force-preserved]
   fleetsmith install <fleet.yaml> [--target ...] [--scope project|user] [--into DIR] [--dry-run] [--force]
   fleetsmith patterns
   fleetsmith version
@@ -93,7 +93,10 @@ function cmdBuild(positional, flags) {
     for (const p of fileSet.list()) console.log(`  ${p}`);
     return;
   }
-  const written = fileSet.write(outDir, { force: !!flags.force });
+  const written = fileSet.write(outDir, {
+    force: !!flags.force,
+    forcePreserved: !!flags['force-preserved'],
+  });
   console.log(`wrote ${written.length} files under ${path.resolve(outDir)} (target: ${target})`);
   for (const p of written) console.log(`  ${p}`);
 }
@@ -112,7 +115,10 @@ function cmdInstall(positional, flags) {
     console.log(`dry run — would install ${planned.files.size} files (scope: ${scope}, target: ${target}) under ${path.resolve(baseDir)}:`);
     for (const p of planned.list()) console.log(`  ${p}`);
   } else {
-    const written = planned.write(baseDir, { force: !!flags.force });
+    const written = planned.write(baseDir, {
+      force: !!flags.force,
+      forcePreserved: !!flags['force-preserved'],
+    });
     console.log(`installed ${written.length} files under ${path.resolve(baseDir)} (scope: ${scope}, target: ${target})`);
     for (const p of written) console.log(`  ${p}`);
   }
