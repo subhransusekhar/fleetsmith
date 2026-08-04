@@ -18,7 +18,7 @@ import { FileSet } from '../src/lib/fs-utils.js';
 import { runQa, formatQa } from '../src/qa/index.js';
 import { applyOps, canonicalize } from '../src/evolve/patch.js';
 import { runEval, runTriggerTests, runEvalFleets, compare, classifyDelta, calibrate } from '../src/eval/index.js';
-import { computeHealth } from '../src/health/index.js';
+import { computeHealth, formatHealth } from '../src/health/index.js';
 import { addBullet, bump, dedupe, parsePlaybook, renderPlaybook, MAX_BULLETS, MAX_BULLET_CHARS } from '../src/playbook/index.js';
 import { protectedManifest, violations } from '../src/evolve/protected.js';
 import { evolve, selectTargets, buildDossier } from '../src/evolve/loop.js';
@@ -2579,4 +2579,94 @@ skills:
   assert.match(doc, /claiming invoice-rendering vocabulary/, 'the rationale must survive into the proposal');
   assert.match(doc, /not merged/i);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// --- test-debt closure: ops and criteria the audit found unasserted ---------
+
+test('repair-skill and add-validator apply to evolved targets', () => {
+  const src = evolvedSpecSource();
+
+  // repair-skill: same shape as update-skill-body, distinct op so a rule can
+  // trigger on "this was repaired" separately from "this was rewritten".
+  const repaired = applyOps(src, [{ op: 'repair-skill', target: 'learned', body: 'repaired body\n' }]);
+  assert.match(repaired.source, /repaired body/);
+  assert.equal(normalizeSpec(YAML.parse(repaired.source)).skills.find((s) => s.name === 'learned').body.trim(), 'repaired body');
+
+  // add-validator appends eval cases; SkillOps triggers it on a Validation-Gap.
+  const withCases = applyOps(src, [
+    { op: 'add-validator', target: 'learned', payload: { cases: [{ query: 'calibrate the widget', expect: 'invokes learned' }] } },
+  ]);
+  const evals = YAML.parse(withCases.source).skills.find((s) => s.name === 'learned').evals;
+  assert.equal(evals.length, 1);
+  assert.equal(evals[0].query, 'calibrate the widget');
+
+  // Both refuse protected targets, like every other skill op.
+  for (const op of ['repair-skill', 'add-validator']) {
+    assert.throws(
+      () => applyOps(src, [{ op, target: 'handwritten', body: 'x', payload: { cases: [{ q: 1 }] } }]),
+      /protected/,
+      `${op} must respect the protected set`
+    );
+  }
+});
+
+test('add-validator refuses an empty case list', () => {
+  // A validator that validates nothing closes the Validation-Gap metric
+  // without closing the gap — worse than leaving it open, because it stops
+  // being reported.
+  assert.throws(
+    () => applyOps(evolvedSpecSource(), [{ op: 'add-validator', target: 'learned', payload: { cases: [] } }]),
+    /needs payload\.cases/
+  );
+});
+
+test('health flags a skill nothing references as unused', () => {
+  const spec = normalizeSpec({
+    fleet: { name: 'h' },
+    agents: [{ name: 'a', role: 'r', skills: ['used'] }],
+    skills: [
+      { name: 'used', description: 'd', body: 'alpha beta gamma delta' },
+      { name: 'orphan', description: 'd', body: 'entirely different words here' },
+    ],
+    orchestrator: { name: 'run-h', phases: [{ name: 'W', agents: ['a'] }] },
+  });
+  const runs = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-unused-'));
+  fs.mkdirSync(path.join(runs, 'ada-1'), { recursive: true });
+  fs.writeFileSync(
+    path.join(runs, 'ada-1/events.jsonl'),
+    `${JSON.stringify({ run_id: 'ada-1', event: 'gate_pass', agent: 'a' })}\n`
+  );
+
+  const h = computeHealth(spec, { runsDir: runs });
+  // Dead weight regardless of how well written it is.
+  assert.equal(h.skills.orphan.utility, 0, 'a skill nothing references has no utility');
+  assert.deepEqual(h.skills.orphan.usedBy, []);
+  assert.ok(h.skills.used.utility > 0);
+  assert.match(formatHealth(h), /\(unused\)/, 'the report must name it, not just score it');
+
+  fs.rmSync(runs, { recursive: true, force: true });
+});
+
+test('learned notes reach all three targets, not just Claude Code', () => {
+  // The three adapters share compileAgentBody, but "shares a function today"
+  // is not the accept criterion — a target could stop threading the option.
+  const spec = normalizeSpec({
+    fleet: { name: 'p' },
+    agents: [{ name: 'a', role: 'r' }],
+    orchestrator: { name: 'run-p', phases: [{ name: 'W', agents: ['a'] }] },
+  });
+  const { bullets } = addBullet('a', [], 'Check the ledger before starting a phase.');
+  const opts = { playbooks: { a: bullets } };
+
+  const surfaces = [
+    ['claude-code', buildClaudeCode(spec, opts).files.get('.claude/agents/a.md')],
+    ['opencode', buildOpencode(spec, opts).files.get('.opencode/agents/a.md')],
+    ['goose', buildGoose(spec, opts).files.get('.goose/recipes/a.yaml')],
+  ];
+  for (const [target, body] of surfaces) {
+    assert.ok(body, `${target} emitted no agent file`);
+    assert.match(body, /Learned notes \(advisory, machine-authored\)/, `${target} dropped the learned-notes section`);
+    assert.match(body, /Check the ledger before starting a phase\./, `${target} dropped the bullet`);
+    assert.match(body, /references, not rules/i, `${target} dropped the advisory framing`);
+  }
 });
