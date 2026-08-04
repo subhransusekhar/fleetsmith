@@ -6,6 +6,7 @@ import { runQa } from '../qa/index.js';
 import { runEval, classifyDelta } from '../eval/index.js';
 import { applyOps, PatchError } from './patch.js';
 import { violations, CAPS } from './protected.js';
+import { AUTO_APPLY, decisionDigest, readDecisions } from './promote.js';
 
 /**
  * The evolution loop: OBSERVE -> EVALUATE -> MUTATE -> VALIDATE -> PROMOTE.
@@ -38,9 +39,6 @@ import { violations, CAPS } from './protected.js';
  *  4. The proposer is injected, so the loop is testable without a model and
  *     cannot silently acquire a network dependency.
  */
-
-/** Ops safe to apply without asking, because a validator fully decides them. */
-export const AUTO_APPLY = new Set(['update-bullet-counter', 'add-validator']);
 
 export async function evolve(spec, opts = {}) {
   const {
@@ -91,13 +89,17 @@ export async function evolve(spec, opts = {}) {
     return { status: 'skipped', health, log };
   }
 
+  // What the reviewer has been declining. Feeding this back is the only
+  // mechanism that reduces review volume over time rather than just capping it.
+  const digest = decisionDigest(readDecisions(spec, cwd));
+
   const proposals = [];
   for (const target of candidates.slice(0, budget)) {
     const dossier = buildDossier({ spec, target, health, qa, evalResult, runsDir });
 
     let ops;
     try {
-      ops = await propose({ target, dossier, caps: CAPS, spec });
+      ops = await propose({ target, dossier: dossier + digest, caps: CAPS, spec });
     } catch (e) {
       say(`proposer failed for ${target.name}: ${e.message}`);
       continue;

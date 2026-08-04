@@ -22,6 +22,7 @@ import { computeHealth, formatHealth } from '../src/health/index.js';
 import { addBullet, bump, dedupe, parsePlaybook, renderPlaybook, MAX_BULLETS, MAX_BULLET_CHARS } from '../src/playbook/index.js';
 import { protectedManifest, violations } from '../src/evolve/protected.js';
 import { evolve, selectTargets, buildDossier } from '../src/evolve/loop.js';
+import { rankProposals, rejectionRates, decisionDigest, readDecisions, recordDecision, decisionsPath, canaryStatus, AUTO_APPLY } from '../src/evolve/promote.js';
 import { parseOps, buildPrompt } from '../src/evolve/proposer.js';
 import { buildFleetsmithTools, opValidate, opBuild, opInit, opPatterns } from '../src/opencode-plugin.js';
 import { validatorScript } from '../src/adapters/claude-settings.js';
@@ -2669,4 +2670,145 @@ test('learned notes reach all three targets, not just Claude Code', () => {
     assert.match(body, /Check the ledger before starting a phase\./, `${target} dropped the bullet`);
     assert.match(body, /references, not rules/i, `${target} dropped the advisory framing`);
   }
+});
+
+// --- T13: promotion, decision log, canary -----------------------------------
+
+test('proposals rank by measured delta times stated confidence', () => {
+  const ranked = rankProposals([
+    { branch: 'a', ops: [{ op: 'update-skill-body', confidence: 0.2 }], delta: { delta: 0.4 } },
+    { branch: 'b', ops: [{ op: 'update-skill-body', confidence: 0.9 }], delta: { delta: 0.3 } },
+    { branch: 'c', ops: [{ op: 'update-skill-body', confidence: 0.9 }], delta: { delta: 0.05 } },
+  ]);
+  // A big change proposed with low confidence and a small one proposed with
+  // high confidence are different asks; reviewer attention is the scarce thing.
+  assert.deepEqual(ranked.map((p) => p.branch), ['b', 'a', 'c']);
+});
+
+test('the reviewer history deprioritizes categories that keep being rejected', () => {
+  const history = [
+    { ops: ['add-skill'], verdict: 'reject' },
+    { ops: ['add-skill'], verdict: 'reject' },
+    { ops: ['add-skill'], verdict: 'reject' },
+    { ops: ['update-skill-body'], verdict: 'accept' },
+    { ops: ['update-skill-body'], verdict: 'accept' },
+    { ops: ['update-skill-body'], verdict: 'accept' },
+  ];
+  const rates = rejectionRates(history);
+  assert.equal(rates.get('add-skill'), 1);
+  assert.equal(rates.get('update-skill-body'), 0);
+
+  // An op with a rejected history ranks below an equal one without.
+  const ranked = rankProposals(
+    [
+      { branch: 'declined', ops: [{ op: 'add-skill', confidence: 0.9 }], delta: { delta: 0.3 } },
+      { branch: 'welcome', ops: [{ op: 'update-skill-body', confidence: 0.9 }], delta: { delta: 0.3 } },
+    ],
+    history
+  );
+  assert.equal(ranked[0].branch, 'welcome');
+
+  // And the proposer is told, so it stops spending calls on them.
+  const digest = decisionDigest(history);
+  assert.match(digest, /consistently declined these operation types: add-skill/);
+  assert.doesNotMatch(digest, /update-skill-body/);
+});
+
+test('rejection learning needs a real sample, not one bad afternoon', () => {
+  // Two rejections out of two is not evidence a category is unwanted; letting
+  // it count would permanently disable an op on a whim.
+  const rates = rejectionRates([
+    { ops: ['add-skill'], verdict: 'reject' },
+    { ops: ['add-skill'], verdict: 'reject' },
+  ]);
+  assert.equal(rates.has('add-skill'), false);
+  assert.equal(decisionDigest([{ ops: ['add-skill'], verdict: 'reject' }]), '');
+});
+
+test('decisions round-trip through an append-only log', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-decisions-'));
+  const spec = normalizeSpec({ fleet: { name: 'd' }, agents: [{ name: 'a', role: 'r' }] });
+
+  recordDecision(spec, { ts: '1', branch: 'x', ops: ['add-skill'], verdict: 'reject', reason: 'too speculative' }, dir);
+  recordDecision(spec, { ts: '2', branch: 'y', ops: ['update-skill-body'], verdict: 'accept', generation: 1 }, dir);
+
+  const back = readDecisions(spec, dir);
+  assert.equal(back.length, 2);
+  assert.equal(back[0].reason, 'too speculative');
+  assert.equal(back[1].generation, 1);
+
+  // One record per line is what lets two developers merge this file.
+  const raw = fs.readFileSync(path.join(dir, decisionsPath(spec)), 'utf8');
+  assert.equal(raw.trim().split('\n').length, 2);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('canary keeps a generation provisional, and catches a regression CI could not', () => {
+  const baseline = { runs: 10, aggregate: 0.2 };
+
+  // Not enough evidence yet.
+  assert.equal(canaryStatus(baseline, { runs: 11, aggregate: 0.2 }).state, 'provisional');
+  // Enough clean runs.
+  assert.equal(canaryStatus(baseline, { runs: 14, aggregate: 0.18 }).state, 'confirmed');
+  // Health worsened: passes every deterministic check but makes real runs
+  // worse, which is exactly what the canary stage exists for.
+  const bad = canaryStatus(baseline, { runs: 14, aggregate: 0.35 });
+  assert.equal(bad.state, 'regressed');
+  assert.match(bad.detail, /revert the generation tag/);
+});
+
+test('only fully-decidable ops are on the auto-apply whitelist', () => {
+  // The whitelist is what keeps the review queue short enough to actually be
+  // read, so what is on it matters more than its size.
+  for (const op of ['update-bullet-counter', 'add-validator']) assert.ok(AUTO_APPLY.has(op));
+  for (const op of ['update-skill-body', 'update-skill-description', 'add-skill', 'retire-skill', 'contract-change']) {
+    assert.ok(!AUTO_APPLY.has(op), `${op} changes meaning and must be reviewed`);
+  }
+});
+
+test('git revert of a generation tag restores the prior harness', () => {
+  // The rollback story SkillOps and SkillOS explicitly lack, and which being
+  // file-based and git-versioned gives us for free. Documented is not enough:
+  // a rollback nobody has run is a rollback that does not work.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-revert-'));
+  const git = (...args) => spawnSync('git', args, { cwd: dir, encoding: 'utf8' });
+  if (git('init', '-q').status !== 0) {
+    // No usable git here; skip rather than fail the suite for the environment.
+    fs.rmSync(dir, { recursive: true, force: true });
+    return;
+  }
+  git('config', 'user.email', 'test@example.com');
+  git('config', 'user.name', 'test');
+
+  const specFile = path.join(dir, 'fleet.yaml');
+  const spec0 = {
+    fleet: { name: 'demo', pattern: 'pipeline' },
+    agents: [{ name: 'alpha', role: 'does things', skills: ['learned'] }],
+    skills: [{ name: 'learned', origin: 'evolved', description: 'Widget calibration methodology.', body: 'original body\n' }],
+  };
+  fs.writeFileSync(specFile, YAML.stringify(spec0));
+  const reload = () => normalizeSpec(YAML.parse(fs.readFileSync(specFile, 'utf8')));
+  const build = () => buildAll(reload(), {}).write(dir, { force: true });
+
+  build();
+  git('add', '-A');
+  git('commit', '-qm', 'baseline');
+
+  // An accepted generation.
+  const { source } = applyOps(fs.readFileSync(specFile, 'utf8'), [
+    { op: 'update-skill-body', target: 'learned', body: 'evolved body\n' },
+  ]);
+  fs.writeFileSync(specFile, source);
+  build();
+  git('add', '-A');
+  git('commit', '-qm', 'evolve(learned)');
+  git('tag', 'fleet-gen/1');
+  assert.match(fs.readFileSync(path.join(dir, '.claude/skills/learned/SKILL.md'), 'utf8'), /evolved body/);
+
+  // The documented rollback.
+  assert.equal(git('revert', '--no-edit', 'fleet-gen/1').status, 0);
+  assert.match(fs.readFileSync(path.join(dir, '.claude/skills/learned/SKILL.md'), 'utf8'), /original body/);
+  assert.ok(runQa(reload(), { builtDir: dir }).pass, 'the reverted harness must still be valid');
+
+  fs.rmSync(dir, { recursive: true, force: true });
 });

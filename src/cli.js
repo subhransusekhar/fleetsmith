@@ -10,6 +10,7 @@ import { runQa, formatQa } from './qa/index.js';
 import { applyOps, canonicalize, OPS } from './evolve/patch.js';
 import { protectedManifest, violations } from './evolve/protected.js';
 import { evolve } from './evolve/loop.js';
+import { rankProposals, readDecisions, recordDecision, canaryStatus, AUTO_APPLY } from './evolve/promote.js';
 import { claudeProposer } from './evolve/proposer.js';
 import { runEval, formatEval, calibrate, classifyDelta } from './eval/index.js';
 import { computeHealth, formatHealth } from './health/index.js';
@@ -25,6 +26,7 @@ Usage:
   fleetsmith validate <fleet.yaml>
   fleetsmith qa <fleet.yaml> [--built DIR] [--target ...]
   fleetsmith evolve <fleet.yaml> [--budget N] [--apply] [--model M] [--force]
+  fleetsmith evolve <fleet.yaml> --review [--accept BRANCH | --reject BRANCH --reason R]
   fleetsmith protected <fleet.yaml> [--check-diff BASE] [--json FILE]
   fleetsmith health <fleet.yaml> [--json FILE]
   fleetsmith playbook <fleet.yaml> add|helpful|harmful|dedupe|show <agent> [text|id]
@@ -331,6 +333,7 @@ function loadPlaybooks(spec) {
 async function cmdEvolve(positional, flags) {
   const specFile = positional[0];
   const spec = loadSpec(specFile);
+  if (flags.review || flags.accept || flags.reject) return cmdReview(spec, flags);
   const noisePath = path.join(spec.fleet.shared, 'evals/noise.json');
 
   const result = await evolve(spec, {
@@ -362,13 +365,109 @@ async function cmdEvolve(positional, flags) {
     console.log('no candidate survived validation — nothing to review');
     return;
   }
-  console.log(`${result.survivors.length} proposal(s) awaiting review:`);
-  for (const s of result.survivors) {
-    console.log(`  ${s.branch}`);
-    console.log(`    ${s.proposal}`);
+  // Whitelist-only proposals never reach a human: their correctness is
+  // mechanically decided, and a short review queue is what keeps review real.
+  const ranked = rankProposals(result.survivors, readDecisions(spec));
+  const auto = flags.apply ? ranked.filter((p) => p.ops.every((o) => AUTO_APPLY.has(o.op))) : [];
+  for (const p of auto) {
+    execFileSync('git', ['merge', '--no-ff', '-m', `evolve: auto-apply ${p.ops.map((o) => o.op).join(', ')}`, p.branch]);
+    recordDecision(spec, {
+      ts: new Date().toISOString(),
+      branch: p.branch,
+      target: p.target.name,
+      ops: p.ops.map((o) => o.op),
+      verdict: 'auto-apply',
+      delta: p.delta?.delta ?? null,
+    });
+    console.log(`auto-applied ${p.branch} (all ops on the whitelist)`);
+  }
+
+  const queued = ranked.filter((p) => !auto.includes(p));
+  if (queued.length === 0) return;
+
+  console.log(`${queued.length} proposal(s) awaiting review, most promising first:`);
+  for (const [i, p] of queued.entries()) {
+    console.log(`  ${i + 1}. ${p.branch}`);
+    console.log(`     score ${p.score.toFixed(3)} (delta ${(p.delta?.delta ?? 0).toFixed(3)} x confidence ${p.confidence.toFixed(2)})`);
+    console.log(`     ${p.proposal}`);
   }
   console.log('');
-  console.log('Review the diff, then merge or delete the branch. Nothing was merged.');
+  console.log('Nothing was merged. Review one at a time:');
+  console.log(`  fleetsmith evolve ${specFile} --review`);
+}
+
+/**
+ * Present proposals one at a time and record the verdict.
+ *
+ * One at a time is the point, not a limitation: a reviewer handed a batch
+ * approves the batch. Every decision is logged so the proposer can stop
+ * suggesting categories this reviewer keeps declining.
+ */
+function cmdReview(spec, flags) {
+  const history = readDecisions(spec);
+
+  if (flags.accept) {
+    execFileSync('git', ['merge', '--no-ff', '-m', `evolve: accept ${flags.accept}`, flags.accept]);
+    const gen = history.filter((d) => d.verdict === 'accept').length + 1;
+    execFileSync('git', ['tag', `fleet-gen/${gen}`]);
+    recordDecision(spec, {
+      ts: new Date().toISOString(),
+      branch: flags.accept,
+      ops: [],
+      verdict: 'accept',
+      generation: gen,
+      reason: flags.reason ?? '',
+    });
+    console.log(`merged ${flags.accept} and tagged fleet-gen/${gen}`);
+    console.log(`Provisional until later runs confirm no regression. Rollback: git revert fleet-gen/${gen}`);
+    return;
+  }
+
+  if (flags.reject) {
+    const ops = proposalOps(spec, flags.reject);
+    try {
+      execFileSync('git', ['branch', '-D', flags.reject]);
+    } catch {
+      /* already gone */
+    }
+    recordDecision(spec, {
+      ts: new Date().toISOString(),
+      branch: flags.reject,
+      ops,
+      verdict: 'reject',
+      reason: flags.reason ?? '',
+    });
+    console.log(`rejected ${flags.reject}${flags.reason ? ` — ${flags.reason}` : ''}`);
+    console.log('Recorded; this op category will be deprioritized in later proposals.');
+    return;
+  }
+
+  // No verdict given: show the next thing to look at, and only that.
+  const branches = execFileSync('git', ['branch', '--list', 'fleet-evolve/*'], { encoding: 'utf8' })
+    .split('\n')
+    .map((b) => b.replace('*', '').trim())
+    .filter(Boolean);
+  if (branches.length === 0) {
+    console.log('no proposals awaiting review');
+    return;
+  }
+  const next = branches[0];
+  console.log(`Next proposal: ${next}\n`);
+  console.log(execFileSync('git', ['diff', '--stat', `main...${next}`], { encoding: 'utf8' }));
+  console.log('Accept:  fleetsmith evolve <spec> --accept ' + next);
+  console.log('Reject:  fleetsmith evolve <spec> --reject ' + next + ' --reason "..."');
+}
+
+/** Recover the op list from a proposal doc, so a rejection records what was declined. */
+function proposalOps(spec, branch) {
+  const dir = path.join(spec.fleet.shared, 'evolution/proposals');
+  if (!fs.existsSync(dir)) return [];
+  for (const f of fs.readdirSync(dir)) {
+    const body = fs.readFileSync(path.join(dir, f), 'utf8');
+    if (!body.includes(branch)) continue;
+    return [...body.matchAll(/- \*\*([a-z-]+)\*\*/g)].map((m) => m[1]);
+  }
+  return [];
 }
 
 function cmdProtected(positional, flags) {
