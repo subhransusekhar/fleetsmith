@@ -5,7 +5,6 @@
       "Read",
       "Grep",
       "Glob",
-      "Write(_fleet/**)",
       "Edit(_fleet/**)",
       "Write",
       "Edit",

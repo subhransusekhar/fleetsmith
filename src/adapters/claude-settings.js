@@ -35,7 +35,14 @@ export function settingsJson(spec, { validatorPath }) {
 
   const allow = ['Read', 'Grep', 'Glob'];
   // Every agent writes handoffs and ledger rows, even read-only ones.
-  allow.push(`Write(${spec.fleet.workspace}/**)`, `Edit(${spec.fleet.workspace}/**)`);
+  //
+  // `Edit(path)` only — NOT `Write(path)`. Claude Code matches scoped file
+  // permissions against Edit rules alone, and an Edit rule covers every
+  // file-editing tool including Write. A `Write(path)` entry is silently
+  // inert, which showed up as agents stalling on permission prompts for the
+  // one directory the fleet is supposed to own. Found by live case execution;
+  // no static check could see it, because the rule is well-formed.
+  allow.push(`Edit(${spec.fleet.workspace}/**)`);
   if (anyEdit) allow.push('Write', 'Edit');
   if (anyRun) allow.push('Bash');
   if (anyWeb) allow.push('WebSearch', 'WebFetch');

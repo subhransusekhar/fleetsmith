@@ -309,6 +309,28 @@ function normalizeSkill(s) {
     // Trigger-test corpus. Whether a skill fires is a separate property from
     // whether its output is good, and only prompts can measure the former.
     triggers: normalizeTriggers(s.triggers),
+    // Output-quality cases, executed only by `fleetsmith eval --exec` and
+    // never by anything that gates. Written AFTER watching the skill run once:
+    // assertions drafted in advance tend to describe the skill you imagined.
+    evals: (Array.isArray(s.evals) ? s.evals : []).map(normalizeEvalCase),
+  };
+}
+
+/**
+ * One output-quality case. `expect` holds deterministic assertions; `grade`
+ * opts a case into model grading, which is off by default because a
+ * deterministic assertion that can be written is always the better one.
+ */
+function normalizeEvalCase(c) {
+  const e = c?.expect ?? {};
+  return {
+    query: String(c?.query ?? ''),
+    expect: {
+      mentions: toArray(e.mentions).map(String),
+      notMentions: toArray(e.notMentions ?? e.not_mentions).map(String),
+      file: e.file ? String(e.file) : null,
+    },
+    grade: c?.grade === 'llm' ? 'llm' : null,
   };
 }
 

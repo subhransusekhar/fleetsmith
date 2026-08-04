@@ -14,6 +14,7 @@ import { rankProposals, readDecisions, recordDecision, canaryStatus, AUTO_APPLY 
 import { claudeProposer } from './evolve/proposer.js';
 import { runEval, formatEval, calibrate, classifyDelta } from './eval/index.js';
 import { judgeSkills, formatJudge, claudeJudge, agreement, CRITERIA } from './eval/judge.js';
+import { runExecCases, formatExec, execStability } from './eval/exec.js';
 import { computeHealth, formatHealth } from './health/index.js';
 import { parsePlaybook, renderPlaybook, addBullet, bump, dedupe } from './playbook/index.js';
 import { ADAPTERS, buildAll, DEFAULT_TARGETS } from './adapters/index.js';
@@ -33,6 +34,7 @@ Usage:
   fleetsmith playbook <fleet.yaml> add|helpful|harmful|dedupe|show <agent> [text|id]
   fleetsmith eval <fleet.yaml> [--stage 1|2|3] [--fleets DIR] [--baseline FILE] [--calibrate] [--json FILE]
   fleetsmith eval <fleet.yaml> --judge [--ratings FILE] [--model M]   (advisory; gates nothing)
+  fleetsmith eval <fleet.yaml> --exec [--target T] [--repeat N] [--fresh]  (live sessions; gates nothing)
   fleetsmith migrate-workspace <fleet.yaml> [--dry-run]
   fleetsmith patch <fleet.yaml> --ops ops.json [--dry-run] [--allow-contract-change]
   fleetsmith build <fleet.yaml> [--target claude-code|opencode|goose|all] [--out DIR] [--dry-run] [--force] [--force-preserved]
@@ -540,6 +542,26 @@ function cmdEval(positional, flags) {
     console.log(noise.note);
     console.log(`wrote ${out}`);
     return;
+  }
+
+  if (flags.exec) {
+    // A separate path that returns before any exit-code logic, for the same
+    // reason as --judge: a promotion gate must be reproducible in CI with no
+    // model available, and live execution is none of those things.
+    const target = flags.target ?? 'claude-code';
+    const repeat = Number(flags.repeat ?? 1);
+    const runs = [];
+    for (let i = 0; i < repeat; i++) runs.push(runExecCases(spec, { target, fresh: !!flags.fresh }));
+    console.log(formatExec(runs[0]));
+    if (repeat > 1) {
+      const st = execStability(runs);
+      console.log('');
+      console.log(`stability over ${st.runs} runs: ${st.flipped}/${st.cases} case(s) flipped (floor ${st.floor.toFixed(3)})`);
+      if (st.unstable.length) console.log(`  unstable: ${st.unstable.join(', ')}`);
+      console.log('  A delta smaller than this floor is not a result.');
+    }
+    if (flags.json) fs.writeFileSync(flags.json, `${JSON.stringify(runs, null, 2)}\n`);
+    return; // no process.exitCode is set on this path, by design
   }
 
   if (flags.judge) {

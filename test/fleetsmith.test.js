@@ -19,6 +19,7 @@ import { runQa, formatQa } from '../src/qa/index.js';
 import { applyOps, canonicalize } from '../src/evolve/patch.js';
 import { runEval, runTriggerTests, runEvalFleets, compare, classifyDelta, calibrate } from '../src/eval/index.js';
 import { judgeSkills, formatJudge, parseVerdict, agreement, CRITERIA } from '../src/eval/judge.js';
+import { runExecCases, formatExec, execStability } from '../src/eval/exec.js';
 import { computeHealth, formatHealth } from '../src/health/index.js';
 import { addBullet, bump, dedupe, parsePlaybook, renderPlaybook, MAX_BULLETS, MAX_BULLET_CHARS } from '../src/playbook/index.js';
 import { protectedManifest, violations } from '../src/evolve/protected.js';
@@ -499,7 +500,8 @@ test('claude-code emits a settings allowlist and a SubagentStop gate', () => {
 
   // allowlist follows declared capabilities; handoff writes are always scoped in
   assert.ok(settings.permissions.allow.includes('Read'));
-  assert.ok(settings.permissions.allow.includes('Write(_fleet/**)'));
+  // Edit(path), not Write(path) — see the dedicated test below for why.
+  assert.ok(settings.permissions.allow.includes('Edit(_fleet/**)'));
   assert.ok(settings.permissions.allow.includes('Bash')); // builder/reviewer run
 
   const gate = settings.hooks.SubagentStop[0];
@@ -3045,4 +3047,98 @@ test('agreement uses kappa, because raw agreement is inflated by base rates', ()
   assert.equal(a.perCriterion['failure-modes'].raw, 0.9, 'raw agreement looks fine');
   assert.equal(a.perCriterion['failure-modes'].kappa, 0, 'kappa exposes that it carries no information');
   assert.equal(a.trustworthy, false);
+});
+
+// --- T16 (#26): live case execution, deliberately outside the gate ----------
+
+test('no gate path can reach live execution', () => {
+  // A promotion gate must be reproducible in CI with no model, no API key, and
+  // no wall-clock cost. Live execution is none of those, so the separation is
+  // structural rather than a flag: runEval must not import or call it.
+  for (const file of ['src/eval/index.js', 'src/qa/index.js', 'src/evolve/loop.js']) {
+    const src = fs.readFileSync(fileURLToPath(new URL(`../${file}`, import.meta.url)), 'utf8');
+    assert.doesNotMatch(src, /from\s+['"].*exec\.js/, `${file} imports the executor`);
+    assert.doesNotMatch(src, /\b(runExecCases|execStability)\s*\(/, `${file} calls the executor`);
+  }
+  // And the CLI's --exec path must not set an exit code.
+  const cli = fs.readFileSync(fileURLToPath(new URL('../src/cli.js', import.meta.url)), 'utf8').replace(/\r\n/g, '\n');
+  const block = cli
+    .slice(cli.indexOf('if (flags.exec)'), cli.indexOf('if (flags.judge)'))
+    .split('\n')
+    .map((l) => l.replace(/\/\/.*$/, ''))
+    .join('\n');
+  assert.ok(block.length > 0, 'exec path not found');
+  assert.doesNotMatch(block, /process\.exitCode/, 'the --exec path must not set an exit code');
+});
+
+test('a case that could not run is skipped, never passed', () => {
+  // Silent skips are how a suite reports green while measuring nothing.
+  const spec = normalizeSpec({
+    fleet: { name: 'e' },
+    agents: [{ name: 'a', role: 'r' }],
+    skills: [{ name: 's', description: 'd', evals: [{ query: 'do the thing', expect: { mentions: ['x'] } }] }],
+  });
+  const out = runExecCases(spec, {
+    target: 'claude-code',
+    run: () => {
+      throw new Error('runner exploded');
+    },
+  });
+  assert.equal(out.results[0].status, 'skipped');
+  assert.equal(out.ran, 0);
+  assert.equal(out.skipped, 1);
+  assert.match(formatExec(out), /Skipped cases were NOT measured\. They are not passes\./);
+  // status is a string, not a boolean, so a truthiness check cannot mistake
+  // "skipped" for a pass.
+  assert.equal(typeof out.results[0].status, 'string');
+});
+
+test('deterministic assertions decide a live case', () => {
+  const spec = normalizeSpec({
+    fleet: { name: 'e' },
+    agents: [{ name: 'a', role: 'r' }],
+    skills: [
+      {
+        name: 's',
+        description: 'd',
+        evals: [{ query: 'q', expect: { mentions: ['pipeline'], notMentions: ['fanout'] } }],
+      },
+    ],
+  });
+  const pass = runExecCases(spec, { run: () => 'use a pipeline here', cwd: os.tmpdir() });
+  assert.equal(pass.results[0].status, 'pass');
+
+  const fail = runExecCases(spec, { run: () => 'use a fanout here', cwd: os.tmpdir() });
+  assert.equal(fail.results[0].status, 'fail');
+  assert.match(fail.results[0].detail, /missing expected mention: "pipeline"/);
+  assert.match(fail.results[0].detail, /forbidden mention: "fanout"/);
+});
+
+test('exec stability measures a floor for a stochastic suite', () => {
+  // The deterministic suites measured 0.000, which is meaningless here: live
+  // runs vary, and until the floor is measured a delta says nothing.
+  const mk = (statuses) => ({ results: statuses.map((s, i) => ({ skill: 's', query: `q${i}`, status: s })) });
+  const st = execStability([mk(['pass', 'pass', 'fail']), mk(['pass', 'fail', 'fail'])]);
+  assert.equal(st.cases, 3);
+  assert.equal(st.flipped, 1);
+  assert.equal(st.floor, 1 / 3);
+  assert.deepEqual(st.unstable, ['s::q1']);
+});
+
+test('workspace permission uses Edit(path), never the inert Write(path)', () => {
+  // Claude Code matches scoped file permissions against Edit rules only; an
+  // Edit rule covers every file-editing tool including Write. A Write(path)
+  // entry is well-formed and silently does nothing, which surfaced as agents
+  // stalling on permission prompts for their own workspace.
+  const spec = demoSpec();
+  const settings = JSON.parse(buildClaudeCode(spec, {}).files.get('.claude/settings.json'));
+  const scoped = settings.permissions.allow.filter((a) => a.includes('('));
+  assert.ok(
+    scoped.includes(`Edit(${spec.fleet.workspace}/**)`),
+    'the fleet must be able to write its own workspace'
+  );
+  assert.ok(
+    !scoped.some((a) => a.startsWith('Write(')),
+    `scoped Write(...) rules are inert: ${scoped.join(', ')}`
+  );
 });
