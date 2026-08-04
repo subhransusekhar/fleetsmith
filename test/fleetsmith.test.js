@@ -2999,8 +2999,17 @@ test('no gate anywhere consults a judge score', () => {
 
   // And the CLI's judge path must return before any exit-code assignment.
   const cli = fs.readFileSync(fileURLToPath(new URL('../src/cli.js', import.meta.url)), 'utf8');
-  const judgeBlock = cli
-    .slice(cli.indexOf('if (flags.judge)'), cli.indexOf('const baseline = flags.baseline'))
+  // Normalize line endings FIRST. Under Windows autocrlf the lines end in \r,
+  // which JS regex treats as a line terminator, so `.*$` never reaches the end
+  // of the line and the comment-stripping below silently does nothing.
+  // Normalize line endings FIRST, then index into the NORMALIZED text. Under
+  // Windows autocrlf the lines end in \r, which JS regex treats as a line
+  // terminator, so `.*$` never reaches the end of a line and the
+  // comment-stripping below silently does nothing. Indices must come from the
+  // same string being sliced, or they are off by one per preceding line.
+  const cliText = cli.replace(/\r\n/g, '\n');
+  const judgeBlock = cliText
+    .slice(cliText.indexOf('if (flags.judge)'), cliText.indexOf('const baseline = flags.baseline'))
     .split('\n')
     .map((l) => l.replace(/\/\/.*$/, '')) // a comment naming the invariant is not a violation of it
     .join('\n');
