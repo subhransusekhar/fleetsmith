@@ -25,9 +25,15 @@ import { MAX_BULLET_CHARS } from '../playbook/index.js';
 
 /** Ops each target kind may legally receive, stated so the model does not guess. */
 const KIND_RULES = {
-  playbook: (name) =>
+  // The legal-op list depends on whether there is anything to count. Listing
+  // update-bullet-counter against an empty playbook is contradictory guidance,
+  // and the model reliably takes it — three dogfood runs proposed a counter
+  // op for a bullet that did not exist.
+  playbook: (name, { hasBullets = false } = {}) =>
     `"${name}" is a PROTECTED, human-authored agent. You may NOT edit its definition. ` +
-    `The only legal ops are "add-playbook-bullet" (field "body") and "update-bullet-counter". ` +
+    (hasBullets
+      ? 'Legal ops: "add-playbook-bullet" (field "body") for a new lesson, or "update-bullet-counter" (payload {id, kind}) using an id listed under "Current learned notes". '
+      : 'Its playbook is EMPTY, so the ONLY legal op is "add-playbook-bullet" (field "body"). Do not propose "update-bullet-counter" — there is no bullet to count. ') +
     `A playbook bullet is an advisory note appended to the agent. The HARD limit is ${MAX_BULLET_CHARS} characters and ` +
     `anything longer is rejected outright, so aim for under ${Math.floor(MAX_BULLET_CHARS * 0.75)} — writing to the exact ` +
     `limit overshoots it. One specific, reusable lesson; not a paragraph, not a restatement of the agent's role.`,
@@ -44,7 +50,7 @@ ${dossier}
 
 Propose the smallest set of operations that would fix the failures above for "${target.name}".
 
-**Constraint for this target:** ${(KIND_RULES[target.kind] ?? (() => ''))(target.name)}
+**Constraint for this target:** ${(KIND_RULES[target.kind] ?? (() => ''))(target.name, target)}
 
 ## Rules
 

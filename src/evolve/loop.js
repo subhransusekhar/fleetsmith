@@ -109,11 +109,15 @@ export async function evolve(spec, opts = {}) {
 
   const proposals = [];
   for (const target of candidates.slice(0, budget)) {
-    const dossier = buildDossier({ spec, target, health, qa, evalResult, runsDir, playbook: loadPlaybook(cwd, spec, target.name) });
+    const playbook = target.kind === 'playbook' ? loadPlaybook(cwd, spec, target.name) : [];
+    // The proposer needs to know whether there is anything to count, not just
+    // which ops exist in the abstract.
+    const enriched = { ...target, hasBullets: playbook.length > 0 };
+    const dossier = buildDossier({ spec, target: enriched, health, qa, evalResult, runsDir, playbook });
 
     let ops;
     try {
-      ops = await propose({ target, dossier: dossier + digest, caps: CAPS, spec });
+      ops = await propose({ target: enriched, dossier: dossier + digest, caps: CAPS, spec });
     } catch (e) {
       say(`proposer failed for ${target.name}: ${e.message}`);
       continue;
