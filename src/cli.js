@@ -13,6 +13,7 @@ import { evolve } from './evolve/loop.js';
 import { rankProposals, readDecisions, recordDecision, canaryStatus, AUTO_APPLY } from './evolve/promote.js';
 import { claudeProposer } from './evolve/proposer.js';
 import { runEval, formatEval, calibrate, classifyDelta } from './eval/index.js';
+import { judgeSkills, formatJudge, claudeJudge, agreement, CRITERIA } from './eval/judge.js';
 import { computeHealth, formatHealth } from './health/index.js';
 import { parsePlaybook, renderPlaybook, addBullet, bump, dedupe } from './playbook/index.js';
 import { ADAPTERS, buildAll, DEFAULT_TARGETS } from './adapters/index.js';
@@ -31,6 +32,7 @@ Usage:
   fleetsmith health <fleet.yaml> [--json FILE]
   fleetsmith playbook <fleet.yaml> add|helpful|harmful|dedupe|show <agent> [text|id]
   fleetsmith eval <fleet.yaml> [--stage 1|2|3] [--fleets DIR] [--baseline FILE] [--calibrate] [--json FILE]
+  fleetsmith eval <fleet.yaml> --judge [--ratings FILE] [--model M]   (advisory; gates nothing)
   fleetsmith migrate-workspace <fleet.yaml> [--dry-run]
   fleetsmith patch <fleet.yaml> --ops ops.json [--dry-run] [--allow-contract-change]
   fleetsmith build <fleet.yaml> [--target claude-code|opencode|goose|all] [--out DIR] [--dry-run] [--force] [--force-preserved]
@@ -538,6 +540,31 @@ function cmdEval(positional, flags) {
     console.log(noise.note);
     console.log(`wrote ${out}`);
     return;
+  }
+
+  if (flags.judge) {
+    // Deliberately a separate path that returns before any exit-code logic:
+    // there is no branch in which a judge score can influence the result.
+    const results = judgeSkills(spec, claudeJudge({ model: flags.model ?? null }));
+    console.log(formatJudge(results));
+    if (flags.json) fs.writeFileSync(flags.json, `${JSON.stringify(results, null, 2)}\n`);
+
+    if (flags.ratings && fs.existsSync(flags.ratings)) {
+      const human = JSON.parse(fs.readFileSync(flags.ratings, 'utf8'));
+      const agree = agreement(results, human);
+      console.log('');
+      console.log(`calibration over ${agree.sample} rated skill(s):`);
+      for (const [id, v] of Object.entries(agree.perCriterion)) {
+        console.log(`  ${id.padEnd(18)} n=${String(v.n).padEnd(4)} raw=${v.raw ?? '-'}  kappa=${v.kappa ?? '-'}`);
+      }
+      console.log(`  mean kappa: ${agree.meanKappa ?? '-'}`);
+      console.log(
+        agree.trustworthy
+          ? '  Agreement is at the level where aggregate judge metrics are usable.'
+          : '  Below the 0.8 threshold — treat individual verdicts as prompts to look, not as evidence.'
+      );
+    }
+    return; // no process.exitCode is set on this path, by design
   }
 
   const baseline = flags.baseline ? JSON.parse(fs.readFileSync(flags.baseline, 'utf8')) : null;

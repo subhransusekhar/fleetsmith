@@ -113,6 +113,11 @@ deterministic check and still makes real runs worse.
 
 - **It does not measure output quality.** Trigger discrimination is measured;
   whether a skill produces *better work* is not. See issue #26.
+- **The advisory judge (`eval --judge`) is not a metric.** It disagrees with
+  itself on 19% of verdicts across identical runs, and is least stable on
+  exactly the borderline skills where judgment would be useful. Read one
+  verdict as a prompt to go look; never aggregate it, and nothing gates on it.
+  See `docs/research/judge-calibration.md`.
 - **Trigger scoring is a lexical proxy**, not the real router. It catches two
   descriptions so alike that a prompt meant for one matches the other; it
   cannot tell you how a given model would route.

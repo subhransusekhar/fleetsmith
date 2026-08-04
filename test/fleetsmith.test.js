@@ -18,6 +18,7 @@ import { FileSet } from '../src/lib/fs-utils.js';
 import { runQa, formatQa } from '../src/qa/index.js';
 import { applyOps, canonicalize } from '../src/evolve/patch.js';
 import { runEval, runTriggerTests, runEvalFleets, compare, classifyDelta, calibrate } from '../src/eval/index.js';
+import { judgeSkills, formatJudge, parseVerdict, agreement, CRITERIA } from '../src/eval/judge.js';
 import { computeHealth, formatHealth } from '../src/health/index.js';
 import { addBullet, bump, dedupe, parsePlaybook, renderPlaybook, MAX_BULLETS, MAX_BULLET_CHARS } from '../src/playbook/index.js';
 import { protectedManifest, violations } from '../src/evolve/protected.js';
@@ -2948,4 +2949,91 @@ test('drift rebuilds with playbooks, so an accepted note is not reported as drif
   assert.ok(!runQa(spec, { builtDir: dir }).pass, 'drift detection must still fire when inputs differ');
 
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// --- T9: the advisory judge -------------------------------------------------
+
+test('the judge scores binary criteria and never produces a pass/fail', () => {
+  const spec = normalizeSpec({
+    fleet: { name: 'j' },
+    agents: [{ name: 'a', role: 'r' }],
+    skills: [{ name: 's', description: 'd', body: 'b' }],
+  });
+  const stub = () => ({
+    criteria: { 'concrete-tools': true, 'domain-specifics': false, 'executable-steps': true, 'failure-modes': false },
+    score: 2,
+    notes: 'no failure modes named',
+  });
+  const [r] = judgeSkills(spec, stub);
+  assert.equal(r.score, 2);
+  assert.equal(r.of, CRITERIA.length);
+  // The absence of a pass field is the point: nothing to gate on by accident.
+  assert.equal('pass' in r, false);
+  assert.equal(r.criteria['domain-specifics'], false);
+});
+
+test('a judge that is unavailable degrades to advice, not to a failure', () => {
+  const spec = normalizeSpec({
+    fleet: { name: 'j' },
+    agents: [{ name: 'a', role: 'r' }],
+    skills: [{ name: 's', description: 'd', body: 'b' }],
+  });
+  const [r] = judgeSkills(spec, () => null);
+  assert.equal(r.score, null);
+  assert.match(r.notes, /unavailable/);
+  assert.match(formatJudge([r]), /ADVISORY ONLY/);
+});
+
+test('no gate anywhere consults a judge score', () => {
+  // The verifier is the ceiling on the whole system, and an uncalibrated judge
+  // lowers it while feeling like progress. This asserts the boundary at the
+  // source level so it cannot be eroded by a later refactor.
+  // The invariant is that no gate IMPORTS OR CALLS the judge. Comments
+  // explaining the boundary are the opposite of a violation, so match on code.
+  const gates = ['src/qa/index.js', 'src/evolve/loop.js', 'src/evolve/patch.js', 'src/eval/index.js'];
+  for (const file of gates) {
+    const src = fs.readFileSync(fileURLToPath(new URL(`../${file}`, import.meta.url)), 'utf8');
+    assert.doesNotMatch(src, /from\s+['"].*judge/i, `${file} imports the judge`);
+    assert.doesNotMatch(src, /\b(judgeSkills|claudeJudge|buildJudgePrompt|parseVerdict)\s*\(/, `${file} calls the judge`);
+  }
+
+  // And the CLI's judge path must return before any exit-code assignment.
+  const cli = fs.readFileSync(fileURLToPath(new URL('../src/cli.js', import.meta.url)), 'utf8');
+  const judgeBlock = cli
+    .slice(cli.indexOf('if (flags.judge)'), cli.indexOf('const baseline = flags.baseline'))
+    .split('\n')
+    .map((l) => l.replace(/\/\/.*$/, '')) // a comment naming the invariant is not a violation of it
+    .join('\n');
+  assert.ok(judgeBlock.length > 0, 'judge path not found');
+  assert.doesNotMatch(judgeBlock, /process\.exitCode/, 'the judge path must not set an exit code');
+});
+
+test('judge verdict parsing survives wrappers and rejects junk', () => {
+  const v = { 'concrete-tools': true, 'domain-specifics': true, 'executable-steps': false, 'failure-modes': false, notes: 'x' };
+  assert.equal(parseVerdict(JSON.stringify(v)).score, 2);
+  assert.equal(parseVerdict('```json\n' + JSON.stringify(v) + '\n```').score, 2);
+  assert.equal(parseVerdict(JSON.stringify({ result: JSON.stringify(v) })).score, 2);
+  assert.equal(parseVerdict('not json'), null);
+  // A missing criterion is false, not undefined — an unanswered question is
+  // not evidence the skill met it.
+  assert.equal(parseVerdict('{"concrete-tools": true}').score, 1);
+});
+
+test('agreement uses kappa, because raw agreement is inflated by base rates', () => {
+  // A judge that always says true on a criterion almost everything passes
+  // scores high raw agreement while carrying no information.
+  const judged = Array.from({ length: 10 }, (_, i) => ({
+    skill: `s${i}`,
+    criteria: { 'concrete-tools': true, 'domain-specifics': true, 'executable-steps': true, 'failure-modes': true },
+  }));
+  const human = Object.fromEntries(
+    judged.map((j, i) => [
+      j.skill,
+      { 'concrete-tools': true, 'domain-specifics': true, 'executable-steps': true, 'failure-modes': i < 9 },
+    ])
+  );
+  const a = agreement(judged, human);
+  assert.equal(a.perCriterion['failure-modes'].raw, 0.9, 'raw agreement looks fine');
+  assert.equal(a.perCriterion['failure-modes'].kappa, 0, 'kappa exposes that it carries no information');
+  assert.equal(a.trustworthy, false);
 });

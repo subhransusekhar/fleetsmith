@@ -1,0 +1,152 @@
+[
+ [
+  {
+   "skill": "domain-decomposition",
+   "score": 4,
+   "of": 4,
+   "criteria": {
+    "concrete-tools": true,
+    "domain-specifics": true,
+    "executable-steps": true,
+    "failure-modes": true
+   },
+   "notes": "Weakest is concrete-tools: it names harness paths (.claude/, .opencode/, .goose/, AGENTS.md, CLAUDE.md) but otherwise leans on categories like 'test dirs' and 'CI workflows' without naming commands or file formats."
+  },
+  {
+   "skill": "fleet-design",
+   "score": 4,
+   "of": 4,
+   "criteria": {
+    "concrete-tools": true,
+    "domain-specifics": true,
+    "executable-steps": true,
+    "failure-modes": true
+   },
+   "notes": "Weakest is executable-steps: the pattern table, capability grants, loop/schedule keys, and `fleetsmith validate fleet.yaml` are directly actionable, but the split-vs-merge axes and `team`/`subagents`/`hybrid` choice rest on judgment calls ('genuinely differ', 'real parallelism') with no test to apply."
+  },
+  {
+   "skill": "skill-authoring",
+   "score": 3,
+   "of": 4,
+   "criteria": {
+    "concrete-tools": true,
+    "domain-specifics": true,
+    "executable-steps": false,
+    "failure-modes": true
+   },
+   "notes": "executable-steps is weakest — the 'Research, don't improvise' section tells the author to read the codebase and the web without naming what files, conventions, or sources to consult, and 'explain why a step exists' states a value rather than an action."
+  },
+  {
+   "skill": "harness-verification",
+   "score": 4,
+   "of": 4,
+   "criteria": {
+    "concrete-tools": true,
+    "domain-specifics": true,
+    "executable-steps": true,
+    "failure-modes": true
+   },
+   "notes": "Weakest is executable-steps: checks 3 and 6 ('compare the compiled texts', 'confirm the until condition can actually be reached') and the capability-leak grep state what to look for without giving exact patterns or a procedure, though the rest of the battery is directly runnable."
+  }
+ ],
+ [
+  {
+   "skill": "domain-decomposition",
+   "score": 4,
+   "of": 4,
+   "criteria": {
+    "concrete-tools": true,
+    "domain-specifics": true,
+    "executable-steps": true,
+    "failure-modes": true
+   },
+   "notes": "Weakest is concrete-tools: it names real paths (.claude/, .opencode/, .goose/, AGENTS.md, CLAUDE.md) but no commands or output file formats, leaving the recon steps at the level of 'look at README, package manifests, test dirs'."
+  },
+  {
+   "skill": "fleet-design",
+   "score": 4,
+   "of": 4,
+   "criteria": {
+    "concrete-tools": true,
+    "domain-specifics": true,
+    "executable-steps": true,
+    "failure-modes": true
+   },
+   "notes": "Weakest is executable-steps: it is largely a set of decision rules and criteria (pick a pattern, grant minimum capabilities, prefer subagents) rather than an ordered procedure, though each rule still names a concrete action and the fleet.yaml keys/validate command to apply it to."
+  },
+  {
+   "skill": "skill-authoring",
+   "score": 1,
+   "of": 4,
+   "criteria": {
+    "concrete-tools": false,
+    "domain-specifics": false,
+    "executable-steps": false,
+    "failure-modes": true
+   },
+   "notes": "Weakest is concrete-tools: the body names only generic frontmatter keys (`references:`, `scripts:`) and category-level advice — no actual file paths, commands, or format examples — and its steps like 'research the codebase and web' say what to value without saying what to read or run."
+  },
+  {
+   "skill": "harness-verification",
+   "score": 4,
+   "of": 4,
+   "criteria": {
+    "concrete-tools": true,
+    "domain-specifics": true,
+    "executable-steps": true,
+    "failure-modes": true
+   },
+   "notes": "Weakest is executable-steps: check 3 ('compare the compiled texts') and check 4's judging of descriptions against 10 invented queries leave the actual comparison/pass criteria to interpretation, though every other step names exact commands, keys, and file targets."
+  }
+ ],
+ [
+  {
+   "skill": "domain-decomposition",
+   "score": 4,
+   "of": 4,
+   "criteria": {
+    "concrete-tools": true,
+    "domain-specifics": true,
+    "executable-steps": true,
+    "failure-modes": true
+   },
+   "notes": "concrete-tools is weakest: it names harness paths (.claude/, .opencode/, .goose/, AGENTS.md, CLAUDE.md) but otherwise leans on categories like 'test dirs' and 'package manifests' with no actual commands to run."
+  },
+  {
+   "skill": "fleet-design",
+   "score": 4,
+   "of": 4,
+   "criteria": {
+    "concrete-tools": true,
+    "domain-specifics": true,
+    "executable-steps": true,
+    "failure-modes": true
+   },
+   "notes": "executable-steps is weakest — the pattern table, capability grants, loop syntax and `fleetsmith validate fleet.yaml` are directly actionable, but the four split axes (expertise/parallelism/isolation/reusability) and 'justify each warning in writing' still require the reader's judgment rather than a stated test."
+  },
+  {
+   "skill": "skill-authoring",
+   "score": 3,
+   "of": 4,
+   "criteria": {
+    "concrete-tools": true,
+    "domain-specifics": false,
+    "executable-steps": true,
+    "failure-modes": true
+   },
+   "notes": "domain-specifics is weakest: beyond the 1024-character and ~500/~300-line limits it names no external standard, house convention, or codebase specific, and instead defers with 'read the codebase and the web' without saying what to read."
+  },
+  {
+   "skill": "harness-verification",
+   "score": 4,
+   "of": 4,
+   "criteria": {
+    "concrete-tools": true,
+    "domain-specifics": true,
+    "executable-steps": true,
+    "failure-modes": true
+   },
+   "notes": "Weakest is executable-steps: checks 1-3, 5, 6 give exact commands and comparisons, but check 4's 'judge each description' against self-written queries leaves the pass/fail bar and the verdict's routing thresholds to interpretation."
+  }
+ ]
+]

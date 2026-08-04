@@ -1,0 +1,290 @@
+[
+ {
+  "skill": "pptx",
+  "lines": 226,
+  "score": 4,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": true,
+   "executable-steps": true,
+   "failure-modes": true
+  },
+  "notes": "Weakest is domain-specifics — the named specifics (markitdown, pptxgenjs, soffice/pdftoppm, unpack/pack) are tool invocations plus generic design taste rather than project conventions, though the OOXML unpack→edit→pack workflow and the placeholder-text grep are real domain knowledge a model wouldn't apply by default."
+ },
+ {
+  "skill": "pixel-game-designer",
+  "lines": 76,
+  "score": 4,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": true,
+   "executable-steps": true,
+   "failure-modes": true
+  },
+  "notes": "Weakest is failure-modes — it does state real negatives (no anti-aliasing/gradients, avoid non-integer scale factors causing blur, no gambling/loot boxes, no flashing above 3Hz, no text-heavy UI) but frames them as prohibition lists rather than diagnosing concrete failure scenarios or counter-examples."
+ },
+ {
+  "skill": "xlsx",
+  "lines": 286,
+  "score": 4,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": true,
+   "executable-steps": true,
+   "failure-modes": true
+  },
+  "notes": "Weakest is executable-steps: a few directives (e.g., 'add comments to cells with important assumptions', 'test edge cases') state values rather than actions, though the bulk — recalc.py invocation, openpyxl/pandas code, error-fix loop — is directly runnable."
+ },
+ {
+  "skill": "internal-comms",
+  "lines": 26,
+  "score": 3,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": true,
+   "executable-steps": true,
+   "failure-modes": false
+  },
+  "notes": "failure-modes is weakest — the body describes only the happy path of route-and-follow, with no anti-patterns, counter-examples, or things to avoid beyond a generic 'ask for clarification' fallback."
+ },
+ {
+  "skill": "theme-factory",
+  "lines": 52,
+  "score": 1,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": false,
+   "executable-steps": false,
+   "failure-modes": false
+  },
+  "notes": "failure-modes is weakest — the body describes only the happy path with no named pitfalls, contrast/legibility traps, or things to avoid; executable-steps also fails since 'apply the colors and fonts consistently' and 'ensure proper contrast' state values, not actions, and the 10 themes are named without any hex codes or font pairings inline."
+ },
+ {
+  "skill": "arista-cvaas-architect",
+  "lines": 58,
+  "score": 4,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": true,
+   "executable-steps": true,
+   "failure-modes": true
+  },
+  "notes": "failure-modes is the weakest: it does name concrete prohibitions (never write config directly to a streaming device, no user tokens, avoid imperative per-switch commands, avoid SNMP/show polling, reserve static configlets for one-offs) but they are one-line negations of principles rather than described failure scenarios."
+ },
+ {
+  "skill": "mcp-builder",
+  "lines": 230,
+  "score": 2,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": true,
+   "executable-steps": false,
+   "failure-modes": false
+  },
+  "notes": "failure-modes is weakest — the body describes only the happy-path workflow with no named pitfalls, anti-patterns, or 'do not do X' guidance, while executable-steps also suffers since Phases 1-3 mostly delegate to reference files and state values ('actionable errors', 'no duplicated code') rather than concrete actions."
+ },
+ {
+  "skill": "frontend-design",
+  "lines": 36,
+  "score": 3,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": true,
+   "executable-steps": false,
+   "failure-modes": true
+  },
+  "notes": "executable-steps is weakest: most of the body states values to hold ('commit to a BOLD direction', 'meticulously refined', 'unexpected layouts') rather than actions to take, leaving font/palette/layout selection entirely to interpretation with only a couple of concrete moves like CSS variables and staggered animation-delay reveals."
+ },
+ {
+  "skill": "coffee-table-annual-report",
+  "lines": 114,
+  "score": 4,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": true,
+   "executable-steps": true,
+   "failure-modes": true
+  },
+  "notes": "Weakest is executable-steps: Step 4's inspection criteria ('looks like a printed book', 'fix the template') and the decoration/template selection are judgment calls rather than mechanical checks, though the named script invocations and asset table keep the rest concrete."
+ },
+ {
+  "skill": "brand-guidelines",
+  "lines": 67,
+  "score": 2,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": true,
+   "executable-steps": false,
+   "failure-modes": false
+  },
+  "notes": "failure-modes is weakest — the body describes only happy-path styling with no counter-examples or prohibitions, and executable-steps is nearly as thin since features like 'smart color selection based on background' and the accent-cycling rule state values, not actions or thresholds to apply."
+ },
+ {
+  "skill": "pdf",
+  "lines": 308,
+  "score": 3,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": true,
+   "executable-steps": true,
+   "failure-modes": false
+  },
+  "notes": "failure-modes is weakest — the only concrete anti-pattern is the ReportLab Unicode sub/superscript black-box warning, with no coverage of common pitfalls like extract_text() returning empty on scanned PDFs, pypdf dropping form fields/annotations on merge, or encrypted-file read failures."
+ },
+ {
+  "skill": "canvas-design",
+  "lines": 124,
+  "score": 1,
+  "criteria": {
+   "concrete-tools": false,
+   "domain-specifics": false,
+   "executable-steps": false,
+   "failure-modes": true
+  },
+  "notes": "executable-steps is weakest — nearly every instruction states values ('push aesthetics to the frontier', 'make it more of a piece of art', 'expert craftsmanship') rather than actions, with no named rendering tool, library, or command, and the only concrete path reference (`./canvas-fonts`) is unaccompanied by any font names or usage mechanics."
+ },
+ {
+  "skill": "web-artifacts-builder",
+  "lines": 68,
+  "score": 4,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": true,
+   "executable-steps": true,
+   "failure-modes": true
+  },
+  "notes": "failure-modes is weakest — it only lists aesthetic anti-patterns to avoid (centered layouts, purple gradients, uniform rounded corners, Inter font) plus a mild 'don't test upfront' caution, with no build/bundle failure modes."
+ },
+ {
+  "skill": "skill-creator",
+  "lines": 351,
+  "score": 4,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": true,
+   "executable-steps": true,
+   "failure-modes": true
+  },
+  "notes": "Weakest is failure-modes: it names real anti-patterns (no README/CHANGELOG/INSTALLATION_GUIDE, no 'When to Use' section in the body, no duplication between SKILL.md and references, no deep nesting, no extra frontmatter fields) but frames them as prohibitions rather than showing concrete failure symptoms or counter-examples."
+ },
+ {
+  "skill": "domain-decomposition",
+  "lines": 46,
+  "score": 3,
+  "criteria": {
+   "concrete-tools": false,
+   "domain-specifics": true,
+   "executable-steps": true,
+   "failure-modes": true
+  },
+  "notes": "concrete-tools is weakest — apart from `.claude/`, `.opencode/`, `.goose/`, `AGENTS.md`, and `CLAUDE.md`, the recon table names only categories (README, package manifests, test dirs, CI workflows) and no commands or output file formats."
+ },
+ {
+  "skill": "adi-analyst",
+  "lines": 125,
+  "score": 3,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": true,
+   "executable-steps": true,
+   "failure-modes": false
+  },
+  "notes": "failure-modes is weakest — the body describes only happy-path workflows and strategic framing, naming no pitfalls, anti-patterns, or things to avoid (the '2034 Saudi paradox' is a stated constraint with its workaround, not a failure mode)."
+ },
+ {
+  "skill": "harness-verification",
+  "lines": 52,
+  "score": 4,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": true,
+   "executable-steps": true,
+   "failure-modes": true
+  },
+  "notes": "Weakest is executable-steps: checks 3 and 4 ('compare the compiled texts', 'write 5 should-trigger queries and judge each description') give a procedure but leave the judging criterion to interpretation, though every other step names an exact command, field, or grep target."
+ },
+ {
+  "skill": "doc-coauthoring",
+  "lines": 370,
+  "score": 3,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": false,
+   "executable-steps": true,
+   "failure-modes": true
+  },
+  "notes": "domain-specifics is weakest — the body cites no external writing standards, org conventions, or codebase specifics, only a generic three-stage process any model would improvise similarly."
+ },
+ {
+  "skill": "gaming-prediction-ux",
+  "lines": 136,
+  "score": 2,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": true,
+   "executable-steps": false,
+   "failure-modes": false
+  },
+  "notes": "failure-modes is weakest — the body lists only happy-path steps and a terminology mapping, naming no concrete failure cases (e.g. signature replay, relayer failure, nonce/deadline handling, chain-mismatch) beyond vague 'no crypto jargon' avoidance, and executable-steps is close behind since the EIP-712 typed-data structure, relayer contract, and component code are all deferred to reference files without actual parameters."
+ },
+ {
+  "skill": "skill-authoring",
+  "lines": 39,
+  "score": 1,
+  "criteria": {
+   "concrete-tools": false,
+   "domain-specifics": false,
+   "executable-steps": false,
+   "failure-modes": true
+  },
+  "notes": "Weakest is concrete-tools: aside from the generic `references:`/`scripts:` frontmatter keys, it names no real commands, file paths, or repo locations — only categories like 'the codebase' and 'the web'."
+ },
+ {
+  "skill": "fleet-design",
+  "lines": 70,
+  "score": 4,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": true,
+   "executable-steps": true,
+   "failure-modes": true
+  },
+  "notes": "Weakest is concrete-tools: it names `fleetsmith validate fleet.yaml`, `npm test`, `loop: { until, max, check }` and `fleet.schedule` keys, but stays lighter on file paths/output formats than the other three criteria, which are backed by explicit rules (four split axes, capability-per-role table, ≤5 loop bound) and named anti-patterns (verifier-with-edit erasing defects, loop bounds buried in `gate` strings, agent-named skills, accidental orchestrator name collisions)."
+ },
+ {
+  "skill": "clob-prediction-architect",
+  "lines": 77,
+  "score": 2,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": true,
+   "executable-steps": false,
+   "failure-modes": false
+  },
+  "notes": "executable-steps is weakest — the decision framework and patterns state values and targets (correctness, p99 < 1ms, 'lead with the principle') rather than actions to perform, so most of the body tells the model what to weigh, not what to do."
+ },
+ {
+  "skill": "webapp-testing",
+  "lines": 90,
+  "score": 3,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": false,
+   "executable-steps": true,
+   "failure-modes": true
+  },
+  "notes": "domain-specifics is weakest — the body covers generic Playwright usage (networkidle, sync_playwright, headless chromium) plus its own bundled scripts, but cites no project conventions, codebase specifics, or external standards a general model wouldn't already apply."
+ },
+ {
+  "skill": "prediction-games-ux",
+  "lines": 95,
+  "score": 4,
+  "criteria": {
+   "concrete-tools": true,
+   "domain-specifics": true,
+   "executable-steps": true,
+   "failure-modes": true
+  },
+  "notes": "Weakest is concrete-tools: it names reference file paths (references/trading-ux-patterns.md), hex color tokens, and px/breakpoint values, but no commands or codebase-specific paths, so it only barely clears the bar."
+ }
+]

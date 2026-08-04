@@ -1,0 +1,146 @@
+{
+ "pptx": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "pixel-game-designer": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "xlsx": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "internal-comms": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "theme-factory": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "arista-cvaas-architect": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "mcp-builder": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "frontend-design": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "coffee-table-annual-report": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "brand-guidelines": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "pdf": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "canvas-design": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "web-artifacts-builder": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "skill-creator": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "domain-decomposition": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "adi-analyst": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "harness-verification": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "doc-coauthoring": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "gaming-prediction-ux": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "skill-authoring": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "fleet-design": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "clob-prediction-architect": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "webapp-testing": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ },
+ "prediction-games-ux": {
+  "concrete-tools": null,
+  "domain-specifics": null,
+  "executable-steps": null,
+  "failure-modes": null
+ }
+}
