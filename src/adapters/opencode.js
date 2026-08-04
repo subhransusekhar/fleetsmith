@@ -49,7 +49,7 @@ export function buildOpencode(spec, options = {}) {
     if (orchestratorIsAgent && agent.name === spec.orchestrator.name) {
       out.add(`.opencode/agents/${agent.name}.md`, orchestratorAgent(spec));
     } else {
-      out.add(`.opencode/agents/${agent.name}.md`, agentFile(agent, spec));
+      out.add(`.opencode/agents/${agent.name}.md`, agentFile(agent, spec, options.playbooks ?? {}));
     }
   }
 
@@ -87,7 +87,7 @@ export function buildOpencode(spec, options = {}) {
   return out;
 }
 
-function agentFile(agent, spec) {
+function agentFile(agent, spec, playbooks = {}) {
   return mdWithFrontmatter(
     {
       description: agentDescription(agent, spec),
@@ -103,7 +103,7 @@ function agentFile(agent, spec) {
       hidden: agent.hidden || undefined,
       permission: capsToPermission(agent, spec),
     },
-    compileAgentBody(agent, spec, { team: false })
+    compileAgentBody(agent, spec, { team: false, playbook: playbooks[agent.name] ?? [] })
   );
 }
 

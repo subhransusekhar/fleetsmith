@@ -57,7 +57,7 @@ const SUBAGENT_FORBIDDEN_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'Wo
 export function buildClaudeCode(spec, options = {}) {
   const out = new FileSet();
 
-  for (const [p, content] of claudeAgentFiles(spec)) out.add(p, content);
+  for (const [p, content] of claudeAgentFiles(spec, options.playbooks ?? {})) out.add(p, content);
 
   for (const skill of spec.skills) {
     emitSkill(out, `.claude/skills/${skill.name}`, skill, spec);
@@ -95,18 +95,18 @@ export function buildClaudeCode(spec, options = {}) {
  * `agent()` call with "agent type not found". Sharing the emitter keeps the two
  * targets from drifting into subtly different definitions.
  */
-export function claudeAgentFiles(spec) {
+export function claudeAgentFiles(spec, playbooks = {}) {
   const team = spec.fleet.execution !== 'subagents';
   const parallelEditors = parallelEditingAgents(spec);
   return new Map(
     spec.agents.map((agent, i) => [
       `.claude/agents/${agent.name}.md`,
-      agentFile(agent, spec, team, i, parallelEditors),
+      agentFile(agent, spec, team, i, parallelEditors, playbooks),
     ])
   );
 }
 
-function agentFile(agent, spec, team, index = 0, parallelEditors = new Set()) {
+function agentFile(agent, spec, team, index = 0, parallelEditors = new Set(), playbooks = {}) {
   const tools = capsToTools(agent.capabilities);
   // A worktree keeps concurrent editors off each other's files. It branches
   // from the repo's default branch (not the caller's HEAD) and is discarded
@@ -134,7 +134,7 @@ function agentFile(agent, spec, team, index = 0, parallelEditors = new Set()) {
       // protected set while still being machine-written.
       'x-fleetsmith-origin': agent.origin,
     },
-    [compileAgentBody(agent, spec, { team }), isolate ? worktreeClause() : '']
+    [compileAgentBody(agent, spec, { team, playbook: playbooks[agent.name] ?? [] }), isolate ? worktreeClause() : '']
       .filter(Boolean)
       .join('\n\n')
   );

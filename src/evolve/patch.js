@@ -1,6 +1,7 @@
 import YAML from 'yaml';
 import { normalizeSpec } from '../spec/schema.js';
 import { validateSpec } from '../spec/validate.js';
+import { assertWithinCaps } from './protected.js';
 
 /**
  * The typed mutation API — the only legal way anything writes to a fleet.yaml
@@ -170,11 +171,16 @@ function applyOne(doc, op, where) {
     case 'add-skill':
       return addSkill(doc, op, where);
     case 'update-skill-body':
-      return setIn(doc, ['skills', idxOf(doc, 'skills', op.target, where), 'body'], required(op, 'body', where));
-    case 'repair-skill':
-      return setIn(doc, ['skills', idxOf(doc, 'skills', op.target, where), 'body'], required(op, 'body', where));
-    case 'update-agent-body':
-      return setIn(doc, ['agents', idxOf(doc, 'agents', op.target, where), 'prompt'], required(op, 'body', where));
+    case 'repair-skill': {
+      const body = required(op, 'body', where);
+      assertWithinCaps('skill', body, where);
+      return setIn(doc, ['skills', idxOf(doc, 'skills', op.target, where), 'body'], body);
+    }
+    case 'update-agent-body': {
+      const body = required(op, 'body', where);
+      assertWithinCaps('agent', body, where);
+      return setIn(doc, ['agents', idxOf(doc, 'agents', op.target, where), 'prompt'], body);
+    }
     case 'add-validator':
       return addValidator(doc, op, where);
     case 'merge-skills':
@@ -196,6 +202,7 @@ function applyOne(doc, op, where) {
 function addSkill(doc, op, where) {
   const skill = { name: op.target, origin: 'evolved', ...(op.payload ?? {}) };
   if (!skill.description) throw new PatchError(`${where}: add-skill needs payload.description`);
+  assertWithinCaps('skill', skill.body, where);
   if (!doc.has('skills')) doc.set('skills', doc.createNode([]));
   doc.getIn(['skills'], true).add(doc.createNode(skill));
 }

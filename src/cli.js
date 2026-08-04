@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
@@ -7,7 +8,10 @@ import { normalizeSpec } from './spec/schema.js';
 import { validateSpec } from './spec/validate.js';
 import { runQa, formatQa } from './qa/index.js';
 import { applyOps, canonicalize, OPS } from './evolve/patch.js';
+import { protectedManifest, violations } from './evolve/protected.js';
 import { runEval, formatEval, calibrate, classifyDelta } from './eval/index.js';
+import { computeHealth, formatHealth } from './health/index.js';
+import { parsePlaybook, renderPlaybook, addBullet, bump, dedupe } from './playbook/index.js';
 import { ADAPTERS, buildAll, DEFAULT_TARGETS } from './adapters/index.js';
 import { ARCHETYPES, archetype } from './patterns/index.js';
 import { planInstall, detectTools } from './install.js';
@@ -18,6 +22,9 @@ Usage:
   fleetsmith init [name] --pattern <p> [--domain "..."] [--out fleet.yaml]
   fleetsmith validate <fleet.yaml>
   fleetsmith qa <fleet.yaml> [--built DIR] [--target ...]
+  fleetsmith protected <fleet.yaml> [--check-diff BASE] [--json FILE]
+  fleetsmith health <fleet.yaml> [--json FILE]
+  fleetsmith playbook <fleet.yaml> add|helpful|harmful|dedupe|show <agent> [text|id]
   fleetsmith eval <fleet.yaml> [--stage 1|2|3] [--fleets DIR] [--baseline FILE] [--calibrate] [--json FILE]
   fleetsmith migrate-workspace <fleet.yaml> [--dry-run]
   fleetsmith patch <fleet.yaml> --ops ops.json [--dry-run] [--allow-contract-change]
@@ -50,6 +57,12 @@ function main() {
         return cmdQa(positional, flags);
       case 'eval':
         return cmdEval(positional, flags);
+      case 'health':
+        return cmdHealth(positional, flags);
+      case 'protected':
+        return cmdProtected(positional, flags);
+      case 'playbook':
+        return cmdPlaybook(positional, flags);
       case 'migrate-workspace':
         return cmdMigrateWorkspace(positional, flags);
       case 'patch':
@@ -239,6 +252,116 @@ function unifiedDiff(name, a, b) {
  * Measure the harness rather than merely check it. Exits non-zero on a failing
  * case so it can gate a promotion, and writes JSON for the evolve loop to read.
  */
+/**
+ * Aggregate run telemetry into per-artifact health. No LLM calls, by design:
+ * everything here is derived from work that already happened.
+ */
+/**
+ * Learned-playbook maintenance. Every write here is deterministic and
+ * non-LLM — that is what keeps the git diff reviewable (one bullet added, one
+ * counter incremented) and what lets two developers merge a shared playbook.
+ */
+function cmdPlaybook(positional, flags) {
+  const [file, action, agent, ...rest] = positional;
+  const spec = loadSpec(file);
+  if (!action || !agent) throw new Error('usage: fleetsmith playbook <fleet.yaml> add|helpful|harmful|dedupe|show <agent> [text|id]');
+  if (!spec.agents.some((a) => a.name === agent)) throw new Error(`no such agent "${agent}"`);
+
+  const dir = path.join(spec.fleet.shared, 'playbooks');
+  const target = path.join(dir, `${agent}.md`);
+  const before = fs.existsSync(target) ? parsePlaybook(fs.readFileSync(target, 'utf8')) : [];
+  let after = before;
+  let note = '';
+
+  switch (action) {
+    case 'show':
+      console.log(before.length ? renderPlaybook(agent, before) : `(no learned notes for ${agent})`);
+      return;
+    case 'add': {
+      const res = addBullet(agent, before, rest.join(' '));
+      after = res.bullets;
+      note = res.merged ? `merged into ${res.merged} (already known)` : `added ${res.added}`;
+      break;
+    }
+    case 'helpful':
+    case 'harmful':
+      after = bump(before, rest[0], action);
+      note = `${action} +1 on ${rest[0]}`;
+      break;
+    case 'dedupe':
+      after = dedupe(before);
+      note = `${before.length} -> ${after.length} bullet(s)`;
+      break;
+    default:
+      throw new Error(`unknown playbook action "${action}"`);
+  }
+
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(target, renderPlaybook(agent, after));
+  console.log(`${note} (${target})`);
+  console.log('Rebuild to compile it into the agent: fleetsmith build <spec> --target all --force');
+}
+
+/** Learned bullets, keyed by agent, for the compiler to inline. */
+function loadPlaybooks(spec) {
+  const dir = path.join(spec.fleet.shared, 'playbooks');
+  if (!fs.existsSync(dir)) return {};
+  const out = {};
+  for (const f of fs.readdirSync(dir)) {
+    if (!f.endsWith('.md')) continue;
+    out[f.replace(/\.md$/, '')] = parsePlaybook(fs.readFileSync(path.join(dir, f), 'utf8'));
+  }
+  return out;
+}
+
+/**
+ * Write the protected-path manifest, and optionally refuse a branch that
+ * touches one. `--check-diff main` is the out-of-process half of the guard;
+ * the patch API is the in-process half.
+ */
+function cmdProtected(positional, flags) {
+  const spec = loadSpec(positional[0]);
+  const manifest = protectedManifest(spec);
+
+  if (flags['check-diff']) {
+    const base = flags['check-diff'];
+    const changed = execFileSync('git', ['diff', '--name-only', `${base}...HEAD`], { encoding: 'utf8' })
+      .split('\n')
+      .filter(Boolean);
+    const hits = violations(changed);
+    if (hits.length > 0) {
+      console.error('Protected paths modified on an evolution branch:');
+      for (const h of hits) console.error(`  ${h.file}  (matches ${h.pattern})`);
+      console.error('');
+      console.error(manifest.why);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`protected: PASS (${changed.length} changed file(s), none protected)`);
+    return;
+  }
+
+  const out = flags.json ?? path.join(spec.fleet.shared, 'evolution/protected.json');
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, `${JSON.stringify(manifest, null, 2)}\n`);
+  console.log(`${manifest.paths.length} protected path pattern(s), ${manifest.artifacts.length} protected artifact(s)`);
+  console.log(`wrote ${out}`);
+}
+
+function cmdHealth(positional, flags) {
+  const spec = loadSpec(positional[0]);
+  const out = flags.json ?? path.join(spec.fleet.local, 'health.json');
+  const previous = fs.existsSync(out) ? JSON.parse(fs.readFileSync(out, 'utf8')) : null;
+
+  const health = computeHealth(spec, { runsDir: path.join(spec.fleet.local, 'runs'), previous });
+  console.log(formatHealth(health));
+
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  fs.writeFileSync(out, `${JSON.stringify(health, null, 2)}\n`);
+  // Exit 0 either way: health is a report, not a gate. `evolve` reads
+  // maintenanceNeeded to decide whether to spend anything at all.
+}
+
 function cmdEval(positional, flags) {
   const spec = loadSpec(positional[0]);
   const fleetsDir = flags.fleets ?? defaultFleetsDir();
@@ -347,7 +470,9 @@ function buildFleet(specFile, flags) {
   }
 
   const target = flags.target ?? 'all';
-  const options = { today: new Date().toISOString().slice(0, 10) };
+  // Learned bullets are read here, not inside the adapters: adapters stay
+  // pure spec -> FileSet, and all I/O lives in the CLI.
+  const options = { today: new Date().toISOString().slice(0, 10), playbooks: loadPlaybooks(spec) };
   let fileSet;
   if (target === 'all') {
     fileSet = buildAll(spec, options);

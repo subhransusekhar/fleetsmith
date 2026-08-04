@@ -62,7 +62,7 @@ export function buildGoose(spec, options = {}) {
     if (orchestratorIsAgent && agent.name === spec.orchestrator.name) {
       continue;
     }
-    out.add(`.goose/recipes/${agent.name}.yaml`, agentRecipe(agent, spec));
+    out.add(`.goose/recipes/${agent.name}.yaml`, agentRecipe(agent, spec, options.playbooks ?? {}));
   }
 
   out.add(`.goose/recipes/${spec.orchestrator.name}.yaml`, orchestratorRecipe(spec));
@@ -101,8 +101,8 @@ export function buildGoose(spec, options = {}) {
   return out;
 }
 
-function agentRecipe(agent, spec) {
-  const instructions = [compileAgentBody(agent, spec, { team: false }), readOnlyClause(agent)]
+function agentRecipe(agent, spec, playbooks = {}) {
+  const instructions = [compileAgentBody(agent, spec, { team: false, playbook: playbooks[agent.name] ?? [] }), readOnlyClause(agent)]
     .filter(Boolean)
     .join('\n\n');
 

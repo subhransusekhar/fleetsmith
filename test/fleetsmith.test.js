@@ -18,6 +18,9 @@ import { FileSet } from '../src/lib/fs-utils.js';
 import { runQa, formatQa } from '../src/qa/index.js';
 import { applyOps, canonicalize } from '../src/evolve/patch.js';
 import { runEval, runTriggerTests, runEvalFleets, compare, classifyDelta, calibrate } from '../src/eval/index.js';
+import { computeHealth } from '../src/health/index.js';
+import { addBullet, bump, dedupe, parsePlaybook, renderPlaybook, MAX_BULLETS, MAX_BULLET_CHARS } from '../src/playbook/index.js';
+import { protectedManifest, violations } from '../src/evolve/protected.js';
 import { buildFleetsmithTools, opValidate, opBuild, opInit, opPatterns } from '../src/opencode-plugin.js';
 import { validatorScript } from '../src/adapters/claude-settings.js';
 import YAML from 'yaml';
@@ -618,7 +621,7 @@ test('agents with memory get a durable-notes location', () => {
     fleet: { name: 'm', domain: 'd' },
     agents: [{ name: 'a', memory: true, handoff: { to: [] } }],
   });
-  assert.match(buildClaudeCode(spec, {}).files.get('.claude/agents/a.md'), /_fleet\/notes\/a\.md/);
+  assert.match(buildClaudeCode(spec, {}).files.get('.claude/agents/a.md'), /_fleet\/local\/notes\/a\.md/);
 });
 
 test('orchestrator skill injects live workspace state and guards autonomous runs', () => {
@@ -2046,4 +2049,206 @@ test('calibrate reports a deterministic suite as having no noise floor', () => {
   assert.equal(noise.floor, 0);
   assert.deepEqual(noise.unstable, []);
   assert.match(noise.note, /Deterministic across two runs/);
+});
+
+// --- T5/T6: health metrics + feedback ---------------------------------------
+
+function writeRun(dir, runId, events) {
+  const d = path.join(dir, runId);
+  fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(
+    path.join(d, 'events.jsonl'),
+    `${events.map((e) => JSON.stringify({ run_id: runId, ...e })).join('\n')}\n`
+  );
+}
+
+test('health attributes gate blocks and human feedback to the right agent', () => {
+  const spec = normalizeSpec({
+    fleet: { name: 'h' },
+    agents: [
+      { name: 'good', role: 'r', handoff: { to: ['bad'], artifact: 'a.md', criteria: ['c'] } },
+      { name: 'bad', role: 'r' },
+    ],
+    orchestrator: { name: 'run-h', phases: [{ name: 'W', agents: ['good', 'bad'] }] },
+  });
+  const runs = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-health-'));
+  writeRun(runs, 'ada-1', [
+    { event: 'gate_pass', agent: 'good' },
+    { event: 'gate_block', agent: 'bad', detail: 'no handoff file' },
+    // A human correction is the strongest failure signal available (T6).
+    { event: 'feedback', agent: 'bad', detail: 'agent: role was wrong' },
+  ]);
+
+  const h = computeHealth(spec, { runsDir: runs });
+  assert.equal(h.agents.good.utility, 1);
+  assert.equal(h.agents.bad.utility, 0);
+  assert.ok(h.agents.bad.failureRisk > h.agents.good.failureRisk, 'feedback must raise failure risk');
+  assert.deepEqual(Object.keys(h.agents.bad.actors), ['ada']);
+  fs.rmSync(runs, { recursive: true, force: true });
+});
+
+test('health separates a per-actor failure from a fleet-wide one', () => {
+  // "Fails for everyone" and "fails for one person's setup" look identical in
+  // an aggregate and mean opposite things; only the first is a harness defect.
+  const spec = normalizeSpec({
+    fleet: { name: 'h' },
+    agents: [{ name: 'a', role: 'r', handoff: { to: ['b'], artifact: 'x.md' } }, { name: 'b', role: 'r' }],
+    orchestrator: { name: 'run-h', phases: [{ name: 'W', agents: ['a', 'b'] }] },
+  });
+  const runs = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-actor-health-'));
+  writeRun(runs, 'ada-1', [{ event: 'gate_block', agent: 'a' }]);
+  writeRun(runs, 'grace-1', [{ event: 'gate_pass', agent: 'a' }]);
+
+  const h = computeHealth(spec, { runsDir: runs });
+  assert.deepEqual(h.agents.a.actors.ada, { passes: 0, blocks: 1 });
+  assert.deepEqual(h.agents.a.actors.grace, { passes: 1, blocks: 0 });
+  fs.rmSync(runs, { recursive: true, force: true });
+});
+
+test('health exits early when nothing changed', () => {
+  const spec = normalizeSpec({ fleet: { name: 'h' }, agents: [{ name: 'a', role: 'r' }] });
+  const runs = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-dh-'));
+  writeRun(runs, 'ada-1', [{ event: 'gate_pass', agent: 'a' }]);
+
+  const first = computeHealth(spec, { runsDir: runs });
+  const second = computeHealth(spec, { runsDir: runs, previous: first });
+  assert.equal(second.deltaH, 0);
+  assert.equal(second.maintenanceNeeded, false, 'a steady-state loop must cost nothing');
+  fs.rmSync(runs, { recursive: true, force: true });
+});
+
+test('health tolerates a truncated event line mid-run', () => {
+  const spec = normalizeSpec({ fleet: { name: 'h' }, agents: [{ name: 'a', role: 'r' }] });
+  const runs = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-trunc-'));
+  fs.mkdirSync(path.join(runs, 'ada-1'), { recursive: true });
+  fs.writeFileSync(
+    path.join(runs, 'ada-1/events.jsonl'),
+    `${JSON.stringify({ run_id: 'ada-1', event: 'gate_pass', agent: 'a' })}\n{"run_id":"ada-1","eve`
+  );
+  const h = computeHealth(spec, { runsDir: runs });
+  assert.equal(h.events, 1, 'a half-written line must not take down aggregation');
+  fs.rmSync(runs, { recursive: true, force: true });
+});
+
+// --- T10: ACE playbooks -----------------------------------------------------
+
+test('playbook merges a restatement but keeps distinct lessons apart', () => {
+  let bullets = [];
+  ({ bullets } = addBullet('scout', bullets, 'Always read the ledger before starting a phase.'));
+
+  // A near-verbatim restatement counts as more evidence, not a second bullet.
+  const again = addBullet('scout', bullets, 'Always read the ledger before starting a phase');
+  assert.equal(again.added, null, 're-learning a lesson must not duplicate it');
+  assert.equal(again.merged, 'pb-scout-1');
+  assert.equal(again.bullets[0].helpful, 2);
+
+  // A different lesson accumulates, even when it shares phrasing. Over-merging
+  // is the worse failure: it destroys a distinct lesson silently, where a
+  // duplicate only wastes a slot.
+  const other = addBullet('scout', bullets, 'Always cite file paths as evidence in the brief.');
+  assert.ok(other.added, 'a distinct lesson sharing a template must not be swallowed');
+
+  // Same inputs, same file — what makes a shared playbook mergeable across
+  // developers.
+  assert.equal(
+    renderPlaybook('scout', again.bullets),
+    renderPlaybook('scout', addBullet('scout', bullets, 'Always read the ledger before starting a phase').bullets)
+  );
+});
+
+test('playbook enforces its caps by usefulness, not recency', () => {
+  assert.throws(() => addBullet('a', [], 'x'.repeat(MAX_BULLET_CHARS + 1)), /cap is 200/);
+
+  // Genuinely unrelated lessons — near-duplicates would (correctly) merge
+  // instead of filling the budget.
+  const SUBJECTS = [
+    'database migrations', 'retry backoff', 'timezone parsing', 'cache invalidation',
+    'pagination cursors', 'signature verification', 'log redaction', 'feature flags',
+    'schema versioning', 'connection pooling', 'idempotency keys', 'clock skew',
+    'partial failure', 'quota exhaustion', 'unicode normalisation', 'leap seconds',
+    'file descriptors', 'symlink loops', 'zombie processes', 'memory ballooning',
+    'disk quotas', 'dns caching', 'proxy headers',
+  ];
+  let bullets = [];
+  for (const subject of SUBJECTS) {
+    ({ bullets } = addBullet('a', bullets, `Watch ${subject} closely whenever this agent runs.`));
+  }
+  assert.equal(bullets.length, MAX_BULLETS, `budget not enforced (got ${bullets.length})`);
+
+  // Eviction is by usefulness, not recency. Mark one bullet harmful FIRST,
+  // then push the playbook over budget: the proven-bad bullet should be the
+  // one that loses its slot, not the oldest.
+  const doomed = bullets[3].id;
+  let scored = bump(bump(bullets, doomed, 'harmful'), doomed, 'harmful');
+  scored = addBullet('a', scored, 'Watch heap fragmentation closely whenever this agent runs.').bullets;
+
+  assert.equal(scored.length, MAX_BULLETS);
+  assert.ok(!scored.some((b) => b.id === doomed), 'the harmful bullet should have been evicted');
+  assert.ok(scored.some((b) => b.text.includes('heap fragmentation')), 'the new bullet should have taken its slot');
+});
+
+test('playbook round-trips through its file format', () => {
+  const { bullets } = addBullet('scout', [], 'Read the CI workflow before claiming the build is green.');
+  const parsed = parsePlaybook(renderPlaybook('scout', bullets));
+  assert.deepEqual(parsed, bullets);
+});
+
+test('learned notes compile in as advisory, after human instructions', () => {
+  const spec = normalizeSpec({
+    fleet: { name: 'p' },
+    agents: [{ name: 'a', role: 'r', prompt: 'HUMAN INSTRUCTION' }],
+    orchestrator: { name: 'run-p', phases: [{ name: 'W', agents: ['a'] }] },
+  });
+  const { bullets } = addBullet('a', [], 'Check the ledger before starting a phase.');
+  const files = buildAll(spec, { playbooks: { a: bullets } });
+  const body = files.files.get('.claude/agents/a.md');
+
+  assert.match(body, /Learned notes \(advisory, machine-authored\)/);
+  assert.match(body, /references, not rules/i, 'accumulated memory decays alignment unless framed as reference');
+  assert.match(body, /Check the ledger before starting a phase\./);
+  assert.ok(
+    body.indexOf('HUMAN INSTRUCTION') < body.indexOf('Learned notes'),
+    'human instructions must precede machine-authored notes'
+  );
+  // And no bullets means no section at all, rather than an empty heading.
+  assert.doesNotMatch(buildAll(spec, {}).files.get('.claude/agents/a.md'), /Learned notes/);
+});
+
+// --- T12: safety rails ------------------------------------------------------
+
+test('protected paths cover the referee, and cannot be widened from the spec', () => {
+  const spec = normalizeSpec({ fleet: { name: 'p' }, agents: [{ name: 'a', role: 'r' }] });
+  const m = protectedManifest(spec);
+  for (const needed of ['src/spec/**', 'src/qa/**', 'src/eval/**', 'test/**', '.github/workflows/**']) {
+    assert.ok(m.paths.includes(needed), `${needed} must be protected`);
+  }
+  // The list is hard-coded, not derived: a spec claiming otherwise changes nothing.
+  const hostile = normalizeSpec({
+    fleet: { name: 'p', protectedPaths: [] },
+    agents: [{ name: 'a', role: 'r', origin: 'evolved' }],
+  });
+  assert.deepEqual(protectedManifest(hostile).paths, m.paths);
+});
+
+test('violations flags an evolution branch touching the scorecard', () => {
+  const hits = violations([
+    'src/adapters/claude-code.js',
+    'test/eval-fleets/01-minimal-single-agent.yaml',
+    '.github/workflows/ci.yml',
+  ]);
+  assert.deepEqual(
+    hits.map((h) => h.file),
+    ['test/eval-fleets/01-minimal-single-agent.yaml', '.github/workflows/ci.yml']
+  );
+  assert.deepEqual(violations(['src/adapters/goose.js', 'README.md']), [], 'ordinary source is editable');
+});
+
+test('length caps are enforced at patch time', () => {
+  const src = evolvedSpecSource();
+  const huge = `${'line\n'.repeat(600)}`;
+  assert.throws(
+    () => applyOps(src, [{ op: 'update-skill-body', target: 'learned', body: huge }]),
+    /cap is 500/,
+    'unconstrained reflective optimization grows instructions without limit'
+  );
 });

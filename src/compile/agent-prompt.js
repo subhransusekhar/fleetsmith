@@ -1,4 +1,5 @@
 import { protocolBlock, teamProtocolBlock, incomingMap } from '../handover/protocol.js';
+import { playbookSection } from '../playbook/index.js';
 import { DEFAULT_HANDOFF_SCHEMA } from '../spec/schema.js';
 
 /**
@@ -13,7 +14,7 @@ import { DEFAULT_HANDOFF_SCHEMA } from '../spec/schema.js';
  * state. Per-run variance belongs in the handoff files, which are read as
  * ordinary content and cost nothing to change.
  */
-export function compileAgentBody(agent, spec, { team = false } = {}) {
+export function compileAgentBody(agent, spec, { team = false, playbook = [] } = {}) {
   const incoming = incomingMap(spec.agents).get(agent.name) ?? [];
   const sections = [];
 
@@ -64,7 +65,7 @@ export function compileAgentBody(agent, spec, { team = false } = {}) {
     sections.push('');
     sections.push('## Durable notes');
     sections.push(
-      `You persist notes across runs. Keep them in \`${spec.fleet.workspace}/notes/${agent.name}.md\` — decisions that outlive a single run, recurring pitfalls, and stable facts about this project. Read it before starting and update it when something you learned will still be true next run. Keep it short enough to reread; it is a working memory, not a log.`
+      `You persist notes across runs. Keep them in \`${spec.fleet.local}/notes/${agent.name}.md\` — decisions that outlive a single run, recurring pitfalls, and stable facts about this project. Read it before starting and update it when something you learned will still be true next run. Keep it short enough to reread; it is a working memory, not a log.`
     );
   }
 
@@ -101,6 +102,14 @@ export function compileAgentBody(agent, spec, { team = false } = {}) {
     sections.push('');
     sections.push('## Additional instructions');
     sections.push(agent.prompt.trim());
+  }
+
+  // Learned notes go last: everything above is human-authored and takes
+  // precedence, which is the order a reader should encounter them in.
+  const learned = playbookSection(agent.name, playbook);
+  if (learned) {
+    sections.push('');
+    sections.push(learned);
   }
 
   return sections.join('\n');
