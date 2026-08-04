@@ -1,0 +1,6 @@
+{
+  "floor": 0,
+  "unstable": [],
+  "cases": 25,
+  "note": "Deterministic across two runs; any non-zero delta is real. Re-measure once cases execute live agents."
+}

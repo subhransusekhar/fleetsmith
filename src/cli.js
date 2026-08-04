@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { normalizeSpec } from './spec/schema.js';
 import { validateSpec } from './spec/validate.js';
 import { runQa, formatQa } from './qa/index.js';
 import { applyOps, canonicalize, OPS } from './evolve/patch.js';
+import { runEval, formatEval, calibrate, classifyDelta } from './eval/index.js';
 import { ADAPTERS, buildAll, DEFAULT_TARGETS } from './adapters/index.js';
 import { ARCHETYPES, archetype } from './patterns/index.js';
 import { planInstall, detectTools } from './install.js';
@@ -16,6 +18,7 @@ Usage:
   fleetsmith init [name] --pattern <p> [--domain "..."] [--out fleet.yaml]
   fleetsmith validate <fleet.yaml>
   fleetsmith qa <fleet.yaml> [--built DIR] [--target ...]
+  fleetsmith eval <fleet.yaml> [--stage 1|2|3] [--fleets DIR] [--baseline FILE] [--calibrate] [--json FILE]
   fleetsmith migrate-workspace <fleet.yaml> [--dry-run]
   fleetsmith patch <fleet.yaml> --ops ops.json [--dry-run] [--allow-contract-change]
   fleetsmith build <fleet.yaml> [--target claude-code|opencode|goose|all] [--out DIR] [--dry-run] [--force] [--force-preserved]
@@ -45,6 +48,8 @@ function main() {
         return cmdValidate(positional, flags);
       case 'qa':
         return cmdQa(positional, flags);
+      case 'eval':
+        return cmdEval(positional, flags);
       case 'migrate-workspace':
         return cmdMigrateWorkspace(positional, flags);
       case 'patch':
@@ -228,6 +233,50 @@ function unifiedDiff(name, a, b) {
     else while (j < (nextMatch === -1 ? B.length : nextMatch)) out.push(`+${B[j++]}`);
   }
   return out.join('\n');
+}
+
+/**
+ * Measure the harness rather than merely check it. Exits non-zero on a failing
+ * case so it can gate a promotion, and writes JSON for the evolve loop to read.
+ */
+function cmdEval(positional, flags) {
+  const spec = loadSpec(positional[0]);
+  const fleetsDir = flags.fleets ?? defaultFleetsDir();
+  const stage = Number(flags.stage ?? 1);
+  const once = () => runEval(spec, { stage, fleetsDir });
+
+  if (flags.calibrate) {
+    // Establish the noise floor BEFORE believing any delta. On a corpus this
+    // small, run-to-run variation is otherwise indistinguishable from a real
+    // regression — which is how a loop learns to promote luck.
+    const noise = calibrate(once);
+    const out = flags.json ?? path.join(spec.fleet.shared, 'evals/noise.json');
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    fs.writeFileSync(out, `${JSON.stringify(noise, null, 2)}\n`);
+    console.log(`noise floor: ${noise.floor.toFixed(3)} over ${noise.cases} case(s)`);
+    console.log(noise.note);
+    console.log(`wrote ${out}`);
+    return;
+  }
+
+  const baseline = flags.baseline ? JSON.parse(fs.readFileSync(flags.baseline, 'utf8')) : null;
+  const result = runEval(spec, { stage, fleetsDir, baseline });
+
+  if (result.delta) {
+    const noisePath = path.join(spec.fleet.shared, 'evals/noise.json');
+    const noise = fs.existsSync(noisePath) ? JSON.parse(fs.readFileSync(noisePath, 'utf8')) : null;
+    Object.assign(result.delta, classifyDelta(result.delta.delta, noise));
+  }
+
+  console.log(formatEval(result));
+  if (flags.json) fs.writeFileSync(flags.json, `${JSON.stringify(result, null, 2)}\n`);
+  process.exitCode = result.pass ? 0 : 1;
+}
+
+/** The bundled eval fleets, when running inside a fleetsmith checkout. */
+function defaultFleetsDir() {
+  const bundled = fileURLToPath(new URL('../test/eval-fleets', import.meta.url));
+  return fs.existsSync(bundled) ? bundled : null;
 }
 
 function cmdBuild(positional, flags) {

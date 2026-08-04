@@ -1,6 +1,6 @@
 ---
 name: fleet-design
-description: Methodology for designing an agent fleet as a fleet.yaml — choosing the pattern from the data flow, setting execution mode, drawing the handoff graph with artifact contracts, granting least capability, and declaring iteration and recurring loops. Use when designing or restructuring an agent fleet, choosing between pipeline / fanout / generate-verify / supervisor / expert-pool, deciding which agents to split or merge, adding an agent to an existing fleet, or fixing fleetsmith validator errors.
+description: Methodology for designing an agent fleet as a fleet.yaml — choosing the pattern from the data flow, setting execution mode, drawing the handoff graph with artifact contracts, granting least capability, and declaring iteration and recurring loops. Use when designing or restructuring an agent fleet roster, choosing between pipeline / fanout / generate-verify / supervisor / expert-pool, deciding which agents to split or merge, adding another agent to an existing roster, or fixing fleetsmith validator errors.
 x-fleetsmith-origin: human
 ---
 

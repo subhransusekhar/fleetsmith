@@ -1,0 +1,20 @@
+# The orchestrator IS the lead agent. Regression guard for the 0.4.1
+# orchestrator/agent collision bug: exactly one file per name, and the lead
+# must not appear in its own delegation map.
+fleet:
+  name: triage
+  domain: "routes incoming issues to specialists"
+  pattern: supervisor
+agents:
+  - name: lead
+    role: "Owns triage state and delegates."
+    capabilities: { read: true, edit: true, spawn: true }
+    handoff: { to: [specialist] }
+  - name: specialist
+    role: "Handles one routed issue."
+    capabilities: { read: true }
+orchestrator:
+  name: lead
+expect:
+  agents: 2
+  pattern: supervisor

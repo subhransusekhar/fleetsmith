@@ -1,0 +1,29 @@
+# Iteration loop with a deterministic shell check — compiles to a goose retry
+# block, and is the shape the loop-bounds QA check exists for.
+fleet:
+  name: fixer
+  domain: "fixes failing tests until the suite passes"
+  pattern: generate-verify
+agents:
+  - name: patcher
+    role: "Writes the fix."
+    capabilities: { read: true, edit: true, run: true }
+    handoff: { to: [checker], artifact: patch.md }
+  - name: checker
+    role: "Verifies the fix against the test suite."
+    capabilities: { read: true, run: true }
+orchestrator:
+  name: run-fixer
+  phases:
+    - name: Patch
+      agents: [patcher]
+    - name: Verify
+      agents: [checker]
+      loop:
+        until: "the test suite passes"
+        check: "npm test"
+        max: 4
+        noProgress: 2
+expect:
+  agents: 2
+  pattern: generate-verify

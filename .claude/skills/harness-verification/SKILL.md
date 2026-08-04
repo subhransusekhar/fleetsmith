@@ -1,6 +1,6 @@
 ---
 name: harness-verification
-description: Adversarial QA battery for a compiled agent harness — spec gate, per-target compile checks for Claude Code / opencode / goose, handoff boundary cross-checks, skill trigger tests, capability-leak grep, and loop-bound verification. Use as the final gate after building a fleet, and whenever asked to audit a harness, check whether a fleet still works, find why an agent never triggers, or detect drift between a fleet.yaml and the files it generated.
+description: Adversarial QA battery for a compiled agent harness — spec gate, per-target compile checks for Claude Code / opencode / goose, handoff boundary cross-checks, skill trigger tests, capability-leak grep, and loop-bound verification. Use as the final gate after building a fleet, and whenever asked to audit a harness, check whether a fleet still works, find why a compiled agent is never delegated to, or detect drift between a fleet.yaml and the files it generated.
 x-fleetsmith-origin: human
 ---
 

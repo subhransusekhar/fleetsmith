@@ -1,6 +1,6 @@
 ---
 name: skill-authoring
-description: Methodology for writing Agent Skills that actually fire and actually help — pushy trigger-rich descriptions, lean imperative bodies, progressive disclosure into references, and bundled scripts for deterministic steps. Use when authoring or deepening a skill, when a skill never triggers or triggers on the wrong requests, when a SKILL.md has grown past ~500 lines, or when feedback says the output of a skill-driven agent is too shallow or too generic.
+description: Methodology for writing Agent Skills that actually fire and actually help — pushy trigger-rich descriptions, lean imperative bodies, progressive disclosure into references, and bundled scripts for deterministic steps. Use when authoring or deepening a skill, when a skill never fires or triggers on the wrong requests, when a SKILL.md has grown past ~500 lines, or when feedback says the output of a skill-driven agent is too shallow or too generic.
 x-fleetsmith-origin: human
 ---
 

@@ -36,3 +36,7 @@ jobs:
       # --built . also catches drift: a generated file edited by hand, or a
       # spec change committed without rebuilding.
       - run: node src/cli.js qa fleet.yaml --built .
+      # Stage 2 is the promotion gate's tier: trigger discrimination plus the
+      # held-out fleet corpus. Both are deterministic, so this runs with no
+      # model available.
+      - run: node src/cli.js eval fleet.yaml --stage 2

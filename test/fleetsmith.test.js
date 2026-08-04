@@ -17,6 +17,7 @@ import { planInstall } from '../src/install.js';
 import { FileSet } from '../src/lib/fs-utils.js';
 import { runQa, formatQa } from '../src/qa/index.js';
 import { applyOps, canonicalize } from '../src/evolve/patch.js';
+import { runEval, runTriggerTests, runEvalFleets, compare, classifyDelta, calibrate } from '../src/eval/index.js';
 import { buildFleetsmithTools, opValidate, opBuild, opInit, opPatterns } from '../src/opencode-plugin.js';
 import { validatorScript } from '../src/adapters/claude-settings.js';
 import YAML from 'yaml';
@@ -1943,4 +1944,106 @@ test('patch reports when a spec is not canonical', () => {
   ]);
   assert.equal(typeof reformatted, 'boolean');
   assert.equal(canonicalize(canonicalize(mixed)), canonicalize(mixed), 'canonicalize must be idempotent');
+});
+
+// --- T7: eval runner --------------------------------------------------------
+
+const EVAL_FLEETS = fileURLToPath(new URL('./eval-fleets', import.meta.url));
+
+test('trigger tests catch a description that swallows a sibling skill', () => {
+  const spec = normalizeSpec({
+    fleet: { name: 'w' },
+    agents: [{ name: 'a', role: 'r', skills: ['narrow', 'broad'] }],
+    skills: [
+      {
+        name: 'narrow',
+        description: 'Methodology for rendering invoices to PDF with tax columns.',
+        triggers: { should: ['render this invoice to PDF'], shouldNot: ['reconcile the ledger'] },
+      },
+      {
+        // Deliberately swallows the sibling's vocabulary.
+        name: 'broad',
+        description: 'Anything to do with invoices, PDF, tax, ledgers, rendering, and reconciliation.',
+        triggers: { should: ['reconcile the ledger'] },
+      },
+    ],
+  });
+  const { cases } = runTriggerTests(spec);
+  const swallowed = cases.find((c) => c.name.startsWith('narrow <-'));
+  assert.equal(swallowed.pass, false, 'an over-broad sibling description must be caught');
+  assert.match(swallowed.detail, /routed to "broad"|ties with/);
+});
+
+test('a tie is reported, not resolved by declaration order', () => {
+  // Two identical descriptions: whichever is declared first would otherwise
+  // silently "win", making the verdict depend on spec ordering.
+  const desc = 'Methodology for handling widget calibration during assembly.';
+  const spec = normalizeSpec({
+    fleet: { name: 'w' },
+    agents: [{ name: 'a', role: 'r' }],
+    skills: [
+      { name: 'first', description: desc, triggers: { should: ['calibrate the widget'] } },
+      { name: 'second', description: desc },
+    ],
+  });
+  const c = runTriggerTests(spec).cases[0];
+  assert.equal(c.pass, false);
+  assert.match(c.detail, /ties with "second"/);
+});
+
+test('eval fleets build and meet their declared expectations', () => {
+  const { cases, skipped } = runEvalFleets(EVAL_FLEETS);
+  assert.ok(cases.length >= 5, `expected the held-out corpus, got ${cases.length}`);
+  assert.equal(skipped, 0);
+  for (const c of cases) assert.ok(c.pass, `${c.name}: ${c.detail}`);
+});
+
+test('the staged ladder reports what it did not run', () => {
+  // A stage limit that reads as full coverage is how a partial run gets
+  // mistaken for a green suite.
+  const stage1 = runEvalFleets(EVAL_FLEETS, 3);
+  assert.equal(stage1.cases.length, 3);
+  assert.ok(stage1.skipped > 0, 'skipped count must be surfaced, never silent');
+});
+
+test('eval catches a regression in a held-out fleet', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-evalreg-'));
+  fs.writeFileSync(
+    path.join(dir, 'broken.yaml'),
+    YAML.stringify({
+      fleet: { name: 'broken', pattern: 'pipeline' },
+      agents: [{ name: 'a', role: 'r', handoff: { to: ['ghost'] } }],
+      expect: { agents: 1 },
+    })
+  );
+  const { cases } = runEvalFleets(dir);
+  assert.equal(cases[0].pass, false, 'a dangling handoff must fail its eval fleet');
+  assert.match(cases[0].detail, /unknown agent "ghost"/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('paired comparison names what broke, and noise gates the verdict', () => {
+  const baseline = { overall: 1, cases: [{ name: 'x', pass: true }, { name: 'y', pass: true }] };
+  const current = { overall: 0.5, cases: [{ name: 'x', pass: true }, { name: 'y', pass: false }] };
+  const d = compare(baseline, current);
+  assert.deepEqual(d.broken, ['y'], 'a delta alone cannot tell you what to look at');
+  assert.deepEqual(d.fixed, []);
+  assert.equal(d.comparable, 2);
+
+  // Below the measured floor, a delta is not a win.
+  assert.equal(classifyDelta(-0.5, { floor: 0 }).verdict, 'regression');
+  assert.equal(classifyDelta(0.02, { floor: 0.05 }).verdict, 'no signal');
+  assert.equal(classifyDelta(0.5, { floor: 0.05 }).verdict, 'improvement');
+});
+
+test('calibrate reports a deterministic suite as having no noise floor', () => {
+  const spec = normalizeSpec({
+    fleet: { name: 'w' },
+    agents: [{ name: 'a', role: 'r' }],
+    skills: [{ name: 's', description: 'Widget calibration methodology.', triggers: { should: ['calibrate widget'] } }],
+  });
+  const noise = calibrate(() => runEval(spec, { stage: 1 }));
+  assert.equal(noise.floor, 0);
+  assert.deepEqual(noise.unstable, []);
+  assert.match(noise.note, /Deterministic across two runs/);
 });

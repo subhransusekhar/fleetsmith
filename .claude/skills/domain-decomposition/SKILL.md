@@ -1,6 +1,6 @@
 ---
 name: domain-decomposition
-description: Methodology for decomposing a project or domain into the work types an agent fleet should mirror — codebase reconnaissance, work-type extraction with input/output contracts, parallelism analysis, existing-harness inventory, and quality-risk spotting. Use when analyzing a project before designing agents, when asked what agents a codebase needs, when re-scoping a fleet after the domain changed, or when an existing fleet feels generic and needs grounding in the real work.
+description: Methodology for decomposing a project or domain into the work types an agent fleet should mirror — codebase reconnaissance, work-type extraction with input/output contracts, parallelism analysis, existing-harness inventory, and quality-risk spotting. Use when analysing a project before any design work, when asked what work types a codebase involves, or when re-analysing a domain whose scope has changed. Produces the decomposition brief, not the design that follows it.
 x-fleetsmith-origin: human
 ---
 

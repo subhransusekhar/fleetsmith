@@ -1,11 +1,14 @@
 {
   "skill": "domain-decomposition",
-  "description": "Methodology for decomposing a project or domain into the work types an agent fleet should mirror — codebase reconnaissance, work-type extraction with input/output contracts, parallelism analysis, existing-harness inventory, and quality-risk spotting. Use when analyzing a project before designing agents, when asked what agents a codebase needs, when re-scoping a fleet after the domain changed, or when an existing fleet feels generic and needs grounding in the real work.",
+  "description": "Methodology for decomposing a project or domain into the work types an agent fleet should mirror — codebase reconnaissance, work-type extraction with input/output contracts, parallelism analysis, existing-harness inventory, and quality-risk spotting. Use when analysing a project before any design work, when asked what work types a codebase involves, or when re-analysing a domain whose scope has changed. Produces the decomposition brief, not the design that follows it.",
   "should_trigger": [
-    "TODO: a request that must invoke domain-decomposition"
+    "what agents does this codebase need",
+    "analyze this project before we design the fleet roster",
+    "decompose this domain into work types"
   ],
   "should_not_trigger": [
-    "TODO: a nearby request that must NOT invoke domain-decomposition (e.g. one belonging to another fleetsmith skill)"
+    "my skill never fires when I ask for it",
+    "check whether the generated harness still works"
   ],
   "cases": []
 }

@@ -83,7 +83,15 @@ agents:
 skills:
   - name: domain-decomposition
     description: >-
-      Methodology for decomposing a project or domain into the work types an agent fleet should mirror — codebase reconnaissance, work-type extraction with input/output contracts, parallelism analysis, existing-harness inventory, and quality-risk spotting. Use when analyzing a project before designing agents, when asked what agents a codebase needs, when re-scoping a fleet after the domain changed, or when an existing fleet feels generic and needs grounding in the real work.
+      Methodology for decomposing a project or domain into the work types an agent fleet should mirror — codebase reconnaissance, work-type extraction with input/output contracts, parallelism analysis, existing-harness inventory, and quality-risk spotting. Use when analysing a project before any design work, when asked what work types a codebase involves, or when re-analysing a domain whose scope has changed. Produces the decomposition brief, not the design that follows it.
+    triggers:
+      should:
+        - "what agents does this codebase need"
+        - "analyze this project before we design the fleet roster"
+        - "decompose this domain into work types"
+      shouldNot:
+        - "my skill never fires when I ask for it"
+        - "check whether the generated harness still works"
     body: |
       # Domain decomposition
 
@@ -134,7 +142,15 @@ skills:
 
   - name: fleet-design
     description: >-
-      Methodology for designing an agent fleet as a fleet.yaml — choosing the pattern from the data flow, setting execution mode, drawing the handoff graph with artifact contracts, granting least capability, and declaring iteration and recurring loops. Use when designing or restructuring an agent fleet, choosing between pipeline / fanout / generate-verify / supervisor / expert-pool, deciding which agents to split or merge, adding an agent to an existing fleet, or fixing fleetsmith validator errors.
+      Methodology for designing an agent fleet as a fleet.yaml — choosing the pattern from the data flow, setting execution mode, drawing the handoff graph with artifact contracts, granting least capability, and declaring iteration and recurring loops. Use when designing or restructuring an agent fleet roster, choosing between pipeline / fanout / generate-verify / supervisor / expert-pool, deciding which agents to split or merge, adding another agent to an existing roster, or fixing fleetsmith validator errors.
+    triggers:
+      should:
+        - "should this fleet be a pipeline or a fanout"
+        - "add another agent to the existing fleet roster"
+        - "fix these fleetsmith validator errors in my spec"
+      shouldNot:
+        - "the SKILL.md body has grown past 500 lines"
+        - "audit the compiled output for drift"
     body: |
       # Fleet design
 
@@ -209,7 +225,15 @@ skills:
 
   - name: skill-authoring
     description: >-
-      Methodology for writing Agent Skills that actually fire and actually help — pushy trigger-rich descriptions, lean imperative bodies, progressive disclosure into references, and bundled scripts for deterministic steps. Use when authoring or deepening a skill, when a skill never triggers or triggers on the wrong requests, when a SKILL.md has grown past ~500 lines, or when feedback says the output of a skill-driven agent is too shallow or too generic.
+      Methodology for writing Agent Skills that actually fire and actually help — pushy trigger-rich descriptions, lean imperative bodies, progressive disclosure into references, and bundled scripts for deterministic steps. Use when authoring or deepening a skill, when a skill never fires or triggers on the wrong requests, when a SKILL.md has grown past ~500 lines, or when feedback says the output of a skill-driven agent is too shallow or too generic.
+    triggers:
+      should:
+        - "my skill never fires when I ask for it"
+        - "the SKILL.md body has grown past 500 lines"
+        - "this skill's output is too shallow and generic"
+      shouldNot:
+        - "should this fleet be a pipeline or a fanout"
+        - "what agents does this codebase need"
     body: |
       # Skill authoring
 
@@ -253,7 +277,15 @@ skills:
 
   - name: harness-verification
     description: >-
-      Adversarial QA battery for a compiled agent harness — spec gate, per-target compile checks for Claude Code / opencode / goose, handoff boundary cross-checks, skill trigger tests, capability-leak grep, and loop-bound verification. Use as the final gate after building a fleet, and whenever asked to audit a harness, check whether a fleet still works, find why an agent never triggers, or detect drift between a fleet.yaml and the files it generated.
+      Adversarial QA battery for a compiled agent harness — spec gate, per-target compile checks for Claude Code / opencode / goose, handoff boundary cross-checks, skill trigger tests, capability-leak grep, and loop-bound verification. Use as the final gate after building a fleet, and whenever asked to audit a harness, check whether a fleet still works, find why a compiled agent is never delegated to, or detect drift between a fleet.yaml and the files it generated.
+    triggers:
+      should:
+        - "check whether the generated harness still works"
+        - "audit the compiled output for drift"
+        - "find why this compiled agent is never delegated to"
+      shouldNot:
+        - "decompose this domain into work types"
+        - "add another agent to the existing fleet roster"
     body: |
       # Harness verification
 

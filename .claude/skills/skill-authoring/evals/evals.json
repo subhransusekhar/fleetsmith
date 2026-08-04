@@ -1,11 +1,14 @@
 {
   "skill": "skill-authoring",
-  "description": "Methodology for writing Agent Skills that actually fire and actually help — pushy trigger-rich descriptions, lean imperative bodies, progressive disclosure into references, and bundled scripts for deterministic steps. Use when authoring or deepening a skill, when a skill never triggers or triggers on the wrong requests, when a SKILL.md has grown past ~500 lines, or when feedback says the output of a skill-driven agent is too shallow or too generic.",
+  "description": "Methodology for writing Agent Skills that actually fire and actually help — pushy trigger-rich descriptions, lean imperative bodies, progressive disclosure into references, and bundled scripts for deterministic steps. Use when authoring or deepening a skill, when a skill never fires or triggers on the wrong requests, when a SKILL.md has grown past ~500 lines, or when feedback says the output of a skill-driven agent is too shallow or too generic.",
   "should_trigger": [
-    "TODO: a request that must invoke skill-authoring"
+    "my skill never fires when I ask for it",
+    "the SKILL.md body has grown past 500 lines",
+    "this skill's output is too shallow and generic"
   ],
   "should_not_trigger": [
-    "TODO: a nearby request that must NOT invoke skill-authoring (e.g. one belonging to another fleetsmith skill)"
+    "should this fleet be a pipeline or a fanout",
+    "what agents does this codebase need"
   ],
   "cases": []
 }
