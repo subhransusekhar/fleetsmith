@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { OPS } from './patch.js';
+import { MAX_BULLET_CHARS } from '../playbook/index.js';
 
 /**
  * The single model call in the entire system.
@@ -22,6 +23,17 @@ import { OPS } from './patch.js';
  *    front produces something written to fit.
  */
 
+/** Ops each target kind may legally receive, stated so the model does not guess. */
+const KIND_RULES = {
+  playbook: (name) =>
+    `"${name}" is a PROTECTED, human-authored agent. You may NOT edit its definition. ` +
+    `The only legal ops are "add-playbook-bullet" (field "body") and "update-bullet-counter". ` +
+    `A playbook bullet is an advisory note appended to the agent, and it MUST be at most ${MAX_BULLET_CHARS} characters — ` +
+    `one specific, reusable lesson, not a paragraph. Anything longer is rejected outright.`,
+  skill: (name) => `"${name}" is a machine-authored skill; you may edit its body or description.`,
+  agent: (name) => `"${name}" is a machine-authored agent; you may edit its instruction body.`,
+};
+
 export function buildPrompt({ target, dossier, caps }) {
   return `You are improving one module of an agent harness. You are NOT writing prose for a human — your entire reply must be a single JSON array of typed operations.
 
@@ -29,7 +41,9 @@ ${dossier}
 
 ## Your task
 
-Propose the smallest set of operations that would fix the failures above for ${target.kind} "${target.name}".
+Propose the smallest set of operations that would fix the failures above for "${target.name}".
+
+**Constraint for this target:** ${(KIND_RULES[target.kind] ?? (() => ''))(target.name)}
 
 ## Rules
 
