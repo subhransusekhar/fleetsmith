@@ -361,6 +361,28 @@ The plugin edge is the only place that touches opencode's `@opencode-ai/plugin` 
 
 > Version note: opencode's plugin/`tool` API is version-specific — verify the tool-registration shape (and the `file.edited` payload) against your installed opencode before relying on it.
 
+## Self-evolution (v0.5.0)
+
+A built harness can improve itself: it records what its runs did, checks the result, proposes a change, validates it, and hands you a branch to review.
+
+```bash
+fleetsmith health fleet.yaml            # what the runs say about each agent and skill
+fleetsmith eval   fleet.yaml --stage 2  # trigger discrimination + held-out fleet corpus
+fleetsmith evolve fleet.yaml            # propose one change, on a branch
+fleetsmith evolve fleet.yaml --review   # review it, one proposal at a time
+```
+
+**There is exactly one model call in the whole system** — the proposer. Telemetry, health metrics, verification, evaluation, patching, and merging are all deterministic. The model proposes; deterministic checks dispose, and nothing merges without you unless every operation in it is one a validator fully decides.
+
+What it will not do:
+
+- **It cannot edit human-authored definitions.** Your skills and agents are protected by default; the loop may attach an advisory learned note, and may edit only what it generated itself.
+- **It cannot touch the validator, the QA battery, the eval corpus, or the tests.** That list is hard-coded and cannot be widened from `fleet.yaml`, because an optimizer with write access to its own scorecard edits the scorecard.
+- **It cannot change a handoff contract** without an explicit flag and a human.
+- **It does not measure output quality.** It measures whether skills route correctly and whether the compiler still works. Whether a skill produces *better work* is not yet automated.
+
+Rollback is `git revert fleet-gen/<n>` — every promotion is a tagged merge. See [docs/evolution.md](docs/evolution.md) and [docs/evolution-cadence.md](docs/evolution-cadence.md).
+
 ## Design notes
 
 - **Validation is graph-aware:** unknown handoff targets, orphaned agents, cycles (allowed for supervisor patterns, flagged otherwise), skills nobody uses, missing artifact contracts, Agent Skills spec limits (name ≤ 64 chars, description ≤ 1024).
