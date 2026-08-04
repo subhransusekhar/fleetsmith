@@ -2931,3 +2931,21 @@ test('every candidate branches from the base and returns to it', async () => {
   assert.equal(git.onBase, true, 'HEAD must be returned to the base branch');
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('drift rebuilds with playbooks, so an accepted note is not reported as drift', () => {
+  // Found by dogfooding: qa rebuilt without playbooks, so every agent carrying
+  // a learned note looked hand-edited and an accepted generation turned the
+  // drift check red. A check that fails on correct state stops being believed.
+  const spec = demoSpec();
+  const { bullets } = addBullet(spec.agents[0].name, [], 'Check the ledger before starting a phase.');
+  const playbooks = { [spec.agents[0].name]: bullets };
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-pb-drift-'));
+  buildAll(spec, { playbooks }).write(dir, { force: true });
+
+  assert.ok(runQa(spec, { builtDir: dir, playbooks }).pass, 'a built-in learned note reported as drift');
+  // And omitting them still catches genuine drift, rather than passing blindly.
+  assert.ok(!runQa(spec, { builtDir: dir }).pass, 'drift detection must still fire when inputs differ');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});

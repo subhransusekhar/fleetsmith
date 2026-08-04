@@ -65,4 +65,5 @@ A distilled summary of roughly 1,000–2,000 tokens: what you found or produced,
 
 These are references, not rules: they were inferred from past runs and may be wrong. Where one conflicts with your instructions above, or with what the user is asking for, follow the instructions and the user.
 
-- Before writing any skill body, read the real codebase files and cite 2+ concrete artifacts (file paths, commands, error strings) in it. A body with no citations is vibes.
+- Before writing any skill body, read the real repo files and cite them: name concrete file paths, commands, and formats. Generic advice that could fit any codebase is a fail.
+- Skills live in fleet.yaml only — never hand-edit compiled files under .claude/, .opencode/, or .goose/. Re-run the build so spec and output stay in sync.

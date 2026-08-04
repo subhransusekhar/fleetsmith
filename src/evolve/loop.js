@@ -93,7 +93,7 @@ export async function evolve(spec, opts = {}) {
     return { status: 'skipped', health, log };
   }
 
-  const qa = runQa(spec, { builtDir: cwd });
+  const qa = runQa(spec, { builtDir: cwd, playbooks: allPlaybooks(cwd, spec) });
   const evalResult = runEval(spec, { stage: 2, fleetsDir: opts.fleetsDir ?? null });
 
   // --- SELECT ----------------------------------------------------------------
@@ -239,6 +239,15 @@ export function buildDossier({ spec, target, health, qa, evalResult, runsDir, pl
   return lines.join('\n');
 }
 
+function allPlaybooks(cwd, spec) {
+  const out = {};
+  for (const a of spec.agents) {
+    const b = loadPlaybook(cwd, spec, a.name);
+    if (b.length) out[a.name] = b;
+  }
+  return out;
+}
+
 function loadPlaybook(cwd, spec, agent) {
   const file = path.join(cwd, spec.fleet.shared, 'playbooks', `${agent}.md`);
   return fs.existsSync(file) ? parsePlaybook(fs.readFileSync(file, 'utf8')) : [];
@@ -324,7 +333,7 @@ async function tryCandidate({ spec, specFile, cwd, git, runId, target, ops, eval
     }
 
     const newSpec = opts.reload(specFile);
-    const qa2 = runQa(newSpec, { builtDir: cwd });
+    const qa2 = runQa(newSpec, { builtDir: cwd, playbooks: allPlaybooks(cwd, spec) });
     if (!qa2.pass) {
       const failed = qa2.checks.filter((c) => !c.pass);
       return abort(git, branch, source, specFile, {

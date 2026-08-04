@@ -30,7 +30,7 @@ function result(name, pass, evidence = [], detail = '') {
  * Run every check. `builtDir` (optional) enables drift detection: the spec is
  * recompiled and compared against what is actually on disk.
  */
-export function runQa(spec, { builtDir = null, targets = DEFAULT_TARGETS } = {}) {
+export function runQa(spec, { builtDir = null, targets = DEFAULT_TARGETS, playbooks = {} } = {}) {
   const checks = [];
 
   checks.push(checkSpecGate(spec));
@@ -40,7 +40,7 @@ export function runQa(spec, { builtDir = null, targets = DEFAULT_TARGETS } = {})
   checks.push(checkCapabilityLeaks(spec));
   checks.push(checkLoopBounds(spec));
   checks.push(checkOriginMarkers(spec));
-  if (builtDir) checks.push(checkDrift(spec, builtDir));
+  if (builtDir) checks.push(checkDrift(spec, builtDir, playbooks));
 
   return { checks, pass: checks.every((c) => c.pass) };
 }
@@ -200,9 +200,13 @@ function checkOriginMarkers(spec) {
  *    handover gate is caught, which matters because the gate is on the
  *    protected path list. The shared tier is committed and checked normally.
  */
-function checkDrift(spec, builtDir) {
+function checkDrift(spec, builtDir, playbooks = {}) {
   const evidence = [];
-  const built = buildAll(spec, {});
+  // Rebuild with the SAME inputs the real build uses. Omitting playbooks made
+  // every agent carrying a learned note look hand-edited, so an accepted
+  // generation turned the drift check red — which is how a check stops being
+  // believed.
+  const built = buildAll(spec, { playbooks });
   const localTier = `${spec.fleet.local}/`;
   for (const [rel, content] of built.files) {
     if (built.preserved.has(rel)) continue;

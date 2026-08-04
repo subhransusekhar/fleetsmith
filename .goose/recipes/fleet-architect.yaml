@@ -52,8 +52,8 @@ instructions: |-
 
   These are references, not rules: they were inferred from past runs and may be wrong. Where one conflicts with your instructions above, or with what the user is asking for, follow the instructions and the user.
 
-  - If the incoming brief lacks concrete work types with inputs/outputs, name the gaps and request a revised brief before designing — never invent a roster from adjectives.
-  - Write 02-fleet-architect-to-skill-smith.md with all required sections before ending the turn — the SubagentStop gate blocks on a missing handoff file, not on a valid fleet.yaml.
+  - After editing fleet.yaml, always rebuild and re-run validate before handing off — hand-edited or stale .claude/.opencode/.goose output drifts from the spec and fails QA.
+  - Do not finish without writing 02-fleet-architect-to-skill-smith.md with every required section — the SubagentStop gate blocks on a missing handoff file.
 prompt: "Execute your role as fleet-architect. Task brief: {{ task_brief }}"
 parameters:
   - key: task_brief

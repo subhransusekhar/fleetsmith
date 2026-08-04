@@ -128,7 +128,7 @@ function cmdValidate(positional) {
 function cmdQa(positional, flags) {
   const spec = loadSpec(positional[0]);
   const targets = flags.target && flags.target !== 'all' ? [flags.target] : undefined;
-  const report = runQa(spec, { builtDir: flags.built ?? null, targets });
+  const report = runQa(spec, { builtDir: flags.built ?? null, targets, playbooks: loadPlaybooks(spec) });
   console.log(formatQa(report));
   process.exitCode = report.pass ? 0 : 1;
 }
@@ -418,6 +418,13 @@ function cmdReview(spec, flags) {
       generation: gen,
       reason: flags.reason ?? '',
     });
+    // The tag is the durable reference; leaving the branch would make
+    // --review keep offering a proposal that is already merged.
+    try {
+      execFileSync('git', ['branch', '-d', flags.accept]);
+    } catch {
+      /* leave it if git refuses; the tag is what matters */
+    }
     console.log(`merged ${flags.accept} and tagged fleet-gen/${gen}`);
     console.log(`Provisional until later runs confirm no regression. Rollback: git revert fleet-gen/${gen}`);
     return;
