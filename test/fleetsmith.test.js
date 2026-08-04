@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { normalizeSpec } from '../src/spec/schema.js';
 import { validateSpec } from '../src/spec/validate.js';
 import { buildClaudeCode } from '../src/adapters/claude-code.js';
@@ -1725,7 +1726,8 @@ test('qa drift treats shared as committed and local as exempt when unseeded', ()
 test('migrate-workspace is idempotent and refuses to run mid-run', () => {
   const spec = demoSpec();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-migrate-'));
-  const cli = new URL('../src/cli.js', import.meta.url).pathname;
+  // .pathname yields "/C:/..." on Windows, which node cannot execute.
+  const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
   const specFile = path.join(dir, 'fleet.yaml');
   fs.writeFileSync(specFile, YAML.stringify(archetype('pipeline', 'demo', 'demo domain')));
 
