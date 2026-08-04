@@ -1,0 +1,72 @@
+[
+ {
+  "results": [
+   {
+    "skill": "domain-decomposition",
+    "query": "Answer briefly from your methodology: what must each work type declaration state?",
+    "status": "pass",
+    "detail": "",
+    "output": "Each work type declaration states four things (`.claude/skills/domain-decomposition/SKILL.md:28-31`):\n\n- **input** — what must already exist before it can start\n- **output** — the concrete artifact it produces\n- **expertise** — what someone must know to do it well\n- **parallel?** — whether it depends on another work type's output\n\nPlus the validity test: a competent person should be able to do it in isolation given only the stated input. If not, the input is understated or it's really two work types.\n"
+   },
+   {
+    "skill": "fleet-design",
+    "query": "Answer briefly from your methodology: which fleet pattern suits a strict dependency chain?",
+    "status": "pass",
+    "detail": "",
+    "output": "**`pipeline`** — the pattern for \"each stage needs the previous stage's output.\"\n\nThe selection rule in the fleet-design methodology is to read the pattern off the data flow, not off what sounds sophisticated: a strict dependency chain has zero parallelism to exploit, so agents run in sequence with each one's handoff artifact as the next one's input. Practically that means `mode: sequential`, a linear handoff graph, and an explicit artifact contract on each edge so a downstream agent can't start against a missing or half-written file.\n\nTwo caveats worth checking before committing to it:\n- If the chain is really \"produce X, then check X,\" that's `generate-verify`, not a pipeline — the second stage is adversarial rather than additive.\n- If some middle stages only *appear* dependent (they share an input but not each other's output), split them into a `fanout` segment; a needlessly strict chain costs wall-clock for nothing.\n\nReference: `.claude/skills/fleet-design/SKILL.md:9-19`.\n"
+   },
+   {
+    "skill": "skill-authoring",
+    "query": "Answer briefly from your methodology: a skill never fires when asked for. What should be fixed first?",
+    "status": "pass",
+    "detail": "",
+    "output": "Fix the **description frontmatter** first — nothing else can matter yet.\n\nAt selection time, only `name` + `description` are in the model's context; the body isn't loaded. So a skill that never fires is almost always a retrieval failure, not a methodology failure.\n\nIn order:\n\n1. **Does the description name the trigger conditions in the user's words?** It needs the literal phrases people type — verbs, file extensions, tool/domain nouns, the slash-command name. \"Methodology for designing agent fleets\" loses to \"Use when designing an agent fleet, choosing between pipeline/fanout/supervisor, adding an agent to an existing fleet, or fixing fleetsmith validator errors.\"\n2. **Is it two-part — what it does *and* when to use it?** Descriptions that only say what the skill *is* have no matching surface. Add the explicit \"Use when (1)… (2)… (3)…\" clause.\n3. **Is it pushy enough?** Hedged wording (\"can help with…\") gets skipped in favor of answering directly. State it as an instruction.\n4. **Only then check plumbing:** the file is at `<dir>/SKILL.md`, `name:` matches the directory, YAML parses, and the skill actually appears in the available-skills list. If it isn't in the listing at all, it's a load problem and no wording change will help.\n\nThe common near-miss: the description is accurate but abstract, so it competes poorly against a *sibling* skill whose description happens to be more concrete. Test by phrasing the request three different ways — if it only fires on your exact phrasing, the trigger vocabulary is too narrow.\n"
+   },
+   {
+    "skill": "harness-verification",
+    "query": "Answer briefly from your methodology: which command detects drift between a spec and its compiled output?",
+    "status": "pass",
+    "detail": "",
+    "output": "`fleetsmith qa <fleet.yaml> --built <dir>`\n\nThat's the drift check specifically: `src/qa/index.js:229` emits a **\"drift vs built output\"** check that recompiles the spec in memory and byte-compares it against the files on disk, flagging any that were hand-edited or left stale (`src/qa/index.js:226`). Without `--built` it's skipped — the flag is what points QA at the compiled tree.\n\nTwo notes from the methodology:\n- Files under the `local` tier are exempt (per-developer, not yet seeded), and line-ending-only differences don't count as drift.\n- The fuzzy version in the `harness-verification` skill is `fleetsmith build … --out <tmpdir> --force` followed by comparing compiled texts; `qa --built` is the mechanized form of that same check.\n"
+   }
+  ],
+  "target": "claude-code",
+  "ran": 4,
+  "skipped": 0
+ },
+ {
+  "results": [
+   {
+    "skill": "domain-decomposition",
+    "query": "Answer briefly from your methodology: what must each work type declaration state?",
+    "status": "pass",
+    "detail": "",
+    "output": "Per `.claude/skills/domain-decomposition/SKILL.md:26-34`, each work type declaration must state four things:\n\n- **input** — what must exist before the work can start\n- **output** — the artifact it produces\n- **expertise** — what someone must know to do it well\n- **parallel?** — whether it depends on another work type's output\n\nPlus the framing constraints: a work type is a repeated unit of *judgment*, not a file or feature; name 3–7 of them; and each must pass the isolation test — a competent person could do it given only the stated input. If it fails, the input is understated or it's really two work types.\n"
+   },
+   {
+    "skill": "fleet-design",
+    "query": "Answer briefly from your methodology: which fleet pattern suits a strict dependency chain?",
+    "status": "pass",
+    "detail": "",
+    "output": "**`pipeline`** — the pattern for when each stage needs the previous stage's output.\n\nFrom the fleet-design decision table (`.claude/skills/fleet-design/SKILL.md:13`), a strict dependency chain means no two agents can run concurrently, so the fleet is a linear handoff graph: one artifact contract per edge, each agent's output being the next agent's sole input. Practical notes:\n\n- Set execution mode to sequential — `fanout` or `supervisor` would just add coordination overhead you can't cash in as parallelism.\n- Keep the chain short. If a stage doesn't genuinely consume its predecessor's artifact, it isn't part of the chain and should be split out (fanout branch or a `generate-verify` pair beside the chain).\n- The handoff files are what enforce the ordering — the `SubagentStop` gate blocks a stage from finishing until its handoff exists with every required section, so a broken contract fails loudly instead of silently letting the next stage start on nothing.\n\nThis fleet itself is that shape: domain-analyst → fleet-architect → skill-smith → harness-qa.\n"
+   },
+   {
+    "skill": "skill-authoring",
+    "query": "Answer briefly from your methodology: a skill never fires when asked for. What should be fixed first?",
+    "status": "pass",
+    "detail": "",
+    "output": "The **description frontmatter** — nothing else.\n\nThe description is the only part of a skill loaded into context before it fires. The body could be perfect and it will never be read, because selection happens purely on `name` + `description`. So a \"never fires\" bug is a description bug ~always, and reading/editing SKILL.md's body is wasted effort.\n\nWhat to fix, in order:\n\n1. **Missing trigger vocabulary.** The description must contain the words a user would actually type — synonyms, tool names, file extensions, error strings, the slash-command form. Descriptions written as a summary of what the skill *is* (\"Methodology for X\") lose to ones written as when to use it plus literal triggers.\n2. **Not pushy enough.** Add explicit \"Use when (1)…, (2)…, (3)…\" clauses and a \"Triggers on: …\" list. Passive descriptions get skipped in favor of the model answering directly.\n3. **Overlap with a sibling skill or agent.** If two descriptions cover the same ground, the wrong one wins and the other looks dead. Make the boundary explicit in both.\n4. **Only after those: registration.** Confirm the skill is actually discoverable in the listing — right directory, valid YAML frontmatter, `name` matching the dir. This is fast to check but rarely the cause; it fails loudly rather than silently.\n\nThen test it the way `harness-verification` does: re-issue three or four realistic user phrasings and check whether the skill is selected. Trigger tests go against the description, not the methodology.\n"
+   },
+   {
+    "skill": "harness-verification",
+    "query": "Answer briefly from your methodology: which command detects drift between a spec and its compiled output?",
+    "status": "pass",
+    "detail": "",
+    "output": "`fleetsmith qa <fleet.yaml> --built DIR`\n\nThat's the drift check. Passing `--built` makes QA recompile the spec in memory and diff it against the files on disk, reporting a `drift vs built output` check with file-level evidence (`src/qa/index.js:229`). Without `--built` it runs the rest of the battery but can't see drift.\n\nIn the methodology (`.claude/skills/harness-verification/SKILL.md`), that sits alongside the compile gate — `fleetsmith build --target all --out <tmpdir> --force` regenerates into a scratch dir so the compiled text, not the spec's claims, is what gets cross-checked.\n"
+   }
+  ],
+  "target": "claude-code",
+  "ran": 4,
+  "skipped": 0
+ }
+]

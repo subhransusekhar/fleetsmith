@@ -117,6 +117,9 @@ deterministic check and still makes real runs worse.
   promotion depends on. Scope a case at one skill's methodology — a query that
   triggers the orchestrator runs the whole fleet and will hit the 120s
   per-case timeout.
+- **The live-execution noise floor is provisional.** Measured at 0 of 4 cases
+  flipping across 2 runs, which is too small a sample to resolve a flip rate
+  below ~25%. It means no instability was observed, not that none exists.
 - **The advisory judge (`eval --judge`) is not a metric.** It disagrees with
   itself on 19% of verdicts across identical runs, and is least stable on
   exactly the borderline skills where judgment would be useful. Read one

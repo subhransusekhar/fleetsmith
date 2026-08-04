@@ -181,6 +181,13 @@ function defaultRun({ target, query, cwd, spec, timeout }) {
  * The deterministic suites measured a floor of 0.000, which is meaningless
  * here: live runs vary. Until this is measured for a given corpus, a delta
  * between two `--exec` runs says nothing.
+ *
+ * Measured for the meta-fleet's own four cases: **0 of 4 flipped across 2
+ * runs**. That is "no instability observed", NOT "no instability exists" — a
+ * floor computed from 4 binary outcomes over 2 runs cannot resolve a flip rate
+ * below roughly 25%, so it is not evidence that small deltas are meaningful.
+ * Compare the judge, where instability only became visible at 16 verdicts
+ * across 3 runs. Treat this floor as provisional until the corpus grows.
  */
 export function execStability(runs) {
   const keys = runs[0]?.results.map((r) => `${r.skill}::${r.query}`) ?? [];
