@@ -2812,3 +2812,22 @@ test('git revert of a generation tag restores the prior harness', () => {
 
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('drift compares content, not line-ending policy', () => {
+  // Windows git checks files out as CRLF under the default core.autocrlf. A
+  // file differing only by line endings has not been hand-edited, and
+  // reporting it as drift would make the check fire constantly on Windows —
+  // which trains people to ignore the one check that catches tampering.
+  const spec = demoSpec();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-eol-'));
+  const built = buildAll(spec, {});
+  built.write(dir, { force: true });
+
+  for (const [rel, content] of built.files) {
+    if (built.preserved.has(rel) || !rel.endsWith('.md')) continue;
+    fs.writeFileSync(path.join(dir, rel), content.replace(/\n/g, '\r\n'));
+  }
+  assert.ok(runQa(spec, { builtDir: dir }).pass, 'CRLF checkout reported as drift');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});

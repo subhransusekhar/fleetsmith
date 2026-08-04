@@ -212,13 +212,20 @@ function checkDrift(spec, builtDir) {
       evidence.push(`${rel}: missing on disk (run \`fleetsmith build\`)`);
       continue;
     }
+    // Compare content, not line-ending policy. Windows git checks files out
+    // with CRLF under the default core.autocrlf, and a file that differs only
+    // by line endings has not been hand-edited — reporting it as drift would
+    // make the check fire constantly for Windows users and train them to
+    // ignore it.
     const onDisk = fs.readFileSync(abs, 'utf8');
-    if (onDisk !== content) {
+    if (normalizeEol(onDisk) !== normalizeEol(content)) {
       evidence.push(`${rel}:1: differs from the spec (hand-edited, or the build is stale)`);
     }
   }
   return result('drift vs built output', evidence.length === 0, evidence);
 }
+
+const normalizeEol = (text) => String(text).replace(/\r\n/g, '\n');
 
 /** Human-readable report. Returns the text; the CLI decides the exit code. */
 export function formatQa({ checks, pass }) {
