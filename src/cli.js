@@ -9,6 +9,8 @@ import { validateSpec } from './spec/validate.js';
 import { runQa, formatQa } from './qa/index.js';
 import { applyOps, canonicalize, OPS } from './evolve/patch.js';
 import { protectedManifest, violations } from './evolve/protected.js';
+import { evolve } from './evolve/loop.js';
+import { claudeProposer } from './evolve/proposer.js';
 import { runEval, formatEval, calibrate, classifyDelta } from './eval/index.js';
 import { computeHealth, formatHealth } from './health/index.js';
 import { parsePlaybook, renderPlaybook, addBullet, bump, dedupe } from './playbook/index.js';
@@ -22,6 +24,7 @@ Usage:
   fleetsmith init [name] --pattern <p> [--domain "..."] [--out fleet.yaml]
   fleetsmith validate <fleet.yaml>
   fleetsmith qa <fleet.yaml> [--built DIR] [--target ...]
+  fleetsmith evolve <fleet.yaml> [--budget N] [--apply] [--model M] [--force]
   fleetsmith protected <fleet.yaml> [--check-diff BASE] [--json FILE]
   fleetsmith health <fleet.yaml> [--json FILE]
   fleetsmith playbook <fleet.yaml> add|helpful|harmful|dedupe|show <agent> [text|id]
@@ -44,7 +47,7 @@ install scopes:
 
 main();
 
-function main() {
+async function main() {
   const [, , cmd, ...rest] = process.argv;
   const { positional, flags } = parseArgs(rest);
   try {
@@ -61,6 +64,8 @@ function main() {
         return cmdHealth(positional, flags);
       case 'protected':
         return cmdProtected(positional, flags);
+      case 'evolve':
+        return await cmdEvolve(positional, flags);
       case 'playbook':
         return cmdPlaybook(positional, flags);
       case 'migrate-workspace':
@@ -319,6 +324,53 @@ function loadPlaybooks(spec) {
  * touches one. `--check-diff main` is the out-of-process half of the guard;
  * the patch API is the in-process half.
  */
+/**
+ * Run one evolution cycle. Proposal-only by default: `--apply` still merges
+ * nothing that is not on the auto-apply whitelist.
+ */
+async function cmdEvolve(positional, flags) {
+  const specFile = positional[0];
+  const spec = loadSpec(specFile);
+  const noisePath = path.join(spec.fleet.shared, 'evals/noise.json');
+
+  const result = await evolve(spec, {
+    specFile,
+    cwd: process.cwd(),
+    budget: Number(flags.budget ?? 1),
+    apply: !!flags.apply,
+    force: !!flags.force,
+    fleetsDir: flags.fleets ?? defaultFleetsDir(),
+    noise: fs.existsSync(noisePath) ? JSON.parse(fs.readFileSync(noisePath, 'utf8')) : null,
+    propose: claudeProposer({ model: flags.model ?? null }),
+    // Regenerating and re-reading are the CLI's job; the loop stays free of
+    // build and parse concerns so it can be tested without either.
+    build: (file) => buildFleet(file, { target: 'all', force: true }).fileSet.write('.', { force: true }),
+    reload: (file) => loadSpec(file),
+  });
+
+  for (const line of result.log) console.log(line);
+
+  if (result.status === 'blocked') {
+    console.error(`error: ${result.reason}`);
+    process.exitCode = 1;
+    return;
+  }
+  if (result.status === 'skipped') return;
+
+  console.log('');
+  if (result.survivors.length === 0) {
+    console.log('no candidate survived validation — nothing to review');
+    return;
+  }
+  console.log(`${result.survivors.length} proposal(s) awaiting review:`);
+  for (const s of result.survivors) {
+    console.log(`  ${s.branch}`);
+    console.log(`    ${s.proposal}`);
+  }
+  console.log('');
+  console.log('Review the diff, then merge or delete the branch. Nothing was merged.');
+}
+
 function cmdProtected(positional, flags) {
   const spec = loadSpec(positional[0]);
   const manifest = protectedManifest(spec);

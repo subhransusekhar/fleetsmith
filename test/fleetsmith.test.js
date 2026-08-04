@@ -21,6 +21,8 @@ import { runEval, runTriggerTests, runEvalFleets, compare, classifyDelta, calibr
 import { computeHealth } from '../src/health/index.js';
 import { addBullet, bump, dedupe, parsePlaybook, renderPlaybook, MAX_BULLETS, MAX_BULLET_CHARS } from '../src/playbook/index.js';
 import { protectedManifest, violations } from '../src/evolve/protected.js';
+import { evolve, selectTargets, buildDossier } from '../src/evolve/loop.js';
+import { parseOps, buildPrompt } from '../src/evolve/proposer.js';
 import { buildFleetsmithTools, opValidate, opBuild, opInit, opPatterns } from '../src/opencode-plugin.js';
 import { validatorScript } from '../src/adapters/claude-settings.js';
 import YAML from 'yaml';
@@ -2251,4 +2253,330 @@ test('length caps are enforced at patch time', () => {
     /cap is 500/,
     'unconstrained reflective optimization grows instructions without limit'
   );
+});
+
+// --- T11: the evolution loop ------------------------------------------------
+
+/** A git double, so the loop's branch discipline is testable without shelling out. */
+function fakeGit({ dirty = false } = {}) {
+  return {
+    dirty,
+    branches: [],
+    commits: [],
+    discarded: [],
+    changed: [],
+    isDirty() {
+      return this.dirty;
+    },
+    createBranch(b) {
+      this.branches.push(b);
+    },
+    changedFiles() {
+      return this.changed;
+    },
+    commit(m) {
+      this.commits.push(m);
+    },
+    discardBranch(b) {
+      this.discarded.push(b);
+      this.branches = this.branches.filter((x) => x !== b);
+    },
+  };
+}
+
+function evolveFixture() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-evolve-'));
+  const specFile = path.join(dir, 'fleet.yaml');
+  fs.writeFileSync(
+    specFile,
+    `fleet:
+  name: demo
+  pattern: pipeline
+agents:
+  - name: alpha
+    role: "does things"
+    skills: [learned]
+    handoff:
+      to: [beta]
+      artifact: 01.md
+      criteria: ["cites file:line"]
+  - name: beta
+    role: "checks things"
+skills:
+  - name: learned
+    origin: evolved
+    description: "A machine-authored skill for widget calibration during assembly runs."
+    body: |
+      old body
+`
+  );
+  // Telemetry, so health reports maintenanceNeeded rather than exiting early.
+  const runs = path.join(dir, '_fleet/local/runs/ada-1');
+  fs.mkdirSync(runs, { recursive: true });
+  fs.writeFileSync(
+    path.join(runs, 'events.jsonl'),
+    `${JSON.stringify({ run_id: 'ada-1', event: 'gate_block', agent: 'alpha', detail: 'no handoff file' })}\n`
+  );
+  const reload = (f) => normalizeSpec(YAML.parse(fs.readFileSync(f, 'utf8')));
+  // The loop's qa stage includes drift detection, so the fixture has to be a
+  // real built harness — otherwise every candidate dies at "missing on disk"
+  // before reaching the check under test.
+  const build = (f) => buildAll(reload(f), {}).write(dir, { force: true });
+  build(specFile);
+  return { dir, specFile, spec: reload(specFile), reload, build };
+}
+
+test('evolve exits early when health has not moved', async () => {
+  const { dir, specFile, spec, reload } = evolveFixture();
+  // No runs at all -> nothing observed -> nothing to learn from.
+  fs.rmSync(path.join(dir, '_fleet'), { recursive: true, force: true });
+  const git = fakeGit();
+  const res = await evolve(spec, {
+    specFile,
+    cwd: dir,
+    git,
+    reload,
+    propose: async () => {
+      throw new Error('the proposer must not be called when nothing changed');
+    },
+  });
+  assert.equal(res.status, 'skipped');
+  assert.deepEqual(git.branches, [], 'no branch should be created');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('evolve refuses to run on a dirty tree', async () => {
+  const { dir, specFile, spec, reload } = evolveFixture();
+  const res = await evolve(spec, { specFile, cwd: dir, git: fakeGit({ dirty: true }), reload, propose: async () => [] });
+  assert.equal(res.status, 'blocked');
+  // Otherwise a candidate's diff would carry unrelated work, and cleanup could
+  // destroy it.
+  assert.match(res.reason, /uncommitted changes/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('evolve rejects a candidate that breaks qa, restoring the spec', async () => {
+  const { dir, specFile, spec, reload } = evolveFixture();
+  const before = fs.readFileSync(specFile, 'utf8');
+  const git = fakeGit();
+  const res = await evolve(spec, {
+    specFile,
+    cwd: dir,
+    git,
+    reload,
+    build: () => {},
+    // Retiring the skill leaves alpha referencing nothing; harmless. Instead
+    // make the spec fail validation outright by emptying the description.
+    propose: async () => [{ op: 'update-skill-body', target: 'learned', body: '' }, { op: 'add-skill', target: 'learned', payload: { description: 'dupe' } }],
+  });
+  assert.equal(res.proposals[0].accepted, false);
+  assert.equal(fs.readFileSync(specFile, 'utf8'), before, 'the spec must be restored byte-for-byte');
+  assert.deepEqual(git.commits, [], 'nothing should be committed');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('evolve refuses a proposed contract change outright', async () => {
+  const { dir, specFile, spec, reload } = evolveFixture();
+  const git = fakeGit();
+  const res = await evolve(spec, {
+    specFile,
+    cwd: dir,
+    git,
+    reload,
+    build: () => {},
+    propose: async () => [{ op: 'contract-change', target: 'alpha', payload: { artifact: '99.md' } }],
+  });
+  assert.equal(res.proposals[0].accepted, false);
+  assert.match(res.proposals[0].reason, /contract change/);
+  assert.deepEqual(git.branches, [], 'a contract change must not even reach a branch');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('evolve rejects a candidate that touched a protected path', async () => {
+  const { dir, specFile, spec, reload } = evolveFixture();
+  const git = fakeGit();
+  // Simulate a build that wrote somewhere it should not have.
+  git.changed = ['fleet.yaml', 'test/eval-fleets/01-minimal-single-agent.yaml'];
+  const res = await evolve(spec, {
+    specFile,
+    cwd: dir,
+    git,
+    reload,
+    build: () => {},
+    propose: async () => [{ op: 'update-skill-body', target: 'learned', body: 'new body\n' }],
+  });
+  assert.equal(res.proposals[0].accepted, false);
+  assert.match(res.proposals[0].reason, /protected paths/);
+  assert.deepEqual(git.discarded, git.branches.concat(git.discarded).slice(0, 1), 'the branch must be discarded');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('evolve rejects a change that shows no measurable improvement', async () => {
+  const { dir, specFile, spec, reload, build } = evolveFixture();
+  const git = fakeGit();
+  const res = await evolve(spec, {
+    specFile,
+    cwd: dir,
+    git,
+    reload,
+    build,
+    noise: { floor: 0 },
+    // A valid edit that fixes nothing: the loop must not promote it, or it
+    // learns to churn.
+    propose: async () => [{ op: 'update-skill-body', target: 'learned', body: 'slightly different body\n' }],
+  });
+  assert.equal(res.proposals[0].accepted, false);
+  assert.match(res.proposals[0].reason, /no measurable improvement/);
+  assert.equal(res.survivors.length, 0);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('selectTargets skips protected artifacts and ranks by risk', () => {
+  const spec = normalizeSpec({
+    fleet: { name: 'p' },
+    agents: [
+      { name: 'human-agent', role: 'r' },
+      { name: 'evolved-agent', role: 'r', origin: 'evolved' },
+    ],
+    skills: [
+      { name: 'human-skill', description: 'd' },
+      { name: 'evolved-skill', description: 'd', origin: 'evolved' },
+    ],
+  });
+  const health = {
+    agents: { 'evolved-agent': { failureRisk: 0.9 }, 'human-agent': { failureRisk: 1 } },
+    skills: { 'evolved-skill': { utility: 0.5 }, 'human-skill': { utility: 0 } },
+  };
+  const targets = selectTargets(spec, health);
+  const names = targets.map((t) => t.name);
+  assert.ok(!names.includes('human-agent'), 'human-authored artifacts are not the loop\'s to edit');
+  assert.ok(!names.includes('human-skill'));
+  assert.deepEqual(names, ['evolved-agent', 'evolved-skill'], 'highest risk first');
+});
+
+test('the dossier carries verbatim failure text, not a summary', () => {
+  const spec = normalizeSpec({
+    fleet: { name: 'p' },
+    agents: [{ name: 'a', role: 'r' }],
+    skills: [{ name: 's', description: 'd', body: 'b', origin: 'evolved' }],
+  });
+  const dossier = buildDossier({
+    spec,
+    target: { kind: 'skill', name: 's', risk: 1 },
+    health: { skills: { s: { utility: 0 } }, agents: {} },
+    qa: { checks: [{ name: 'spec gate', pass: false, evidence: ['fleet.yaml:12: skill "s" has no description'] }] },
+    evalResult: { cases: [{ suite: 'trigger', name: 's <- "x"', pass: false, detail: 'routed to "other"' }] },
+    runsDir: null,
+  });
+  // GEPA's central claim: a proposer that sees only a score can guess; one
+  // that sees the error knows what to change.
+  assert.match(dossier, /fleet\.yaml:12: skill "s" has no description/);
+  assert.match(dossier, /routed to "other"/);
+});
+
+test('proposer output parsing survives fences and wrappers, and rejects junk', () => {
+  const ops = [{ op: 'update-skill-body', target: 's', body: 'x' }];
+  assert.deepEqual(parseOps(JSON.stringify(ops)), ops);
+  assert.deepEqual(parseOps('```json\n' + JSON.stringify(ops) + '\n```'), ops);
+  assert.deepEqual(parseOps(JSON.stringify({ result: JSON.stringify(ops) })), ops);
+  assert.deepEqual(parseOps('Here you go:\n' + JSON.stringify(ops)), ops);
+
+  // Anything that is not a typed op is dropped rather than passed on.
+  assert.deepEqual(parseOps('no json here'), []);
+  assert.deepEqual(parseOps('[{"notanop": true}]'), []);
+  assert.deepEqual(parseOps(''), []);
+});
+
+test('the proposal prompt forbids contract changes and states the caps', () => {
+  const prompt = buildPrompt({
+    target: { kind: 'skill', name: 's' },
+    dossier: '# dossier',
+    caps: { skillLines: 500, agentLines: 300 },
+  });
+  assert.match(prompt, /NEVER propose "contract-change"/);
+  assert.match(prompt, /under 500 lines/);
+  // Constraints belong in the proposer, not in post-hoc truncation.
+  assert.match(prompt, /Write to fit/);
+  // An empty proposal must be an available answer, or the model invents work.
+  assert.match(prompt, /reply with an empty array/);
+});
+
+test('evolve accepts a measurable improvement and leaves it for review', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-accept-'));
+  const specFile = path.join(dir, 'fleet.yaml');
+  // `broad` currently swallows the prompt meant for `narrow`, so the trigger
+  // suite fails. That is a description defect the loop is allowed to fix.
+  fs.writeFileSync(
+    specFile,
+    `fleet:
+  name: demo
+  pattern: pipeline
+agents:
+  - name: alpha
+    role: "does things"
+    skills: [narrow, broad]
+skills:
+  - name: narrow
+    origin: evolved
+    description: "Invoice PDF rendering with tax columns."
+    body: |
+      render invoices
+    triggers:
+      should: ["render this invoice to PDF with tax columns"]
+  - name: broad
+    origin: evolved
+    description: "Invoice PDF rendering tax columns ledger reconciliation and everything else invoice related."
+    body: |
+      everything
+`
+  );
+  fs.mkdirSync(path.join(dir, '_fleet/local/runs/ada-1'), { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, '_fleet/local/runs/ada-1/events.jsonl'),
+    `${JSON.stringify({ run_id: 'ada-1', event: 'gate_block', agent: 'alpha' })}\n`
+  );
+
+  const reload = (f) => normalizeSpec(YAML.parse(fs.readFileSync(f, 'utf8')));
+  const build = (f) => buildAll(reload(f), {}).write(dir, { force: true });
+  build(specFile);
+
+  const spec = reload(specFile);
+  assert.ok(!runEval(spec, { stage: 2 }).pass, 'fixture must start with a failing trigger case');
+
+  const git = fakeGit();
+  const res = await evolve(spec, {
+    specFile,
+    cwd: dir,
+    git,
+    reload,
+    build,
+    budget: 2,
+    noise: { floor: 0 },
+    propose: async ({ target }) =>
+      target.name === 'broad'
+        ? [
+            {
+              op: 'update-skill-description',
+              target: 'broad',
+              description: 'Ledger reconciliation and account balancing across periods.',
+              rationale: 'It was claiming invoice-rendering vocabulary owned by narrow.',
+              confidence: 0.8,
+              evidence: ['trigger: narrow <- "render this invoice to PDF with tax columns"'],
+            },
+          ]
+        : [],
+  });
+
+  const accepted = res.survivors[0];
+  assert.ok(accepted, `expected a survivor, got: ${res.proposals.map((p) => p.reason).join('; ')}`);
+  assert.ok(accepted.delta.fixed.length > 0, 'acceptance requires a measured fix, not just a clean run');
+  assert.deepEqual(git.discarded, [], 'a surviving branch must not be discarded');
+  assert.equal(git.commits.length, 1);
+
+  // The proposal is a review artifact, not a merge.
+  const doc = fs.readFileSync(accepted.proposal, 'utf8');
+  assert.match(doc, /update-skill-description/);
+  assert.match(doc, /claiming invoice-rendering vocabulary/, 'the rationale must survive into the proposal');
+  assert.match(doc, /not merged/i);
+  fs.rmSync(dir, { recursive: true, force: true });
 });

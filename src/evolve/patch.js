@@ -35,6 +35,13 @@ import { assertWithinCaps } from './protected.js';
 const SKILL_OPS = new Set([
   'add-skill',
   'update-skill-body',
+  // Descriptions are the entire trigger mechanism, and trigger discrimination
+  // is the main signal `fleetsmith eval` produces. Without this op the loop
+  // could observe a routing failure every cycle and never be able to fix it.
+  // Note this is NOT a contract change: `skills[].triggers` (the corpus a
+  // description is judged against) stays protected, so the loop can rewrite
+  // the claim but not the test it is judged by.
+  'update-skill-description',
   'merge-skills',
   'repair-skill',
   'retire-skill',
@@ -170,6 +177,10 @@ function applyOne(doc, op, where) {
   switch (op.op) {
     case 'add-skill':
       return addSkill(doc, op, where);
+    case 'update-skill-description': {
+      const description = required(op, 'description', where);
+      return setIn(doc, ['skills', idxOf(doc, 'skills', op.target, where), 'description'], description);
+    }
     case 'update-skill-body':
     case 'repair-skill': {
       const body = required(op, 'body', where);
