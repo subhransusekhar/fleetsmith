@@ -153,3 +153,27 @@ Errors (block build): missing/duplicate/non-kebab agent or skill names, unknown 
 Errors also: phase `loop.max` not a positive integer, unknown `agents[].effort` tier, unknown `skills[].freedom` level, `fleet.mcp` entry missing `url` (remote) or `command` (stdio), `fleet.workspace` / `handover.dir` not a safe relative path, a skill `description` over 1,536 chars (it would be truncated in the skill listing, cutting off its trigger vocabulary), and a `parallel` phase containing more than one editing agent (override with `fleet.allowParallelWrites` only when the writers provably touch disjoint paths).
 
 Warnings: empty domain, roleless agent, handoff edge without artifact, handoff cycle outside supervisor-family patterns, disconnected agent, unattached skill, short skill description, skill body >500 lines, `agents[].turns` >200, `loop.max` >10, loop with no exit condition (no `until`/`check`), malformed `schedule.cron`, `schedule` with both cron and interval.
+
+## Typed mutations (`fleetsmith patch`)
+
+A fleet.yaml is edited by a human with an editor, or by `fleetsmith patch` — nothing else. Patches run against the YAML Document API so comments, key order, and formatting survive; the normalized object is never re-serialized, because filling defaults and re-emitting produces a diff nobody can review.
+
+| Op | Target | Notes |
+|----|--------|-------|
+| `add-skill` | new skill name | `payload.description` required; created with `origin: evolved` |
+| `update-skill-body` / `repair-skill` | skill | replaces `body` |
+| `merge-skills` | skill | `payload.from`; **refuses non-identical bodies** — merging differing methodology is editorial, not mechanical |
+| `retire-skill` | skill | renames to `<name>-retired` and drops agent references. Retirement is not deletion; only a human removes the file |
+| `add-validator` | skill | appends eval cases |
+| `update-agent-body` | agent | replaces `prompt` |
+| `add-playbook-bullet` / `update-bullet-counter` | agent | written to the playbook file, not the spec |
+| `contract-change` | agent | anything under `handoff`. Refused without `--allow-contract-change`, and never auto-applied |
+
+Two rules the command enforces:
+
+- **Protected targets are refused.** Anything with `protected: true` (the default for `origin: human`) cannot be modified. Checked against the pre-patch spec, so an op cannot make its own target writable by first flipping its origin.
+- **All or nothing.** The patched spec must normalize and validate, or nothing is written. There is no partial-apply state.
+
+`--dry-run` is the default when stdin is not a TTY, so an automated caller that forgets the flag prints a diff instead of writing.
+
+Run `fleetsmith patch <spec> --normalize` once on an existing spec: flow-collection padding is a single library-wide rule, so a file mixing padded maps with unpadded sequences picks up unrelated churn on its first patch. Normalizing separates that one-time reformat from real changes.

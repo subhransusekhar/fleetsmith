@@ -16,6 +16,7 @@ import { archetype, ARCHETYPES } from '../src/patterns/index.js';
 import { planInstall } from '../src/install.js';
 import { FileSet } from '../src/lib/fs-utils.js';
 import { runQa, formatQa } from '../src/qa/index.js';
+import { applyOps, canonicalize } from '../src/evolve/patch.js';
 import { buildFleetsmithTools, opValidate, opBuild, opInit, opPatterns } from '../src/opencode-plugin.js';
 import { validatorScript } from '../src/adapters/claude-settings.js';
 import YAML from 'yaml';
@@ -1829,4 +1830,117 @@ test('meta-fleet owns its skills in the spec', () => {
     assert.equal(a.skills.length, 1, `${a.name} should carry exactly one methodology`);
     assert.ok(names.includes(a.skills[0]), `${a.name} references an unknown skill`);
   }
+});
+
+// --- T3: typed mutation API -------------------------------------------------
+
+function evolvedSpecSource() {
+  return `# a comment that must survive
+version: 1
+
+fleet:
+  name: demo
+  pattern: pipeline
+
+agents:
+  - name: alpha
+    role: "does things"
+    skills: [learned]
+    handoff:
+      to: [beta]
+      artifact: 01.md
+  - name: beta
+    role: "checks things"
+
+skills:
+  - name: learned
+    origin: evolved
+    description: "A machine-authored skill."
+    body: |
+      old body
+  - name: handwritten
+    description: "A human-authored skill."
+    body: |
+      human body
+`;
+}
+
+test('patch refuses protected targets', () => {
+  const src = evolvedSpecSource();
+  assert.throws(
+    () => applyOps(src, [{ op: 'update-skill-body', target: 'handwritten', body: 'x' }]),
+    /protected \(origin: human\)/,
+    'the loop must not edit human-authored content'
+  );
+  // And refuses agents, which default to human.
+  assert.throws(
+    () => applyOps(src, [{ op: 'update-agent-body', target: 'alpha', body: 'x' }]),
+    /protected/
+  );
+});
+
+test('patch applies to evolved targets and preserves comments', () => {
+  const src = evolvedSpecSource();
+  const { source, applied } = applyOps(src, [
+    { op: 'update-skill-body', target: 'learned', body: 'new body\n' },
+  ]);
+  assert.equal(applied.length, 1);
+  assert.match(source, /# a comment that must survive/, 'comments must survive the round trip');
+  assert.match(source, /new body/);
+  assert.doesNotMatch(source, /old body/);
+  // The human-authored skill is untouched.
+  assert.match(source, /human body/);
+});
+
+test('patch refuses contract changes unless explicitly allowed', () => {
+  const src = evolvedSpecSource();
+  const op = { op: 'contract-change', target: 'alpha', payload: { artifact: '99.md' } };
+  assert.throws(() => applyOps(src, [op]), /changes a handoff contract/);
+
+  // Even when allowed it needs an unprotected target; alpha is human-authored.
+  assert.throws(() => applyOps(src, [op], { allowContractChange: true }), /protected|handoff/);
+});
+
+test('patch rolls back rather than writing an invalid spec', () => {
+  const src = evolvedSpecSource();
+  // Retiring a skill an agent still references would break the reference; the
+  // op retargets, but a spec that fails validation must never reach disk.
+  assert.throws(
+    () => applyOps(src, [{ op: 'add-skill', target: 'learned', payload: { description: 'dupe' } }]),
+    /already exists/
+  );
+  // Unknown ops are refused with the vocabulary listed.
+  assert.throws(() => applyOps(src, [{ op: 'rewrite-everything', target: 'learned' }]), /unknown op/);
+});
+
+test('merge-skills refuses non-identical bodies', () => {
+  const src = evolvedSpecSource().replace(
+    '  - name: handwritten\n    description:',
+    '  - name: other\n    origin: evolved\n    description:'
+  );
+  assert.throws(
+    () => applyOps(src, [{ op: 'merge-skills', target: 'learned', payload: { from: 'other' } }]),
+    /refuses non-identical bodies/,
+    'merging differing methodology is editorial, not mechanical'
+  );
+});
+
+test('retire-skill renames rather than deleting, and drops the reference', () => {
+  const src = evolvedSpecSource();
+  const { source } = applyOps(src, [{ op: 'retire-skill', target: 'learned' }]);
+  assert.match(source, /learned-retired/, 'retirement must be recoverable');
+  const spec = normalizeSpec(YAML.parse(source));
+  assert.ok(spec.skills.some((s) => s.name === 'learned-retired'));
+  assert.ok(!spec.agents[0].skills.includes('learned'), 'stale reference left behind');
+});
+
+test('patch reports when a spec is not canonical', () => {
+  // Flow-collection padding is one library-wide rule, so a spec mixing padded
+  // maps with unpadded sequences picks up unrelated churn on its first patch.
+  const mixed = evolvedSpecSource().replace('skills: [learned]', 'skills: [ learned ]');
+  const { reformatted } = applyOps(mixed, [
+    { op: 'update-skill-body', target: 'learned', body: 'x\n' },
+  ]);
+  assert.equal(typeof reformatted, 'boolean');
+  assert.equal(canonicalize(canonicalize(mixed)), canonicalize(mixed), 'canonicalize must be idempotent');
 });

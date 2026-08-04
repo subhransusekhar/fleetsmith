@@ -5,6 +5,7 @@ import YAML from 'yaml';
 import { normalizeSpec } from './spec/schema.js';
 import { validateSpec } from './spec/validate.js';
 import { runQa, formatQa } from './qa/index.js';
+import { applyOps, canonicalize, OPS } from './evolve/patch.js';
 import { ADAPTERS, buildAll, DEFAULT_TARGETS } from './adapters/index.js';
 import { ARCHETYPES, archetype } from './patterns/index.js';
 import { planInstall, detectTools } from './install.js';
@@ -16,6 +17,7 @@ Usage:
   fleetsmith validate <fleet.yaml>
   fleetsmith qa <fleet.yaml> [--built DIR] [--target ...]
   fleetsmith migrate-workspace <fleet.yaml> [--dry-run]
+  fleetsmith patch <fleet.yaml> --ops ops.json [--dry-run] [--allow-contract-change]
   fleetsmith build <fleet.yaml> [--target claude-code|opencode|goose|all] [--out DIR] [--dry-run] [--force] [--force-preserved]
   fleetsmith install <fleet.yaml> [--target ...] [--scope project|user] [--into DIR] [--dry-run] [--force]
   fleetsmith patterns
@@ -45,6 +47,8 @@ function main() {
         return cmdQa(positional, flags);
       case 'migrate-workspace':
         return cmdMigrateWorkspace(positional, flags);
+      case 'patch':
+        return cmdPatch(positional, flags);
       case 'build':
         return cmdBuild(positional, flags);
       case 'install':
@@ -155,6 +159,75 @@ function cmdMigrateWorkspace(positional, flags) {
     fs.renameSync(from, to);
   }
   console.log(`migrated ${moves.length} path(s); run \`fleetsmith build\` to seed anything missing`);
+}
+
+/**
+ * Apply typed mutations to a fleet.yaml.
+ *
+ * --dry-run is the DEFAULT when stdin is not a TTY, so an automated caller
+ * that forgets the flag prints a diff instead of writing. A tool that edits
+ * its own configuration should be inert by default when nobody is watching.
+ */
+function cmdPatch(positional, flags) {
+  const file = positional[0];
+  if (!file) throw new Error('missing <fleet.yaml> argument');
+  if (!flags.ops && !flags.normalize) throw new Error(`missing --ops <file.json> (ops: ${OPS.join(', ')})`);
+
+  const source = fs.readFileSync(file, 'utf8');
+  const ops = flags.ops ? JSON.parse(fs.readFileSync(flags.ops, 'utf8')) : [];
+  if (flags.normalize) {
+    const canonical = canonicalize(source);
+    if (canonical === source) {
+      console.log(`${file} is already canonical`);
+      return;
+    }
+    fs.writeFileSync(file, canonical);
+    console.log(`normalized ${file} — later patches will now produce minimal diffs`);
+    return;
+  }
+
+  const { source: patched, applied, reformatted } = applyOps(source, Array.isArray(ops) ? ops : [ops], {
+    allowContractChange: !!flags['allow-contract-change'],
+  });
+  if (reformatted) {
+    console.warn(
+      `warn:  ${file} is not in canonical YAML form, so this patch also reformats unrelated lines.\n` +
+        '       Run `fleetsmith patch <spec> --normalize` once to separate that churn from real changes.'
+    );
+  }
+
+  const dryRun = flags['no-dry-run'] ? false : (flags['dry-run'] ?? !process.stdin.isTTY);
+  console.log(unifiedDiff(file, source, patched));
+  if (dryRun) {
+    console.log(`dry run — ${applied.length} op(s) would apply; pass --no-dry-run to write`);
+    return;
+  }
+  if (patched === source) {
+    console.log('no change');
+    return;
+  }
+  fs.writeFileSync(file, patched);
+  console.log(`applied ${applied.length} op(s) to ${file}`);
+}
+
+/** Minimal unified diff: enough to review a patch without a dependency. */
+function unifiedDiff(name, a, b) {
+  const A = a.split('\n');
+  const B = b.split('\n');
+  const out = [`--- a/${name}`, `+++ b/${name}`];
+  let i = 0;
+  let j = 0;
+  while (i < A.length || j < B.length) {
+    if (A[i] === B[j]) {
+      i++;
+      j++;
+      continue;
+    }
+    const nextMatch = B.indexOf(A[i], j);
+    if (A[i] !== undefined && nextMatch === -1) out.push(`-${A[i++]}`);
+    else while (j < (nextMatch === -1 ? B.length : nextMatch)) out.push(`+${B[j++]}`);
+  }
+  return out.join('\n');
 }
 
 function cmdBuild(positional, flags) {

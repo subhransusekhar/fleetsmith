@@ -25,10 +25,10 @@ agents:
     role: "Explores a target project or domain description and produces the decomposition brief that drives fleet design — work types, expertise areas, parallelism opportunities, existing agent/skill inventory."
     goal: "A decomposition brief a fleet architect can design from without re-exploring: concrete work types with inputs/outputs, not a list of adjectives."
     model: smart
-    skills: [domain-decomposition]
+    skills: [ domain-decomposition ]
     capabilities: { read: true, web: true }
     handoff:
-      to: [fleet-architect]
+      to: [ fleet-architect ]
       artifact: 01-domain-analyst-to-fleet-architect.md
       criteria:
         - "Brief names 3-7 concrete work types, each with input, output, and required expertise"
@@ -39,10 +39,10 @@ agents:
     role: "Takes a domain decomposition brief and designs the fleet — pattern choice, execution mode, agent roster with capabilities, handoff graph with artifact contracts — as a valid fleet.yaml."
     goal: "A fleet.yaml that validates cleanly and compiles into working harnesses for every target."
     model: smart
-    skills: [fleet-design]
+    skills: [ fleet-design ]
     capabilities: { read: true, edit: true, run: true }
     handoff:
-      to: [skill-smith]
+      to: [ skill-smith ]
       artifact: 02-fleet-architect-to-skill-smith.md
       criteria:
         - "Pattern matches the data flow, not fashion"
@@ -54,10 +54,10 @@ agents:
     role: "Writes the methodology bodies of fleet skills — lean SKILL.md content, progressive-disclosure references, bundled scripts — inside fleet.yaml."
     goal: "Every skill carries real methodology researched from the codebase and domain standards, not vibes."
     model: smart
-    skills: [skill-authoring]
+    skills: [ skill-authoring ]
     capabilities: { read: true, edit: true, run: true, web: true }
     handoff:
-      to: [harness-qa]
+      to: [ harness-qa ]
       artifact: 03-skill-smith-to-harness-qa.md
       criteria:
         - "Every TODO(skill-smith) marker replaced with researched methodology"
@@ -68,7 +68,7 @@ agents:
     role: "Adversarially verifies a generated harness end-to-end — spec validation, compiled output cross-checks across Claude Code/opencode/goose targets, handoff-graph dead links, trigger tests on skill descriptions."
     goal: "A PASS/FAIL verdict per check with file:line evidence for every failure, plus a ranked fix list."
     model: smart
-    skills: [harness-verification]
+    skills: [ harness-verification ]
     capabilities: { read: true, run: true }
     principles:
       - "Run `fleetsmith qa <spec> --built <dir>` first and paste its output — the mechanical battery (spec gate, per-target compile, handoff graph, capability leaks, loop bounds, drift) is deterministic and already implemented. Never re-derive it by hand."
@@ -314,22 +314,22 @@ orchestrator:
   phases:
     - name: Domain analysis
       mode: subagents
-      agents: [domain-analyst]
+      agents: [ domain-analyst ]
       gate: "The brief names concrete work types with inputs/outputs. A brief of adjectives goes back once with the gaps named."
     - name: Fleet architecture
       mode: subagents
-      agents: [fleet-architect]
+      agents: [ fleet-architect ]
       gate: "fleet.yaml validates (exit 0). Show the user the roster + pattern one-liner before proceeding — cheapest moment for course correction."
     - name: Skill authoring
       mode: subagents
-      agents: [skill-smith]
+      agents: [ skill-smith ]
     - name: Compile
       mode: subagents
-      agents: [fleet-architect]
+      agents: [ fleet-architect ]
       gate: "Orchestrator runs `node src/cli.js build fleet.yaml --target <targets> --out <root> --force` itself (no agent needed). Build emits all requested targets without collisions."
     - name: QA gate
       mode: subagents
-      agents: [harness-qa]
+      agents: [ harness-qa ]
       loop:
         until: "harness-qa reports PASS on every check, or two repair loops are exhausted and the fleet ships with documented gaps"
         max: 2
