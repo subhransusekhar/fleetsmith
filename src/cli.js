@@ -4,6 +4,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { normalizeSpec } from './spec/schema.js';
 import { validateSpec } from './spec/validate.js';
+import { runQa, formatQa } from './qa/index.js';
 import { ADAPTERS, buildAll, DEFAULT_TARGETS } from './adapters/index.js';
 import { ARCHETYPES, archetype } from './patterns/index.js';
 import { planInstall, detectTools } from './install.js';
@@ -13,6 +14,7 @@ const USAGE = `fleetsmith — meta agent-fleet builder
 Usage:
   fleetsmith init [name] --pattern <p> [--domain "..."] [--out fleet.yaml]
   fleetsmith validate <fleet.yaml>
+  fleetsmith qa <fleet.yaml> [--built DIR] [--target ...]
   fleetsmith build <fleet.yaml> [--target claude-code|opencode|goose|all] [--out DIR] [--dry-run] [--force] [--force-preserved]
   fleetsmith install <fleet.yaml> [--target ...] [--scope project|user] [--into DIR] [--dry-run] [--force]
   fleetsmith patterns
@@ -38,6 +40,8 @@ function main() {
         return cmdInit(positional, flags);
       case 'validate':
         return cmdValidate(positional, flags);
+      case 'qa':
+        return cmdQa(positional, flags);
       case 'build':
         return cmdBuild(positional, flags);
       case 'install':
@@ -83,6 +87,18 @@ function cmdValidate(positional) {
   for (const e of errors) console.log(`error: ${e}`);
   console.log(ok ? `valid: ${spec.fleet.name} (${spec.agents.length} agents, ${spec.skills.length} skills)` : 'invalid spec');
   process.exitCode = ok ? 0 : 1;
+}
+
+/**
+ * The deterministic verification battery. Exits non-zero on any FAIL so it can
+ * gate CI and, later, the promotion of an evolved harness.
+ */
+function cmdQa(positional, flags) {
+  const spec = loadSpec(positional[0]);
+  const targets = flags.target && flags.target !== 'all' ? [flags.target] : undefined;
+  const report = runQa(spec, { builtDir: flags.built ?? null, targets });
+  console.log(formatQa(report));
+  process.exitCode = report.pass ? 0 : 1;
 }
 
 function cmdBuild(positional, flags) {

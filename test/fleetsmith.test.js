@@ -14,6 +14,7 @@ import { buildClaudeWorkflow } from '../src/adapters/claude-workflow.js';
 import { archetype, ARCHETYPES } from '../src/patterns/index.js';
 import { planInstall } from '../src/install.js';
 import { FileSet } from '../src/lib/fs-utils.js';
+import { runQa, formatQa } from '../src/qa/index.js';
 import { buildFleetsmithTools, opValidate, opBuild, opInit, opPatterns } from '../src/opencode-plugin.js';
 import { validatorScript } from '../src/adapters/claude-settings.js';
 import YAML from 'yaml';
@@ -1543,4 +1544,81 @@ test('telemetry never leaks concrete run state into prompts (cache stability)', 
     if (a.preserved.has(p)) continue;
     assert.equal(body, b.files.get(p), `${p} is not byte-stable across build dates`);
   }
+});
+
+// --- T8: programmatic QA battery -------------------------------------------
+
+test('qa passes a clean fleet and reports every check', () => {
+  const report = runQa(demoSpec());
+  assert.ok(report.pass, formatQa(report));
+  const names = report.checks.map((c) => c.name);
+  for (const expected of ['spec gate (validate)', 'design lint', 'handoff graph (compiled)', 'capability leaks', 'loop bounds']) {
+    assert.ok(names.includes(expected), `missing check: ${expected}`);
+  }
+  for (const t of DEFAULT_TARGETS) assert.ok(names.includes(`compile: ${t}`), `missing compile check for ${t}`);
+});
+
+test('qa catches an unreachable agent', () => {
+  // An agent nobody hands to and no phase runs is dead weight that still
+  // compiles — exactly the drift a spec-only validator misses.
+  const spec = normalizeSpec({
+    fleet: { name: 'orphanfleet', pattern: 'pipeline' },
+    agents: [
+      { name: 'alpha', role: 'first', handoff: { to: ['beta'] } },
+      { name: 'beta', role: 'second' },
+      { name: 'ghost', role: 'never invoked' },
+    ],
+    orchestrator: { name: 'run-orphan', phases: [{ name: 'Work', agents: ['alpha', 'beta'] }] },
+  });
+  const report = runQa(spec);
+  const graph = report.checks.find((c) => c.name === 'handoff graph (compiled)');
+  assert.equal(graph.pass, false, 'unreachable agent not caught');
+  assert.match(graph.evidence.join('\n'), /ghost is unreachable/);
+});
+
+test('qa catches an unbounded loop', () => {
+  const spec = normalizeSpec({
+    fleet: { name: 'loopy', pattern: 'generate-verify' },
+    agents: [
+      { name: 'maker', role: 'makes', handoff: { to: ['checker'] } },
+      { name: 'checker', role: 'checks' },
+    ],
+    orchestrator: {
+      name: 'run-loopy',
+      phases: [{ name: 'Verify', agents: ['checker'], loop: { max: 3, noProgress: 2 } }],
+    },
+  });
+  // A loop with a cap but no exit condition burns every pass before stopping.
+  const loop = runQa(spec).checks.find((c) => c.name === 'loop bounds');
+  assert.equal(loop.pass, false, 'loop without an exit condition not caught');
+  assert.match(loop.evidence.join('\n'), /no exit condition/);
+});
+
+test('qa drift detection catches a hand-edited generated file', () => {
+  const spec = demoSpec();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-qa-drift-'));
+  buildAll(spec, {}).write(dir, { force: true });
+
+  assert.ok(runQa(spec, { builtDir: dir }).pass, 'fresh build should be drift-free');
+
+  const target = path.join(dir, `.claude/agents/${spec.agents[0].name}.md`);
+  fs.appendFileSync(target, '\n<!-- hand-edited -->\n');
+  const drift = runQa(spec, { builtDir: dir }).checks.find((c) => c.name === 'drift vs built output');
+  assert.equal(drift.pass, false, 'hand-edited file not caught');
+  assert.match(drift.evidence.join('\n'), /agents\/.*:1: differs/);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('qa drift ignores preserve-class files by design', () => {
+  const spec = demoSpec();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-qa-preserve-'));
+  const built = buildAll(spec, {});
+  built.write(dir, { force: true });
+
+  // A run appending a changelog row is the system working, not drift.
+  fs.appendFileSync(path.join(dir, spec.fleet.workspace, 'CHANGELOG.md'), '| d | c | t | evolved | r |\n');
+  assert.ok(runQa(spec, { builtDir: dir }).pass, 'preserve-class divergence reported as drift');
+
+  fs.rmSync(dir, { recursive: true, force: true });
 });

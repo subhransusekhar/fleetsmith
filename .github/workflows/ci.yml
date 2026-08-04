@@ -20,3 +20,19 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm ci
       - run: npm test
+
+  # The deterministic verification battery, run against fleetsmith's own
+  # meta-fleet. This is the gate an evolved harness has to clear before it can
+  # be promoted, so it must stay green on main at all times — a false PASS here
+  # is the path by which a bad mutation reaches the default branch.
+  qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      # --built . also catches drift: a generated file edited by hand, or a
+      # spec change committed without rebuilding.
+      - run: node src/cli.js qa fleet.yaml --built .
