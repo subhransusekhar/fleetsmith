@@ -7,6 +7,7 @@ import { runEval, classifyDelta } from '../eval/index.js';
 import { applyOps, PatchError } from './patch.js';
 import { violations, CAPS } from './protected.js';
 import { AUTO_APPLY, decisionDigest, readDecisions } from './promote.js';
+import { parsePlaybook, renderPlaybook, addBullet, bump } from '../playbook/index.js';
 
 /**
  * The evolution loop: OBSERVE -> EVALUATE -> MUTATE -> VALIDATE -> PROMOTE.
@@ -136,11 +137,23 @@ export function selectTargets(spec, health) {
     targets.push({ kind: 'skill', name: skill.name, risk: 1 - (health.skills[skill.name]?.utility ?? 1) });
   }
   for (const agent of spec.agents) {
-    if (agent.protected) continue;
-    targets.push({ kind: 'agent', name: agent.name, risk: health.agents[agent.name]?.failureRisk ?? 0 });
+    const risk = health.agents[agent.name]?.failureRisk ?? 0;
+    // A protected agent's DEFINITION is immutable, but a learned note is not
+    // part of that definition: it lives in its own file, is advisory, capped,
+    // and needs review before it lands. Without this the loop is unreachable
+    // on every fleet that exists — `init` produces nothing machine-authored,
+    // so nothing would ever be evolvable and the loop could never begin.
+    // Invariant 1 exists to stop the loop editing its referee and rewriting
+    // human-authored definitions; it is not served by making the loop inert.
+    targets.push(agent.protected ? { kind: 'playbook', name: agent.name, risk } : { kind: 'agent', name: agent.name, risk });
   }
   return targets.sort((a, b) => b.risk - a.risk);
 }
+
+/** Ops a target of each kind may legally receive. */
+const LEGAL_OPS = {
+  playbook: new Set(['add-playbook-bullet', 'update-bullet-counter']),
+};
 
 /**
  * The reflection dossier: raw failure text, not summaries.
@@ -225,6 +238,24 @@ async function tryCandidate({ spec, specFile, cwd, git, runId, target, ops, eval
 
   // Contract changes are never auto-proposed; a proposer emitting one is a
   // proposer that misread its instructions.
+  // A playbook target may only receive playbook ops — anything else would be
+  // an edit to a protected definition arriving through the back door.
+  const allowed = LEGAL_OPS[target.kind];
+  if (allowed) {
+    const outside = ops.filter((o) => !allowed.has(o.op));
+    if (outside.length) {
+      const names = outside.map((o) => o.op).join(', ');
+      return {
+        target,
+        ops,
+        accepted: false,
+        reason: `proposed ${names} against a protected definition`,
+        summary: `${target.name}: rejected — ${names} may not be applied to a protected definition`,
+      };
+    }
+    return tryPlaybookCandidate({ spec, cwd, git, runId, target, ops });
+  }
+
   const illegal = ops.filter((o) => o.op === 'contract-change');
   if (illegal.length) {
     return { target, ops, accepted: false, reason: 'proposed a contract change', summary: `${target.name}: rejected — proposed a contract change, which is human-reviewed only` };
@@ -308,6 +339,87 @@ async function tryCandidate({ spec, specFile, cwd, git, runId, target, ops, eval
   } catch (e) {
     return abort(git, branch, source, specFile, { target, ops, reason: `error: ${e.message}` });
   }
+}
+
+/**
+ * Playbook candidates take a shorter ladder: a bullet cannot break the build,
+ * so there is nothing to compile or re-verify. What it can do is degrade
+ * behaviour, which is why it is capped, framed as advisory, and still needs
+ * human review — `add-playbook-bullet` is deliberately off the auto-apply
+ * whitelist.
+ */
+function tryPlaybookCandidate({ spec, cwd, git, runId, target, ops }) {
+  const branch = `fleet-evolve/${runId}-${target.name}-playbook`;
+  const file = path.join(cwd, spec.fleet.shared, 'playbooks', `${target.name}.md`);
+  const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+
+  git.createBranch(branch);
+  try {
+    let bullets = before ? parsePlaybook(before) : [];
+    const applied = [];
+    for (const op of ops) {
+      if (op.op === 'add-playbook-bullet') {
+        const text = op.body ?? op.payload?.text ?? '';
+        const res = addBullet(target.name, bullets, text);
+        bullets = res.bullets;
+        applied.push(res.added ? `added ${res.added}` : `merged into ${res.merged}`);
+      } else {
+        bullets = bump(bullets, op.payload?.id ?? op.target, op.payload?.kind ?? 'helpful');
+        applied.push(`counted ${op.payload?.id}`);
+      }
+    }
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, renderPlaybook(target.name, bullets));
+
+    const proposal = writePlaybookProposal({ cwd, spec, runId, target, ops, applied, branch });
+    git.commit(`evolve(${target.name}): ${ops.map((o) => o.op).join(', ')}`);
+    return {
+      target,
+      ops,
+      accepted: true,
+      branch,
+      proposal,
+      delta: { delta: 0, fixed: [], broken: [], comparable: 0 },
+      summary: `${target.name}: learned note proposed on ${branch} (${applied.join('; ')})`,
+    };
+  } catch (e) {
+    if (before === null) fs.rmSync(file, { force: true });
+    else fs.writeFileSync(file, before);
+    git.discardBranch(branch);
+    return { target, ops, accepted: false, reason: e.message, summary: `${target.name}: rejected — ${e.message}` };
+  }
+}
+
+function writePlaybookProposal({ cwd, spec, runId, target, ops, applied, branch }) {
+  const dir = path.join(cwd, spec.fleet.shared, 'evolution/proposals');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${runId}-${target.name}-playbook.md`);
+  fs.writeFileSync(
+    file,
+    [
+      `# Proposal — learned note for "${target.name}"`,
+      '',
+      `- Branch: \`${branch}\``,
+      `- Applied: ${applied.join('; ')}`,
+      '',
+      'This adds an **advisory** note to the agent\'s playbook. It does not modify',
+      'the agent definition, which is human-authored and protected.',
+      '',
+      '## Rationale (as given by the proposer)',
+      '',
+      ...ops.map((o) => `- **${o.op}** — ${o.rationale ?? '(none given)'} (confidence: ${o.confidence ?? 'unstated'})`),
+      '',
+      '## Evidence',
+      '',
+      ...ops.flatMap((o) => (o.evidence ?? []).map((e) => `- ${e}`)),
+      '',
+      '## Review',
+      '',
+      'Learned notes are references, not rules, and accumulated memory measurably',
+      'degrades alignment — so this is not auto-applied. Merge or delete the branch.',
+    ].join('\n') + '\n'
+  );
+  return file;
 }
 
 /** Undo everything this candidate touched and record why it died. */

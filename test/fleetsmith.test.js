@@ -2449,10 +2449,82 @@ test('selectTargets skips protected artifacts and ranks by risk', () => {
     skills: { 'evolved-skill': { utility: 0.5 }, 'human-skill': { utility: 0 } },
   };
   const targets = selectTargets(spec, health);
-  const names = targets.map((t) => t.name);
-  assert.ok(!names.includes('human-agent'), 'human-authored artifacts are not the loop\'s to edit');
-  assert.ok(!names.includes('human-skill'));
-  assert.deepEqual(names, ['evolved-agent', 'evolved-skill'], 'highest risk first');
+  const byName = Object.fromEntries(targets.map((t) => [t.name, t.kind]));
+
+  // A human-authored skill is entirely off limits.
+  assert.equal(byName['human-skill'], undefined, "a human-authored skill is not the loop's to edit");
+  // A human-authored agent's DEFINITION is off limits, but it remains
+  // reachable for advisory learned notes — otherwise the loop is unreachable
+  // on every fleet, since `init` produces nothing machine-authored.
+  assert.equal(byName['human-agent'], 'playbook');
+  assert.equal(byName['evolved-agent'], 'agent');
+  assert.equal(byName['evolved-skill'], 'skill');
+
+  // Still ranked most-broken-first.
+  assert.equal(targets[0].name, 'human-agent', 'highest risk first');
+});
+
+test('a playbook target cannot be used to edit the protected definition', async () => {
+  const { dir, specFile, spec, reload, build } = evolveFixture();
+  const git = fakeGit();
+  const res = await evolve(spec, {
+    specFile,
+    cwd: dir,
+    git,
+    reload,
+    build,
+    budget: 5,
+    // alpha is human-authored, so it is a playbook target. Smuggling a body
+    // edit through it would be an edit to a protected definition.
+    propose: async ({ target }) =>
+      target.kind === 'playbook'
+        ? [{ op: 'update-agent-body', target: target.name, body: 'rewritten' }]
+        : [],
+  });
+  const smuggled = res.proposals.find((p) => p.target.kind === 'playbook');
+  assert.ok(smuggled, 'expected a playbook target to be offered');
+  assert.equal(smuggled.accepted, false);
+  assert.match(smuggled.reason, /protected definition/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('the loop can attach a learned note to a protected agent', async () => {
+  const { dir, specFile, spec, reload, build } = evolveFixture();
+  const git = fakeGit();
+  const res = await evolve(spec, {
+    specFile,
+    cwd: dir,
+    git,
+    reload,
+    build,
+    budget: 5,
+    propose: async ({ target }) =>
+      target.kind === 'playbook' && target.name === 'alpha'
+        ? [
+            {
+              op: 'add-playbook-bullet',
+              target: 'alpha',
+              body: 'Write the handoff file before finishing; the gate blocks otherwise.',
+              rationale: 'gate_block: no handoff file',
+              confidence: 0.9,
+              evidence: ['gate_block: no handoff file'],
+            },
+          ]
+        : [],
+  });
+
+  const note = res.survivors.find((p) => p.target.kind === 'playbook');
+  assert.ok(note, `expected a learned note, got: ${res.proposals.map((p) => p.reason).join('; ')}`);
+
+  // The note lands in the playbook, and the agent definition is untouched.
+  const playbook = fs.readFileSync(path.join(dir, '_fleet/shared/playbooks/alpha.md'), 'utf8');
+  assert.match(playbook, /Write the handoff file before finishing/);
+  assert.match(playbook, /not rules/, 'advisory framing must survive');
+  assert.match(fs.readFileSync(specFile, 'utf8'), /role: "does things"/, 'the definition must be unchanged');
+
+  // And it is not auto-appliable: accumulated memory degrades alignment.
+  assert.ok(!AUTO_APPLY.has('add-playbook-bullet'));
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('the dossier carries verbatim failure text, not a summary', () => {
