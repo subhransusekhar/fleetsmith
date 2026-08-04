@@ -1413,3 +1413,134 @@ test('buildAll and install carry the preserve flag through merges', () => {
   const user = planInstall(synthetic, { scope: 'user', home: '/tmp/nonexistent-home' });
   assert.equal(user.fileSet.preserved.size, 1, 'user-scope remap dropped the preserve flag');
 });
+
+// --- T4: run telemetry ------------------------------------------------------
+
+test('logger writes parseable JSONL and closes runs', () => {
+  const spec = demoSpec();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-telem-'));
+  buildClaudeCode(spec, {}).write(dir, { force: true });
+
+  const log = path.join(dir, spec.fleet.workspace, 'scripts/log-event.sh');
+  assert.ok(fs.existsSync(log), 'logger script emitted');
+
+  const run = (...args) => spawnSync('sh', [log, ...args], { encoding: 'utf8' });
+  run('run_start');
+  run('invoke_agent', 'analyst', 'phase 1');
+  // Quotes and newlines in detail must not corrupt the line format.
+  run('execute_tool_error', 'analyst', 'boom "quoted"\nsecond line');
+  run('run_end', '', 'done');
+
+  const runsDir = path.join(dir, spec.fleet.workspace, 'runs');
+  const runIds = fs.readdirSync(runsDir).filter((f) => f !== 'CURRENT');
+  assert.equal(runIds.length, 1, 'events landed in exactly one run directory');
+
+  const lines = fs
+    .readFileSync(path.join(runsDir, runIds[0], 'events.jsonl'), 'utf8')
+    .trim()
+    .split('\n');
+  assert.equal(lines.length, 4);
+  const events = lines.map((l) => JSON.parse(l)); // throws if escaping is wrong
+  assert.deepEqual(events.map((e) => e.event), [
+    'run_start',
+    'invoke_agent',
+    'execute_tool_error',
+    'run_end',
+  ]);
+  assert.equal(events[1].agent, 'analyst');
+  assert.match(events[2].detail, /boom "quoted"/);
+  assert.ok(events.every((e) => e.run_id === events[0].run_id), 'all events share one run id');
+
+  // run_end closes the run so the next run_start opens a fresh id.
+  assert.ok(!fs.existsSync(path.join(runsDir, 'CURRENT')), 'run not closed on run_end');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('handover gate records its verdict without changing it', () => {
+  const spec = demoSpec();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-gate-telem-'));
+  buildClaudeCode(spec, {}).write(dir, { force: true });
+
+  const gate = path.join(dir, spec.fleet.workspace, 'scripts/validate-handoff.sh');
+  const handoffAgent = spec.agents.find((a) => a.handoff.to.length > 0).name;
+  const res = spawnSync('sh', [gate], {
+    input: JSON.stringify({ agent_type: handoffAgent }),
+    cwd: dir,
+    encoding: 'utf8',
+  });
+
+  // Behavior is unchanged: a missing handoff still blocks.
+  assert.equal(res.status, 2, 'gate must still block a missing handoff');
+
+  const runsDir = path.join(dir, spec.fleet.workspace, 'runs');
+  const runIds = fs.readdirSync(runsDir).filter((f) => f !== 'CURRENT');
+  const events = fs
+    .readFileSync(path.join(runsDir, runIds[0], 'events.jsonl'), 'utf8')
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l));
+  const block = events.find((e) => e.event === 'gate_block');
+  assert.ok(block, 'gate verdict was discarded instead of recorded');
+  assert.equal(block.agent, handoffAgent);
+  assert.match(block.detail, /no handoff file/);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('gate still passes and records when the handoff is complete', () => {
+  const spec = demoSpec();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-gate-pass-'));
+  buildClaudeCode(spec, {}).write(dir, { force: true });
+
+  const agent = spec.agents.find((a) => a.handoff.to.length > 0);
+  const tmpl = fs.readFileSync(path.join(dir, spec.handover.dir, 'HANDOFF.template.md'), 'utf8');
+  fs.writeFileSync(path.join(dir, spec.handover.dir, `01-${agent.name}-to-x.md`), tmpl);
+  const ledger = path.join(dir, spec.fleet.workspace, 'LEDGER.md');
+  if (fs.existsSync(ledger)) fs.appendFileSync(ledger, `| 2 | work | ${agent.name} | - | done | x |\n`);
+
+  const res = spawnSync('sh', [path.join(dir, spec.fleet.workspace, 'scripts/validate-handoff.sh')], {
+    input: JSON.stringify({ agent_type: agent.name }),
+    cwd: dir,
+    encoding: 'utf8',
+  });
+  assert.equal(res.status, 0, `gate should accept a complete handoff: ${res.stderr}`);
+
+  const runsDir = path.join(dir, spec.fleet.workspace, 'runs');
+  const runIds = fs.readdirSync(runsDir).filter((f) => f !== 'CURRENT');
+  const events = fs
+    .readFileSync(path.join(runsDir, runIds[0], 'events.jsonl'), 'utf8')
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l));
+  assert.ok(events.some((e) => e.event === 'gate_pass' && e.agent === agent.name), 'pass not recorded');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('telemetry never leaks concrete run state into prompts (cache stability)', () => {
+  // The invariant in compile/agent-prompt.js is about *values* that change per
+  // run — a real run id, a date, a counter — because they invalidate the
+  // prompt cache on every turn. Static instructions that name the telemetry
+  // file, or use a `<run_id>` placeholder, are fine and in fact required.
+  const spec = demoSpec();
+  const files = buildAll(spec, {});
+  const RUN_ID = /\b\d{8}T\d{6}Z\b/; // the id format log-event.sh mints
+  const ISO_DATE = /\b20\d{2}-\d{2}-\d{2}\b/;
+
+  for (const [p, body] of files.files) {
+    if (!/^\.(claude|opencode)\/(agents|skills)\//.test(p)) continue;
+    assert.doesNotMatch(body, RUN_ID, `${p} embeds a concrete run id`);
+    assert.doesNotMatch(body, ISO_DATE, `${p} embeds a build date`);
+  }
+
+  // And the same build twice must be byte-identical across days. Preserve-class
+  // files are exempt by design: they are seeded once and then owned by the
+  // running fleet, so their seed row carries a real (and meaningful) date.
+  const a = buildAll(spec, { today: '2026-08-04' });
+  const b = buildAll(spec, { today: '2027-03-09' });
+  for (const [p, body] of a.files) {
+    if (a.preserved.has(p)) continue;
+    assert.equal(body, b.files.get(p), `${p} is not byte-stable across build dates`);
+  }
+});

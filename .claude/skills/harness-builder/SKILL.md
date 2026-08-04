@@ -88,11 +88,24 @@ Between passes, re-run this phase's agent(s) with the **specific failures from t
 - Conflicting outputs from parallel agents → do not discard either; present both with sources and either resolve via a named criterion or escalate to the user.
 - A handoff missing its acceptance criteria → send it back to the producing agent once; then accept with a `PARTIAL` marker.
 
+## Run telemetry
+
+Record what happened so the harness can be improved from evidence rather than memory. Each command appends one line to `_fleet/runs/<run_id>/events.jsonl` and never fails the run.
+
+- At the start of Phase 0: `sh _fleet/scripts/log-event.sh run_start`
+- At the start of each phase: `sh _fleet/scripts/log-event.sh phase_start "" "<phase name>"`
+- Before delegating to an agent: `sh _fleet/scripts/log-event.sh invoke_agent <agent>`
+- When a tool or command fails and you retry: `sh _fleet/scripts/log-event.sh execute_tool_error <agent> "<what failed>"`
+- At Completion: `sh _fleet/scripts/log-event.sh run_end "" "<done|partial|blocked>"`
+
+Never edit past event lines — the file is append-only, and a rewritten history is worse than none.
+
 ## Completion
 
 1. Confirm every ledger row is done/dropped with a reason.
 2. Summarize deliverables + gaps for the user.
-3. Ask one short feedback question ("anything to improve in the result or the fleet workflow?") — if feedback arrives, route it: output quality → the agent's skill; role gaps → agent definition; ordering → this orchestrator; then append a row to `_fleet/CHANGELOG.md` recording what changed, where, and why. That file survives rebuilds; CLAUDE.md and AGENTS.md do not.
+3. Ask one short feedback question ("anything to improve in the result or the fleet workflow?") — if feedback arrives, route it: output quality → the agent's skill; role gaps → agent definition; ordering → this orchestrator; then append a row to `_fleet/CHANGELOG.md` recording what changed, where, and why. That file survives rebuilds; CLAUDE.md and AGENTS.md do not. Also record it: `sh _fleet/scripts/log-event.sh feedback "<agent or ->" "<route>: <the feedback>"`.
+4. Close the run: `sh _fleet/scripts/log-event.sh run_end "" "<done|partial|blocked>"`
 
 ## Test scenarios
 

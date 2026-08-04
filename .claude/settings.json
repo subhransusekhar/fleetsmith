@@ -12,7 +12,8 @@
       "Bash",
       "WebSearch",
       "WebFetch",
-      "Bash(sh _fleet/scripts/validate-handoff.sh:*)"
+      "Bash(sh _fleet/scripts/validate-handoff.sh:*)",
+      "Bash(sh _fleet/scripts/log-event.sh:*)"
     ]
   },
   "hooks": {

@@ -1,4 +1,5 @@
 import { title } from './agent-prompt.js';
+import { telemetryBlock } from './telemetry.js';
 
 /**
  * Compile the orchestrator playbook body. The workflow logic is shared;
@@ -89,11 +90,15 @@ export function compileOrchestratorBody(spec, target) {
   s.push('- A handoff missing its acceptance criteria → send it back to the producing agent once; then accept with a `PARTIAL` marker.');
 
   s.push('');
+  s.push(telemetryBlock(spec));
+
+  s.push('');
   s.push('## Completion');
   s.push('');
   s.push(`1. Confirm every ledger row is done/dropped with a reason.`);
   s.push('2. Summarize deliverables + gaps for the user.');
-  s.push(`3. Ask one short feedback question ("anything to improve in the result or the fleet workflow?") — if feedback arrives, route it: output quality → the agent's skill; role gaps → agent definition; ordering → this orchestrator; then append a row to \`${spec.fleet.workspace}/CHANGELOG.md\` recording what changed, where, and why. That file survives rebuilds; CLAUDE.md and AGENTS.md do not.`);
+  s.push(`3. Ask one short feedback question ("anything to improve in the result or the fleet workflow?") — if feedback arrives, route it: output quality → the agent's skill; role gaps → agent definition; ordering → this orchestrator; then append a row to \`${spec.fleet.workspace}/CHANGELOG.md\` recording what changed, where, and why. That file survives rebuilds; CLAUDE.md and AGENTS.md do not. Also record it: \`sh ${spec.fleet.workspace}/scripts/log-event.sh feedback "<agent or ->" "<route>: <the feedback>"\`.`);
+  s.push(`4. Close the run: \`sh ${spec.fleet.workspace}/scripts/log-event.sh run_end "" "<done|partial|blocked>"\``);
 
   if (spec.fleet.schedule) {
     s.push('');

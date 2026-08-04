@@ -5,6 +5,7 @@ import { handoffTemplate, ledgerTemplate, changelogTemplate } from '../handover/
 import { compileOrchestratorBody } from '../compile/orchestrator.js';
 import { agentsMdPointer } from '../compile/pointers.js';
 import { skillEvals, evalsReadme } from '../compile/evals.js';
+import { logEventScript, TELEMETRY_PATH } from '../compile/telemetry.js';
 
 /**
  * opencode adapter (opencode.ai — anomalyco/opencode).
@@ -77,6 +78,7 @@ export function buildOpencode(spec, options = {}) {
     changelogTemplate(spec.fleet.name, options.today),
     { preserve: true }
   );
+  out.add(`${spec.fleet.workspace}/${TELEMETRY_PATH}`, logEventScript(spec));
 
   if (options.agentsMd !== false) {
     out.add('AGENTS.md', agentsMdPointer(spec));

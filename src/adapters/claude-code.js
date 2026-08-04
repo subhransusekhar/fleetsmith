@@ -5,6 +5,7 @@ import { handoffTemplate, ledgerTemplate, changelogTemplate } from '../handover/
 import { compileOrchestratorBody } from '../compile/orchestrator.js';
 import { settingsJson, validatorScript, loopMd, VALIDATOR_PATH } from './claude-settings.js';
 import { skillEvals, evalsReadme } from '../compile/evals.js';
+import { logEventScript, TELEMETRY_PATH } from '../compile/telemetry.js';
 
 /**
  * Claude Code adapter.
@@ -310,6 +311,7 @@ function emitWorkspace(out, spec, options = {}) {
     changelogTemplate(spec.fleet.name, options.today),
     { preserve: true }
   );
+  out.add(`${spec.fleet.workspace}/${TELEMETRY_PATH}`, logEventScript(spec));
 }
 
 function claudeMdPointer(spec) {

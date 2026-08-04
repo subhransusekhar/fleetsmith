@@ -1,4 +1,5 @@
 import { DEFAULT_HANDOFF_SCHEMA } from '../spec/schema.js';
+import { TELEMETRY_PATH } from '../compile/telemetry.js';
 
 /**
  * Claude Code project settings + the deterministic handover gate.
@@ -39,6 +40,7 @@ export function settingsJson(spec, { validatorPath }) {
   if (anyRun) allow.push('Bash');
   if (anyWeb) allow.push('WebSearch', 'WebFetch');
   allow.push(`Bash(sh ${validatorPath}:*)`);
+  allow.push(`Bash(sh ${spec.fleet.workspace}/${TELEMETRY_PATH}:*)`);
 
   return `${JSON.stringify(
     {
@@ -113,6 +115,10 @@ agent=$(printf '%s' "$payload" | sed -n 's/.*"agent_type"[[:space:]]*:[[:space:]
 [ -n "$agent" ] || exit 0   # not a fleet subagent stop we can attribute
 
 dir=${dir}
+log="$(dirname "$0")/log-event.sh"
+# Telemetry is advisory: a missing or failing logger must never change a gate
+# verdict, so every call is guarded and its exit status ignored.
+log_event() { [ -f "$log" ] && sh "$log" "$1" "$2" "$3" >/dev/null 2>&1 || true; }
 required=''
 case "$agent" in
 ${cases || "    '') ;;"}
@@ -127,6 +133,7 @@ file=$(ls "$dir"/*-"$agent"-to-*.md 2>/dev/null | head -n 1)
 if [ -z "$file" ]; then
     echo "Handover gate: no handoff file found for '$agent' in $dir/." >&2
     echo "Write $dir/{seq}-$agent-to-{receiver}.md using $dir/HANDOFF.template.md before finishing." >&2
+    log_event gate_block "$agent" "no handoff file"
     exit 2
 fi
 
@@ -142,6 +149,7 @@ IFS=$old_ifs
 if [ -n "$missing" ]; then
     echo "Handover gate: $file is missing required section(s):$missing" >&2
     echo "A receiver with zero shared context reads only this file — fill those sections, then finish." >&2
+    log_event gate_block "$agent" "missing sections:$missing"
     exit 2
 fi
 ${
@@ -150,11 +158,13 @@ ${
 if [ -f ${ledger} ] && ! grep -q "$agent" ${ledger}; then
     echo "Handover gate: '$agent' has no row in ${ledger}." >&2
     echo "Add or update your ledger row (status + artifact path) before finishing." >&2
+    log_event gate_block "$agent" "no ledger row"
     exit 2
 fi
 `
     : ''
 }
+log_event gate_pass "$agent" ""
 exit 0
 `;
 }
