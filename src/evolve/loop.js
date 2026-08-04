@@ -358,6 +358,7 @@ async function tryCandidate({ spec, specFile, cwd, git, runId, target, ops, eval
 
     const proposal = writeProposal({ cwd, spec, runId, target, ops, paired, verdict, branch });
     git.commit(`evolve(${target.name}): ${ops.map((o) => o.op).join(', ')}`);
+    git.returnToBase?.();
     return {
       target,
       ops,
@@ -404,6 +405,7 @@ function tryPlaybookCandidate({ spec, cwd, git, runId, target, ops }) {
 
     const proposal = writePlaybookProposal({ cwd, spec, runId, target, ops, applied, branch });
     git.commit(`evolve(${target.name}): ${ops.map((o) => o.op).join(', ')}`);
+    git.returnToBase?.();
     return {
       target,
       ops,
@@ -501,12 +503,21 @@ function readJson(p) {
 /** Real git, isolated behind an interface so tests never shell out. */
 export function realGit(cwd) {
   const run = (...args) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+  // The base is captured ONCE, at construction. Re-reading it per candidate
+  // meant that after one candidate was accepted (and left checked out), the
+  // next branched off it — so proposals were not independent and a diff
+  // carried the previous candidate's changes.
+  const base = run('rev-parse', '--abbrev-ref', 'HEAD');
   return {
+    base,
     isDirty: () => run('status', '--porcelain').length > 0,
     current: () => run('rev-parse', '--abbrev-ref', 'HEAD'),
     createBranch(branch) {
-      this._from = run('rev-parse', '--abbrev-ref', 'HEAD');
-      run('switch', '-c', branch);
+      run('switch', '-c', branch, base);
+    },
+    /** Leave the branch intact but return HEAD to where the user was. */
+    returnToBase() {
+      run('switch', base);
     },
     changedFiles: () => run('status', '--porcelain').split('\n').filter(Boolean).map((l) => l.slice(3)),
     commit(message) {
@@ -516,7 +527,7 @@ export function realGit(cwd) {
     discardBranch(branch) {
       run('checkout', '--', '.');
       run('clean', '-fd');
-      run('switch', this._from ?? 'main');
+      run('switch', base);
       run('branch', '-D', branch);
     },
   };

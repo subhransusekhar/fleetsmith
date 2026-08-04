@@ -55,3 +55,10 @@ A distilled summary of roughly 1,000–2,000 tokens: what you found or produced,
 - Retry a failed step once with an adjusted approach; on second failure, record the failure in your handoff/ledger row and continue with what you have — a documented gap beats silent stalling.
 - Never fabricate data to fill a gap; mark it `MISSING:` with what you tried.
 - If a previous handoff exists from an earlier run, read it and improve on it instead of starting from scratch.
+
+## Learned notes (advisory, machine-authored)
+
+These are references, not rules: they were inferred from past runs and may be wrong. Where one conflicts with your instructions above, or with what the user is asking for, follow the instructions and the user.
+
+- If the incoming brief lacks concrete work types with inputs/outputs, name the gaps and request a revised brief before designing — never invent a roster from adjectives.
+- Write 02-fleet-architect-to-skill-smith.md with all required sections before ending the turn — the SubagentStop gate blocks on a missing handoff file, not on a valid fleet.yaml.

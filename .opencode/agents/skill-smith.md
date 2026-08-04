@@ -60,3 +60,9 @@ A distilled summary of roughly 1,000–2,000 tokens: what you found or produced,
 - Retry a failed step once with an adjusted approach; on second failure, record the failure in your handoff/ledger row and continue with what you have — a documented gap beats silent stalling.
 - Never fabricate data to fill a gap; mark it `MISSING:` with what you tried.
 - If a previous handoff exists from an earlier run, read it and improve on it instead of starting from scratch.
+
+## Learned notes (advisory, machine-authored)
+
+These are references, not rules: they were inferred from past runs and may be wrong. Where one conflicts with your instructions above, or with what the user is asking for, follow the instructions and the user.
+
+- Before writing any skill body, read the real codebase files and cite 2+ concrete artifacts (file paths, commands, error strings) in it. A body with no citations is vibes.

@@ -2271,6 +2271,7 @@ function fakeGit({ dirty = false } = {}) {
     },
     createBranch(b) {
       this.branches.push(b);
+      this.onBase = false;
     },
     changedFiles() {
       return this.changed;
@@ -2281,6 +2282,10 @@ function fakeGit({ dirty = false } = {}) {
     discardBranch(b) {
       this.discarded.push(b);
       this.branches = this.branches.filter((x) => x !== b);
+      this.onBase = true;
+    },
+    returnToBase() {
+      this.onBase = true;
     },
   };
 }
@@ -2901,5 +2906,28 @@ test('drift compares content, not line-ending policy', () => {
   }
   assert.ok(runQa(spec, { builtDir: dir }).pass, 'CRLF checkout reported as drift');
 
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('every candidate branches from the base and returns to it', async () => {
+  // Otherwise a later proposal branches off an earlier accepted one, so the
+  // two are not independent and cannot be accepted or rejected in any order —
+  // and HEAD is left on a proposal branch, where the user's next command runs.
+  const { dir, specFile, spec, reload, build } = evolveFixture();
+  const git = fakeGit();
+  const res = await evolve(spec, {
+    specFile,
+    cwd: dir,
+    git,
+    reload,
+    build,
+    budget: 5,
+    propose: async ({ target }) =>
+      target.kind === 'playbook'
+        ? [{ op: 'add-playbook-bullet', target: target.name, body: `Lesson for ${target.name}.`, confidence: 0.8 }]
+        : [],
+  });
+  assert.ok(res.survivors.length >= 2, 'need several candidates to test independence');
+  assert.equal(git.onBase, true, 'HEAD must be returned to the base branch');
   fs.rmSync(dir, { recursive: true, force: true });
 });
