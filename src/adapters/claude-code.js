@@ -128,6 +128,11 @@ function agentFile(agent, spec, team, index = 0, parallelEditors = new Set()) {
       memory: agent.memory ? 'project' : undefined,
       isolation: isolate ? 'worktree' : undefined,
       color: COLORS[index % COLORS.length],
+      // Provenance travels into the generated file so `fleetsmith qa` can
+      // detect machine-authored content laundered into a human-marked
+      // artifact — which would place it outside the evolution loop's
+      // protected set while still being machine-written.
+      'x-fleetsmith-origin': agent.origin,
     },
     [compileAgentBody(agent, spec, { team }), isolate ? worktreeClause() : '']
       .filter(Boolean)
@@ -217,6 +222,7 @@ function emitSkill(out, dir, skill, spec) {
         // permission prompt. The grant is scoped to this skill's directory and
         // lasts only for the invoking turn.
         'allowed-tools': scriptGrants(skill),
+        'x-fleetsmith-origin': skill.origin,
       },
       skillBody(skill)
     )

@@ -24,7 +24,7 @@ The fleet spec is the single tool-agnostic source of truth. `normalizeSpec` fill
 | `domain` | `''` | one-line domain statement; feeds every description — leaving it empty makes the harness generic (validator warns) |
 | `pattern` | `pipeline` | `pipeline`, `fanout`, `expert-pool`, `generate-verify`, `supervisor`, `hierarchical` |
 | `execution` | `subagents` | `team` (Claude Code agent teams; degrades to orchestrated subagents on opencode/goose), `subagents`, `hybrid` (per-phase `mode`) |
-| `workspace` | `_fleet` | coordination directory emitted into the project. Must be a safe relative path (`[A-Za-z0-9._-/]`, no leading `/`, no `..`) — it is interpolated into generated shell scripts and config, so anything else is an error |
+| `workspace` | `_fleet` | coordination directory root, emitted into the project. Splits into two tiers: `<workspace>/shared/` (committed team knowledge — changelog, playbooks, decisions, eval baselines) and `<workspace>/local/` (gitignored per-developer runtime — handoffs, ledger, runs, generated scripts); see `docs/architecture/multi-user-context.md`. Must be a safe relative path (`[A-Za-z0-9._-/]`, no leading `/`, no `..`) — it is interpolated into generated shell scripts and config, so anything else is an error |
 | `schedule` | `null` | recurring-loop config — see [Loop engineering](#loop-engineering) |
 | `mcp` | `null` | map `name -> {type, url \| command, args, env}`. Compiles to `.mcp.json` (Claude Code), `opencode.json` `mcp`, and goose recipe `extensions`. Validator errors if a remote server has no `url` or a stdio server no `command` |
 | `allowParallelWrites` | `false` | escape hatch for the single-writer rule (see [Validation rules](#validation-rules)) — set only when concurrent writers provably touch disjoint paths |
@@ -34,6 +34,8 @@ The fleet spec is the single tool-agnostic source of truth. `normalizeSpec` fill
 | Key | Default | Notes |
 |-----|---------|-------|
 | `model` | `inherit` | tier inherited by every agent |
+| `origin` | `human` | `human` or `evolved` — who authored this artifact. Emitted into compiled frontmatter as `x-fleetsmith-origin` so provenance survives into the generated files |
+| `protected` | `true` when `origin: human` | whether the evolution loop may modify it. Implements the invariant *evolution may only modify what evolution generated*: the Darwin Gödel Machine, scored by a function counting marker tokens, deleted the markers rather than fix the behaviour. Set explicitly to freeze an evolved artifact |
 | `capabilities` | `{read: true}` | capability defaults for every agent |
 | `claudeModels` | `null` | map tier → Claude Code alias or id, e.g. `{smart: opus, cheap: haiku}` |
 | `opencodeModels` | `null` | same, using provider-qualified ids: `{smart: "anthropic/claude-opus-5"}` |
@@ -57,6 +59,8 @@ Cost control that does not require pinning: `agents[].effort` and `agents[].turn
 | `role` | `''` | one sentence, "who am I" |
 | `goal` | `''` | measurable outcome, feeds description + orchestrator |
 | `model` | `defaults.model` | `smart` / `fast` / `cheap` / `inherit` — an intent. Emits `inherit` on every target unless `defaults.<target>Models` binds it (see [Model tiers](#model-tiers-are-intents-not-names)) |
+| `origin` | `human` | `human` or `evolved` — who authored this artifact. Emitted into compiled frontmatter as `x-fleetsmith-origin` so provenance survives into the generated files |
+| `protected` | `true` when `origin: human` | whether the evolution loop may modify it. Implements the invariant *evolution may only modify what evolution generated*: the Darwin Gödel Machine, scored by a function counting marker tokens, deleted the markers rather than fix the behaviour. Set explicitly to freeze an evolved artifact |
 | `capabilities` | `{read: true}` | `read`, `edit`, `run`, `web`, `spawn` booleans — mapped to Claude Code `tools:` allowlist, opencode `tools:` booleans, goose extensions (+ stated read-only constraint, since goose has no tool-level sandbox) |
 | `skills` | `[]` | names from `skills[]`; compiled prompt instructs the agent to load them |
 | `principles` | `[]` | working principles injected verbatim |

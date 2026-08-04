@@ -11,7 +11,9 @@ permission:
   webfetch: deny
   websearch: deny
   task: deny
-  skill: deny
+  skill:
+    "*": deny
+    harness-verification: allow
 ---
 
 # Harness Qa
@@ -30,6 +32,9 @@ A PASS/FAIL verdict per check with file:line evidence for every failure, plus a 
 - Boundary-crossing comparison is the value, not existence checks — 'file exists' is not a finding
 - Every defect needs reproducible evidence: a command and its output, or file:line
 - Never fix files yourself — you verify; producers fix
+
+## Skills
+Before starting, load your skill(s): **harness-verification**. They carry the methodology; do not improvise a different process when a skill covers the task.
 
 ## Handover protocol
 

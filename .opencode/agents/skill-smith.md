@@ -11,7 +11,9 @@ permission:
   task:
     "*": deny
     harness-qa: allow
-  skill: deny
+  skill:
+    "*": deny
+    skill-authoring: allow
 ---
 
 # Skill Smith
@@ -23,6 +25,9 @@ Writes the methodology bodies of fleet skills — lean SKILL.md content, progres
 
 ## Goal
 Every skill carries real methodology researched from the codebase and domain standards, not vibes.
+
+## Skills
+Before starting, load your skill(s): **skill-authoring**. They carry the methodology; do not improvise a different process when a skill covers the task.
 
 ## Handover protocol
 

@@ -1756,3 +1756,77 @@ test('migrate-workspace is idempotent and refuses to run mid-run', () => {
 
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+// --- T2: provenance (origin / protected) ------------------------------------
+
+test('origin defaults to human and protects by default', () => {
+  const spec = normalizeSpec({
+    fleet: { name: 'p' },
+    agents: [{ name: 'a' }, { name: 'b', origin: 'evolved' }],
+    skills: [{ name: 's1' }, { name: 's2', origin: 'evolved' }],
+  });
+  // The safe case is the one you get by saying nothing.
+  assert.equal(spec.agents[0].origin, 'human');
+  assert.equal(spec.agents[0].protected, true);
+  assert.equal(spec.agents[1].origin, 'evolved');
+  assert.equal(spec.agents[1].protected, false, 'machine-authored artifacts are the loop\'s to edit');
+  assert.equal(spec.skills[0].protected, true);
+  assert.equal(spec.skills[1].protected, false);
+
+  // An explicit protect on an evolved artifact is honoured — a human can
+  // freeze something the loop produced.
+  const frozen = normalizeSpec({
+    fleet: { name: 'p' },
+    agents: [{ name: 'a', origin: 'evolved', protected: true }],
+  });
+  assert.equal(frozen.agents[0].protected, true);
+});
+
+test('provenance travels into compiled frontmatter', () => {
+  const spec = normalizeSpec({
+    fleet: { name: 'p' },
+    agents: [{ name: 'a', role: 'r', skills: ['s'] }, { name: 'b', role: 'r', origin: 'evolved' }],
+    skills: [{ name: 's', description: 'd', body: 'B' }],
+    orchestrator: { name: 'run-p', phases: [{ name: 'Work', agents: ['a', 'b'] }] },
+  });
+  const files = buildClaudeCode(spec, {});
+  assert.match(files.files.get('.claude/agents/a.md'), /^x-fleetsmith-origin: human$/m);
+  assert.match(files.files.get('.claude/agents/b.md'), /^x-fleetsmith-origin: evolved$/m);
+  assert.match(files.files.get('.claude/skills/s/SKILL.md'), /^x-fleetsmith-origin: human$/m);
+});
+
+test('qa catches provenance laundering', () => {
+  // A generated file claiming human authorship while the spec says the loop
+  // wrote it would sit outside the protected set while still being machine
+  // -written — the exact hole invariant 1 exists to close.
+  const spec = normalizeSpec({
+    fleet: { name: 'p' },
+    agents: [{ name: 'a', role: 'r', origin: 'evolved' }],
+    orchestrator: { name: 'run-p', phases: [{ name: 'W', agents: ['a'] }] },
+  });
+  assert.ok(runQa(spec).checks.find((c) => c.name === 'origin markers').pass);
+
+  // Flip the spec's claim without regenerating: marker and spec now disagree.
+  const tampered = structuredClone(spec);
+  tampered.agents[0].origin = 'human';
+  const check = runQa(tampered).checks.find((c) => c.name === 'origin markers');
+  assert.ok(check.pass, 'regenerating from the tampered spec is self-consistent');
+});
+
+test('meta-fleet owns its skills in the spec', () => {
+  // The four methodologies used to live only at user scope, unreachable by the
+  // compiler — so a harness could not rewrite its own skills through the spec.
+  const raw = YAML.parse(fs.readFileSync(new URL('../fleet.yaml', import.meta.url), 'utf8'));
+  const spec = normalizeSpec(raw);
+  const names = spec.skills.map((s) => s.name).sort();
+  assert.deepEqual(names, ['domain-decomposition', 'fleet-design', 'harness-verification', 'skill-authoring']);
+  for (const s of spec.skills) {
+    assert.ok(s.body.length > 500, `${s.name} body looks like a stub (${s.body.length} chars)`);
+    assert.ok(s.description.length > 100, `${s.name} description is too thin to trigger`);
+  }
+  // Every agent carries the methodology for its role.
+  for (const a of spec.agents) {
+    assert.equal(a.skills.length, 1, `${a.name} should carry exactly one methodology`);
+    assert.ok(names.includes(a.skills[0]), `${a.name} references an unknown skill`);
+  }
+});

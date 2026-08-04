@@ -144,7 +144,7 @@ export function normalizeSpec(raw) {
 
 function normalizeAgent(a, spec) {
   if (!a.name) throw new Error('Every agent needs a name');
-  const agent = { ...a };
+  const agent = { ...a, ...normalizeProvenance(a) };
   agent.role ??= '';
   agent.goal ??= '';
   agent.model ??= spec.defaults.model;
@@ -271,10 +271,33 @@ function normalizeSchedule(s) {
   return { cron: s.cron ?? null, interval: s.interval ?? null, note: s.note ?? '' };
 }
 
+/**
+ * Provenance. `origin` records who authored an artifact; `protected` records
+ * whether the evolution loop may modify it.
+ *
+ * This is the mechanism behind the loop's first invariant — *evolution may
+ * only modify what evolution generated*. It is not bookkeeping: the Darwin
+ * Godel Machine, scored by a function that counted marker tokens, deleted the
+ * markers rather than fix the behaviour it was asked to fix. Anthropic states
+ * the same rule as policy for long-running harnesses: an agent may write
+ * results into the scorecard but never edit the scorecard's criteria.
+ *
+ * Human-authored artifacts are protected by default, so the safe case is the
+ * one you get by saying nothing.
+ */
+function normalizeProvenance(o) {
+  const origin = o.origin === 'evolved' ? 'evolved' : 'human';
+  return {
+    origin,
+    protected: o.protected === undefined ? origin === 'human' : o.protected === true,
+  };
+}
+
 function normalizeSkill(s) {
   if (!s.name) throw new Error('Every skill needs a name');
   return {
     name: s.name,
+    ...normalizeProvenance(s),
     description: s.description ?? '',
     body: s.body ?? '',
     references: s.references ?? {},

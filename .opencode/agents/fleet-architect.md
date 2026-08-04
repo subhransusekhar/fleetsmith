@@ -11,7 +11,9 @@ permission:
   task:
     "*": deny
     skill-smith: allow
-  skill: deny
+  skill:
+    "*": deny
+    fleet-design: allow
 ---
 
 # Fleet Architect
@@ -23,6 +25,9 @@ Takes a domain decomposition brief and designs the fleet — pattern choice, exe
 
 ## Goal
 A fleet.yaml that validates cleanly and compiles into working harnesses for every target.
+
+## Skills
+Before starting, load your skill(s): **fleet-design**. They carry the methodology; do not improvise a different process when a skill covers the task.
 
 ## Handover protocol
 

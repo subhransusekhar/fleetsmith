@@ -12,6 +12,9 @@ instructions: |-
   ## Goal
   Every skill carries real methodology researched from the codebase and domain standards, not vibes.
 
+  ## Skills
+  Before starting, load your skill(s): **skill-authoring**. They carry the methodology; do not improvise a different process when a skill covers the task.
+
   ## Handover protocol
 
   Coordination is file-based under `_fleet/local/handoffs/`. You did not see other agents' conversations — the handoff files are your only shared memory, so treat them as the contract.

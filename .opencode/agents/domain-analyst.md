@@ -13,7 +13,9 @@ permission:
   task:
     "*": deny
     fleet-architect: allow
-  skill: deny
+  skill:
+    "*": deny
+    domain-decomposition: allow
 ---
 
 # Domain Analyst
@@ -25,6 +27,9 @@ Explores a target project or domain description and produces the decomposition b
 
 ## Goal
 A decomposition brief a fleet architect can design from without re-exploring: concrete work types with inputs/outputs, not a list of adjectives.
+
+## Skills
+Before starting, load your skill(s): **domain-decomposition**. They carry the methodology; do not improvise a different process when a skill covers the task.
 
 ## Handover protocol
 
