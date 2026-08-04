@@ -16,7 +16,7 @@ export function compileOrchestratorBody(spec, target) {
   s.push('');
   s.push(`- Pattern: **${spec.fleet.pattern}** · Execution: **${spec.fleet.execution}**`);
   s.push(`- Agents: ${spec.agents.map((a) => `\`${a.name}\``).join(', ')}`);
-  s.push(`- Workspace: \`${spec.fleet.workspace}/\` (handoffs in \`${spec.handover.dir}/\`${spec.handover.ledger ? `, ledger at \`${spec.fleet.workspace}/LEDGER.md\`` : ''})`);
+  s.push(`- Workspace: \`${spec.fleet.workspace}/\` (handoffs in \`${spec.handover.dir}/\`${spec.handover.ledger ? `, ledger at \`${spec.fleet.local}/LEDGER.md\`` : ''})`);
 
   s.push('');
   s.push('## Phase 0: Context check');
@@ -76,7 +76,7 @@ export function compileOrchestratorBody(spec, target) {
   s.push(`- Final deliverables go to the user-specified path; intermediates stay in \`${spec.fleet.workspace}/\` for audit.`);
   if (spec.handover.ledger) {
     s.push(
-      `- Ledger discipline: write a row when a phase **starts**, not only when it finishes — a run that is interrupted mid-phase must be resumable by reading \`${spec.fleet.workspace}/LEDGER.md\` alone. Each pass, rewrite the open-items block rather than only appending to it; restating what is still outstanding keeps the objective in view as the run gets long.`
+      `- Ledger discipline: write a row when a phase **starts**, not only when it finishes — a run that is interrupted mid-phase must be resumable by reading \`${spec.fleet.local}/LEDGER.md\` alone. Each pass, rewrite the open-items block rather than only appending to it; restating what is still outstanding keeps the objective in view as the run gets long.`
     );
   }
   s.push('');
@@ -97,8 +97,8 @@ export function compileOrchestratorBody(spec, target) {
   s.push('');
   s.push(`1. Confirm every ledger row is done/dropped with a reason.`);
   s.push('2. Summarize deliverables + gaps for the user.');
-  s.push(`3. Ask one short feedback question ("anything to improve in the result or the fleet workflow?") — if feedback arrives, route it: output quality → the agent's skill; role gaps → agent definition; ordering → this orchestrator; then append a row to \`${spec.fleet.workspace}/CHANGELOG.md\` recording what changed, where, and why. That file survives rebuilds; CLAUDE.md and AGENTS.md do not. Also record it: \`sh ${spec.fleet.workspace}/scripts/log-event.sh feedback "<agent or ->" "<route>: <the feedback>"\`.`);
-  s.push(`4. Close the run: \`sh ${spec.fleet.workspace}/scripts/log-event.sh run_end "" "<done|partial|blocked>"\``);
+  s.push(`3. Ask one short feedback question ("anything to improve in the result or the fleet workflow?") — if feedback arrives, route it: output quality → the agent's skill; role gaps → agent definition; ordering → this orchestrator; then append a row to \`${spec.fleet.shared}/CHANGELOG.md\` recording what changed, where, and why. That file survives rebuilds; CLAUDE.md and AGENTS.md do not. Also record it: \`sh ${spec.fleet.local}/scripts/log-event.sh feedback "<agent or ->" "<route>: <the feedback>"\`.`);
+  s.push(`4. Close the run: \`sh ${spec.fleet.local}/scripts/log-event.sh run_end "" "<done|partial|blocked>"\``);
 
   if (spec.fleet.schedule) {
     s.push('');

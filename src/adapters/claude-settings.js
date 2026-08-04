@@ -40,7 +40,7 @@ export function settingsJson(spec, { validatorPath }) {
   if (anyRun) allow.push('Bash');
   if (anyWeb) allow.push('WebSearch', 'WebFetch');
   allow.push(`Bash(sh ${validatorPath}:*)`);
-  allow.push(`Bash(sh ${spec.fleet.workspace}/${TELEMETRY_PATH}:*)`);
+  allow.push(`Bash(sh ${spec.fleet.local}/${TELEMETRY_PATH}:*)`);
 
   return `${JSON.stringify(
     {
@@ -87,7 +87,7 @@ export function validatorScript(spec) {
   const dir = shellSingleQuote(spec.handover.dir);
   // Terminal agents write no handoff file; they are checked for a ledger row.
   const terminal = spec.agents.filter((a) => a.handoff.to.length === 0).map((a) => a.name);
-  const ledger = spec.handover.ledger ? shellSingleQuote(`${spec.fleet.workspace}/LEDGER.md`) : '';
+  const ledger = spec.handover.ledger ? shellSingleQuote(`${spec.fleet.local}/LEDGER.md`) : '';
 
   // Required sections come from the declared schema when there is one, so the
   // gate enforces the same contract the handoff template advertises.

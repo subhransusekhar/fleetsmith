@@ -62,7 +62,7 @@ export function buildClaudeCode(spec, options = {}) {
   for (const skill of spec.skills) {
     emitSkill(out, `.claude/skills/${skill.name}`, skill, spec);
   }
-  if (spec.skills.length > 0) out.add(`${spec.fleet.workspace}/evals/README.md`, evalsReadme(spec));
+  if (spec.skills.length > 0) out.add(`${spec.fleet.local}/evals/README.md`, evalsReadme(spec));
 
   out.add(
     `.claude/skills/${spec.orchestrator.name}/SKILL.md`,
@@ -74,7 +74,7 @@ export function buildClaudeCode(spec, options = {}) {
   // Deterministic layer: an allowlist so the fleet runs unattended, and a
   // SubagentStop gate so a missing handoff blocks the agent instead of
   // silently becoming the next agent's problem.
-  const validatorPath = `${spec.fleet.workspace}/${VALIDATOR_PATH}`;
+  const validatorPath = `${spec.fleet.local}/${VALIDATOR_PATH}`;
   out.add('.claude/settings.json', settingsJson(spec, { validatorPath }));
   out.add(validatorPath, validatorScript(spec));
 
@@ -291,7 +291,7 @@ function orchestratorSkill(spec) {
  */
 function liveStateBlock(spec) {
   const dir = spec.handover.dir;
-  const ledger = spec.handover.ledger ? `${spec.fleet.workspace}/LEDGER.md` : null;
+  const ledger = spec.handover.ledger ? `${spec.fleet.local}/LEDGER.md` : null;
   const lines = ['## Workspace state, as of right now', '', '```!'];
   lines.push(`ls -1 ${dir}/*.md 2>/dev/null | grep -v HANDOFF.template || echo "(no handoffs yet — this is an initial run)"`);
   if (ledger) lines.push(`echo "--- ledger ---"; cat ${ledger} 2>/dev/null || echo "(no ledger yet)"`);
@@ -304,14 +304,14 @@ function liveStateBlock(spec) {
 function emitWorkspace(out, spec, options = {}) {
   out.add(`${spec.handover.dir}/HANDOFF.template.md`, handoffTemplate());
   if (spec.handover.ledger) {
-    out.add(`${spec.fleet.workspace}/LEDGER.md`, ledgerTemplate(spec.fleet.name));
+    out.add(`${spec.fleet.local}/LEDGER.md`, ledgerTemplate(spec.fleet.name));
   }
   out.add(
-    `${spec.fleet.workspace}/CHANGELOG.md`,
+    `${spec.fleet.shared}/CHANGELOG.md`,
     changelogTemplate(spec.fleet.name, options.today),
     { preserve: true }
   );
-  out.add(`${spec.fleet.workspace}/${TELEMETRY_PATH}`, logEventScript(spec));
+  out.add(`${spec.fleet.local}/${TELEMETRY_PATH}`, logEventScript(spec));
 }
 
 function claudeMdPointer(spec) {
@@ -321,8 +321,8 @@ function claudeMdPointer(spec) {
 
 **Trigger:** For ${spec.orchestrator.trigger}, use the \`${spec.orchestrator.name}\` skill. Simple questions can be answered directly.
 
-**Handover gate:** \`.claude/settings.json\` registers a \`SubagentStop\` hook running \`${spec.fleet.workspace}/${VALIDATOR_PATH}\`, which blocks a fleet agent from finishing until its handoff file exists and carries every required section. Note that project-level hooks do not run until this workspace is trusted — until you accept that dialog the gate is silently skipped and the fleet degrades to advisory instructions.
+**Handover gate:** \`.claude/settings.json\` registers a \`SubagentStop\` hook running \`${spec.fleet.local}/${VALIDATOR_PATH}\`, which blocks a fleet agent from finishing until its handoff file exists and carries every required section. Note that project-level hooks do not run until this workspace is trusted — until you accept that dialog the gate is silently skipped and the fleet degrades to advisory instructions.
 
-**Changelog:** harness changes are recorded in \`${spec.fleet.workspace}/CHANGELOG.md\` — append a row there rather than editing this file, which is regenerated on every build.
+**Changelog:** harness changes are recorded in \`${spec.fleet.shared}/CHANGELOG.md\` — append a row there rather than editing this file, which is regenerated on every build.
 `;
 }

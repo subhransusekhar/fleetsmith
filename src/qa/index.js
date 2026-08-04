@@ -193,21 +193,22 @@ function checkOriginMarkers(spec) {
  * Two deliberate exemptions:
  *  - Preserve-class files, which are seeded once and then owned by the running
  *    fleet, so divergence there is the feature.
- *  - *Absence* of a runtime workspace file. The workspace is scaffolding
- *    created when a fleet runs and is conventionally gitignored, so a fresh
- *    checkout legitimately has none of it. A workspace file that exists and
- *    DIFFERS is still reported: that is how a tampered handover gate is
- *    caught, which matters because the gate is on the protected path list.
+ *  - *Absence* of a file in the LOCAL workspace tier. That tier is
+ *    per-developer runtime scaffolding created when a fleet runs, and is
+ *    gitignored, so a fresh checkout legitimately has none of it. A local file
+ *    that exists and DIFFERS is still reported: that is how a tampered
+ *    handover gate is caught, which matters because the gate is on the
+ *    protected path list. The shared tier is committed and checked normally.
  */
 function checkDrift(spec, builtDir) {
   const evidence = [];
   const built = buildAll(spec, {});
-  const workspace = `${spec.fleet.workspace}/`;
+  const localTier = `${spec.fleet.local}/`;
   for (const [rel, content] of built.files) {
     if (built.preserved.has(rel)) continue;
     const abs = path.join(builtDir, rel);
     if (!fs.existsSync(abs)) {
-      if (rel.startsWith(workspace)) continue; // not yet seeded — not drift
+      if (rel.startsWith(localTier)) continue; // per-developer, not yet seeded — not drift
       evidence.push(`${rel}: missing on disk (run \`fleetsmith build\`)`);
       continue;
     }

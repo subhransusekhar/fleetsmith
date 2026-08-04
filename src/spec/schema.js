@@ -87,6 +87,20 @@ export function normalizeSpec(raw) {
   spec.fleet.pattern ??= 'pipeline';
   spec.fleet.execution ??= 'subagents';
   spec.fleet.workspace ??= '_fleet';
+  // The workspace has two tiers, because it holds two kinds of thing that need
+  // opposite treatment in a repo shared by several developers:
+  //
+  //   shared/ — permanent team knowledge (changelog, learned playbooks,
+  //             promotion decisions, eval baselines). Committed. Designed to
+  //             merge: append-only, stable ids, one record per line.
+  //   local/  — per-developer runtime state (handoffs, ledger, run logs, and
+  //             the generated scripts). Gitignored. Never merged.
+  //
+  // Committing the second kind puts a merge conflict in the path of every run;
+  // leaving the first kind uncommitted means a fleet's accumulated learning
+  // lives on one laptop. See docs/architecture/multi-user-context.md.
+  spec.fleet.shared ??= `${spec.fleet.workspace}/shared`;
+  spec.fleet.local ??= `${spec.fleet.workspace}/local`;
   spec.fleet.domain ??= spec.fleet.description ?? '';
   spec.fleet.schedule = normalizeSchedule(spec.fleet.schedule);
 
@@ -123,7 +137,7 @@ export function normalizeSpec(raw) {
   spec.handover ??= {};
   spec.handover.strategy ??= 'file';
   spec.handover.ledger ??= true;
-  spec.handover.dir ??= `${spec.fleet.workspace}/handoffs`;
+  spec.handover.dir ??= `${spec.fleet.local}/handoffs`;
 
   return spec;
 }

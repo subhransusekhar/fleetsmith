@@ -24,11 +24,11 @@ For ${spec.orchestrator.trigger}, run the fleet orchestrator instead of working 
 ${schedulePointer(spec)}
 ## Coordination
 
-Fleet coordination is file-based under \`${spec.fleet.workspace}/\`: handoff documents in \`${spec.handover.dir}/\` (template provided) and a task ledger${spec.handover.ledger ? ` at \`${spec.fleet.workspace}/LEDGER.md\`` : ''}. Handoff files are the source of truth between agents — read them before resuming or auditing fleet work, and never delete them mid-run.
+Fleet coordination is file-based under \`${spec.fleet.workspace}/\`: handoff documents in \`${spec.handover.dir}/\` (template provided) and a task ledger${spec.handover.ledger ? ` at \`${spec.fleet.local}/LEDGER.md\`` : ''}. Handoff files are the source of truth between agents — read them before resuming or auditing fleet work, and never delete them mid-run.
 
 ## Changelog
 
-Harness changes are recorded in \`${spec.fleet.workspace}/CHANGELOG.md\` — append a row there rather than editing this file, which is regenerated on every build.
+Harness changes are recorded in \`${spec.fleet.shared}/CHANGELOG.md\` — append a row there rather than editing this file, which is regenerated on every build.
 `;
 }
 

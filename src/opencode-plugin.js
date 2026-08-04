@@ -231,12 +231,12 @@ function compactionHook(ctx, options = {}) {
   return {
     'experimental.session.compacting': async (_input, output) => {
       try {
-        const ledger = path.resolve(projectDir, workspace, 'LEDGER.md');
+        const ledger = path.resolve(projectDir, workspace, 'local', 'LEDGER.md');
         if (!fs.existsSync(ledger)) return;
         const content = fs.readFileSync(ledger, 'utf8').slice(0, 8000);
         output.context = [
           ...(output.context ?? []),
-          `Fleet state (${workspace}/LEDGER.md) — preserve this across compaction; it is the run's source of truth for what is done and what is outstanding:\n\n${content}`,
+          `Fleet state (${workspace}/local/LEDGER.md) — preserve this across compaction; it is the run's source of truth for what is done and what is outstanding:\n\n${content}`,
         ];
       } catch {
         /* best-effort: compaction proceeds without the ledger */

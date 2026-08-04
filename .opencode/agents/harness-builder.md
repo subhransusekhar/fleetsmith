@@ -19,14 +19,14 @@ Orchestrator for the **fleetsmith** fleet — Meta agent-fleet builder: one flee
 
 - Pattern: **pipeline** · Execution: **subagents**
 - Agents: `domain-analyst`, `fleet-architect`, `skill-smith`, `harness-qa`
-- Workspace: `_fleet/` (handoffs in `_fleet/handoffs/`, ledger at `_fleet/LEDGER.md`)
+- Workspace: `_fleet/` (handoffs in `_fleet/local/handoffs/`, ledger at `_fleet/local/LEDGER.md`)
 
 ## Phase 0: Context check
 
 Before anything, check `_fleet/`:
 - Workspace exists **and** the user asks for a partial fix → **partial re-run**: invoke only the affected agent(s), passing the prior handoff files as input.
 - Workspace exists **and** the user provides new input → **fresh run**: move the old workspace to `_fleet_prev/` first.
-- No workspace → **initial run**: create `_fleet/handoffs/` and seed the ledger from the template.
+- No workspace → **initial run**: create `_fleet/local/handoffs/` and seed the ledger from the template.
 
 ## Invocation
 
@@ -84,11 +84,11 @@ Between passes, re-run this phase's agent(s) with the **specific failures from t
 
 ## Data flow
 
-- Durable handovers are file-based: agents write `_fleet/handoffs/{seq}-{from}-to-{to}.md` per the bundled template. Verify each expected handoff file exists before starting the next phase; a missing file means the phase is not done, whatever the agent claimed.
+- Durable handovers are file-based: agents write `_fleet/local/handoffs/{seq}-{from}-to-{to}.md` per the bundled template. Verify each expected handoff file exists before starting the next phase; a missing file means the phase is not done, whatever the agent claimed.
 - **Pass work by citing files, not by restating them.** When briefing the next agent, give the handoff path and what to do with it; do not summarize its contents into the brief. Every paraphrase between producer and consumer loses detail the producer thought was obvious, and those losses compound down the chain — the file is the contract, you are the router.
 - Handoffs carry pointers (paths, queries, commands), not pasted file contents. An agent that needs the detail reads the source; an agent that does not shouldn't pay for it.
 - Final deliverables go to the user-specified path; intermediates stay in `_fleet/` for audit.
-- Ledger discipline: write a row when a phase **starts**, not only when it finishes — a run that is interrupted mid-phase must be resumable by reading `_fleet/LEDGER.md` alone. Each pass, rewrite the open-items block rather than only appending to it; restating what is still outstanding keeps the objective in view as the run gets long.
+- Ledger discipline: write a row when a phase **starts**, not only when it finishes — a run that is interrupted mid-phase must be resumable by reading `_fleet/local/LEDGER.md` alone. Each pass, rewrite the open-items block rather than only appending to it; restating what is still outstanding keeps the objective in view as the run gets long.
 
 **Precedence.** Where this playbook conflicts with a skill, the skill wins for methodology and this playbook wins for sequencing, scope, and handoffs. Where it conflicts with the user's explicit instruction, the user wins — say what you are overriding and why.
 
@@ -100,13 +100,13 @@ Between passes, re-run this phase's agent(s) with the **specific failures from t
 
 ## Run telemetry
 
-Record what happened so the harness can be improved from evidence rather than memory. Each command appends one line to `_fleet/runs/<run_id>/events.jsonl` and never fails the run.
+Record what happened so the harness can be improved from evidence rather than memory. Each command appends one line to `_fleet/local/runs/<run_id>/events.jsonl` and never fails the run.
 
-- At the start of Phase 0: `sh _fleet/scripts/log-event.sh run_start`
-- At the start of each phase: `sh _fleet/scripts/log-event.sh phase_start "" "<phase name>"`
-- Before delegating to an agent: `sh _fleet/scripts/log-event.sh invoke_agent <agent>`
-- When a tool or command fails and you retry: `sh _fleet/scripts/log-event.sh execute_tool_error <agent> "<what failed>"`
-- At Completion: `sh _fleet/scripts/log-event.sh run_end "" "<done|partial|blocked>"`
+- At the start of Phase 0: `sh _fleet/local/scripts/log-event.sh run_start`
+- At the start of each phase: `sh _fleet/local/scripts/log-event.sh phase_start "" "<phase name>"`
+- Before delegating to an agent: `sh _fleet/local/scripts/log-event.sh invoke_agent <agent>`
+- When a tool or command fails and you retry: `sh _fleet/local/scripts/log-event.sh execute_tool_error <agent> "<what failed>"`
+- At Completion: `sh _fleet/local/scripts/log-event.sh run_end "" "<done|partial|blocked>"`
 
 Never edit past event lines — the file is append-only, and a rewritten history is worse than none.
 
@@ -114,8 +114,8 @@ Never edit past event lines — the file is append-only, and a rewritten history
 
 1. Confirm every ledger row is done/dropped with a reason.
 2. Summarize deliverables + gaps for the user.
-3. Ask one short feedback question ("anything to improve in the result or the fleet workflow?") — if feedback arrives, route it: output quality → the agent's skill; role gaps → agent definition; ordering → this orchestrator; then append a row to `_fleet/CHANGELOG.md` recording what changed, where, and why. That file survives rebuilds; CLAUDE.md and AGENTS.md do not. Also record it: `sh _fleet/scripts/log-event.sh feedback "<agent or ->" "<route>: <the feedback>"`.
-4. Close the run: `sh _fleet/scripts/log-event.sh run_end "" "<done|partial|blocked>"`
+3. Ask one short feedback question ("anything to improve in the result or the fleet workflow?") — if feedback arrives, route it: output quality → the agent's skill; role gaps → agent definition; ordering → this orchestrator; then append a row to `_fleet/shared/CHANGELOG.md` recording what changed, where, and why. That file survives rebuilds; CLAUDE.md and AGENTS.md do not. Also record it: `sh _fleet/local/scripts/log-event.sh feedback "<agent or ->" "<route>: <the feedback>"`.
+4. Close the run: `sh _fleet/local/scripts/log-event.sh run_end "" "<done|partial|blocked>"`
 
 ## Test scenarios
 

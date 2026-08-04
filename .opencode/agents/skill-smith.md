@@ -26,16 +26,16 @@ Every skill carries real methodology researched from the codebase and domain sta
 
 ## Handover protocol
 
-Coordination is file-based under `_fleet/handoffs/`. You did not see other agents' conversations — the handoff files are your only shared memory, so treat them as the contract.
+Coordination is file-based under `_fleet/local/handoffs/`. You did not see other agents' conversations — the handoff files are your only shared memory, so treat them as the contract.
 
 **On start:**
-1. Read your incoming handoff(s) from `fleet-architect` in `_fleet/handoffs/` (files matching `*-to-skill-smith.md`). If one is missing or its acceptance criteria are unclear, say so in your output and proceed with explicit assumptions rather than silently guessing.
-2. Read `_fleet/LEDGER.md` to see fleet state before starting.
+1. Read your incoming handoff(s) from `fleet-architect` in `_fleet/local/handoffs/` (files matching `*-to-skill-smith.md`). If one is missing or its acceptance criteria are unclear, say so in your output and proceed with explicit assumptions rather than silently guessing.
+2. Read `_fleet/local/LEDGER.md` to see fleet state before starting.
 
 **On finish:**
-1. Write one handoff file per receiver: `_fleet/handoffs/{seq}-skill-smith-to-harness-qa.md` following the HANDOFF template in `_fleet/handoffs/HANDOFF.template.md`. Your primary artifact contract: `03-skill-smith-to-harness-qa.md`.
+1. Write one handoff file per receiver: `_fleet/local/handoffs/{seq}-skill-smith-to-harness-qa.md` following the HANDOFF template in `_fleet/local/handoffs/HANDOFF.template.md`. Your primary artifact contract: `03-skill-smith-to-harness-qa.md`.
 2. The context digest must stand alone: decisions, constraints, dead ends. A receiver acting only on your handoff must not repeat work you already did.
-3. Update your row in `_fleet/LEDGER.md` (status + artifact path).
+3. Update your row in `_fleet/local/LEDGER.md` (status + artifact path).
 
 **Your handoffs are accepted only if:**
 - Every TODO(skill-smith) marker replaced with researched methodology

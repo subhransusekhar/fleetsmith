@@ -245,16 +245,16 @@ test('claude-code adapter emits agents, orchestrator skill, workspace, pointer',
   const paths = files.list();
   assert.ok(paths.includes('.claude/agents/analyst.md'));
   assert.ok(paths.includes('.claude/skills/run-demo/SKILL.md'));
-  assert.ok(paths.includes('_fleet/handoffs/HANDOFF.template.md'));
-  assert.ok(paths.includes('_fleet/LEDGER.md'));
+  assert.ok(paths.includes('_fleet/local/handoffs/HANDOFF.template.md'));
+  assert.ok(paths.includes('_fleet/local/LEDGER.md'));
   assert.ok(paths.includes('CLAUDE.md'));
 
   const builder = files.files.get('.claude/agents/builder.md');
   assert.match(builder, /^---\nname: builder\n/);
   assert.match(builder, /tools: Read, Grep, Glob, Write, Edit, Bash/);
   assert.match(builder, /Handover protocol/);
-  assert.match(builder, /_fleet\/handoffs\/\{seq\}-builder-to-reviewer\.md/);
-  assert.match(builder, /_fleet\/LEDGER\.md/);
+  assert.match(builder, /_fleet\/local\/handoffs\/\{seq\}-builder-to-reviewer\.md/);
+  assert.match(builder, /_fleet\/local\/LEDGER\.md/);
   assert.doesNotMatch(builder, /\.\.\//); // no ugly relative paths
 });
 
@@ -459,8 +459,8 @@ test('opencode kickoff isolates the run; fleet-status arrives with live state in
   assert.match(files.files.get('.opencode/commands/run-demo.md'), /^subtask: true$/m);
 
   const status = files.files.get('.opencode/commands/fleet-status.md');
-  assert.match(status, /!`ls -1 _fleet\/handoffs/);
-  assert.match(status, /@_fleet\/LEDGER\.md/);
+  assert.match(status, /!`ls -1 _fleet\/local\/handoffs/);
+  assert.match(status, /@_fleet\/local\/LEDGER\.md/);
   assert.match(status, /Do not start any fleet work/);
 });
 
@@ -495,7 +495,7 @@ test('claude-code emits a settings allowlist and a SubagentStop gate', () => {
   const gate = settings.hooks.SubagentStop[0];
   assert.match(gate.matcher, /analyst/);
   assert.match(gate.hooks[0].command, /validate-handoff\.sh/);
-  assert.ok(files.list().includes('_fleet/scripts/validate-handoff.sh'));
+  assert.ok(files.list().includes('_fleet/local/scripts/validate-handoff.sh'));
 
   // the workspace-trust caveat must reach the user: an inert gate looks identical to a passing one
   assert.match(files.files.get('CLAUDE.md'), /until this workspace is trusted/);
@@ -504,7 +504,7 @@ test('claude-code emits a settings allowlist and a SubagentStop gate', () => {
 test('handover gate blocks incomplete handoffs and passes template-shaped ones', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-gate-'));
   buildClaudeCode(demoSpec(), {}).write(dir, { force: true });
-  const script = path.join(dir, '_fleet/scripts/validate-handoff.sh');
+  const script = path.join(dir, '_fleet/local/scripts/validate-handoff.sh');
   const run = (payload) =>
     spawnSync('sh', [script], { input: payload, cwd: dir, encoding: 'utf8' });
 
@@ -514,16 +514,16 @@ test('handover gate blocks incomplete handoffs and passes template-shaped ones',
   assert.match(missing.stderr, /no handoff file found/);
 
   // present but missing required sections -> still blocked, and says which
-  const handoff = path.join(dir, '_fleet/handoffs/01-analyst-to-builder.md');
+  const handoff = path.join(dir, '_fleet/local/handoffs/01-analyst-to-builder.md');
   fs.writeFileSync(handoff, '# Handoff\n\n## Objective\nDo it.\n');
   const partial = run('{"agent_type":"analyst"}');
   assert.equal(partial.status, 2);
   assert.match(partial.stderr, /missing required section\(s\).*Boundaries/s);
 
   // the bundled template satisfies the gate it ships with
-  const template = fs.readFileSync(path.join(dir, '_fleet/handoffs/HANDOFF.template.md'), 'utf8');
+  const template = fs.readFileSync(path.join(dir, '_fleet/local/handoffs/HANDOFF.template.md'), 'utf8');
   fs.writeFileSync(handoff, template.replace(/\{[^}]*\}/g, 'x'));
-  fs.appendFileSync(path.join(dir, '_fleet/LEDGER.md'), '\n| 1 | x | analyst | - | done | h.md |\n');
+  fs.appendFileSync(path.join(dir, '_fleet/local/LEDGER.md'), '\n| 1 | x | analyst | - | done | h.md |\n');
   assert.equal(run('{"agent_type":"analyst"}').status, 0);
 
   // terminal agents owe no handoff file, and unattributable stops are not ours to police
@@ -581,7 +581,7 @@ test('scheduled fleets get .claude/loop.md; one-shot fleets do not', () => {
 
 test('handoff template and protocol carry the four-field brief and failed approaches', () => {
   const files = buildClaudeCode(demoSpec(), {});
-  const template = files.files.get('_fleet/handoffs/HANDOFF.template.md');
+  const template = files.files.get('_fleet/local/handoffs/HANDOFF.template.md');
   for (const section of ['Objective', 'Output format', 'Sources and tools', 'Boundaries', 'Failed approaches']) {
     assert.match(template, new RegExp(`^## ${section}$`, 'm'), `template missing ${section}`);
   }
@@ -622,8 +622,8 @@ test('orchestrator skill injects live workspace state and guards autonomous runs
   const plain = buildClaudeCode(demoSpec(), {}).files.get('.claude/skills/run-demo/SKILL.md');
   assert.match(plain, /argument-hint:/);
   // shell injection block: state arrives inlined, not as an instruction to go read it
-  assert.match(plain, /```!\n.*_fleet\/handoffs/s);
-  assert.match(plain, /cat _fleet\/LEDGER\.md/);
+  assert.match(plain, /```!\n.*_fleet\/local\/handoffs/s);
+  assert.match(plain, /cat _fleet\/local\/LEDGER\.md/);
   // an attended fleet may still ask the user questions
   assert.doesNotMatch(plain, /disallowed-tools/);
 
@@ -727,7 +727,7 @@ test('goose emits parallel review checks for verifier agents only', () => {
 test('buildAll merges targets without collisions and dedups shared files', () => {
   const files = buildAll(demoSpec(), { today: '2026-07-04' });
   const paths = files.list();
-  assert.equal(paths.filter((p) => p === '_fleet/LEDGER.md').length, 1);
+  assert.equal(paths.filter((p) => p === '_fleet/local/LEDGER.md').length, 1);
   assert.equal(paths.filter((p) => p === 'AGENTS.md').length, 1);
   assert.ok(paths.some((p) => p.startsWith('.claude/')));
   assert.ok(paths.some((p) => p.startsWith('.opencode/')));
@@ -911,7 +911,7 @@ test('workflow reuses the .claude/agents definitions rather than restating them'
   // structured results, so passing work between phases costs no context
   assert.match(src, /schema: SCHEMA_FIRST/);
   // handoff files remain the durable artifact
-  assert.match(src, /_fleet\/handoffs/);
+  assert.match(src, /_fleet\/local\/handoffs/);
   assert.match(src, /The file is the durable artifact/);
 });
 
@@ -1063,7 +1063,7 @@ test('skills ship trigger corpora and a fleet-level evals guide', () => {
   const without = JSON.parse(files.files.get('.claude/skills/no-triggers/evals/evals.json'));
   assert.match(without.should_trigger[0], /TODO/);
 
-  const readme = files.files.get('_fleet/evals/README.md');
+  const readme = files.files.get('_fleet/local/evals/README.md');
   assert.match(readme, /fresh session is not optional/);
   assert.match(readme, /edit the `description`, not the prompt/);
 });
@@ -1329,8 +1329,8 @@ test('compaction hook re-injects the fleet ledger, and no-ops without one', asyn
   assert.deepEqual(empty.context, []);
 
   // once a ledger exists, its contents survive compaction
-  fs.mkdirSync(path.join(dir, '_fleet'), { recursive: true });
-  fs.writeFileSync(path.join(dir, '_fleet/LEDGER.md'), '| 1 | scan | analyst | - | done | h.md |');
+  fs.mkdirSync(path.join(dir, '_fleet/local'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '_fleet/local/LEDGER.md'), '| 1 | scan | analyst | - | done | h.md |');
   const output = { context: ['existing'] };
   await hook({ sessionID: 's' }, output);
   assert.equal(output.context.length, 2);
@@ -1345,8 +1345,8 @@ test('changelog lives in the workspace, not in the regenerated pointers', () => 
   const cc = buildClaudeCode(spec, {});
   const oc = buildOpencode(spec, {});
 
-  assert.ok(cc.files.has(`${spec.fleet.workspace}/CHANGELOG.md`), 'claude-code emits the workspace changelog');
-  assert.ok(oc.files.has(`${spec.fleet.workspace}/CHANGELOG.md`), 'opencode emits the workspace changelog');
+  assert.ok(cc.files.has(`${spec.fleet.shared}/CHANGELOG.md`), 'claude-code emits the workspace changelog');
+  assert.ok(oc.files.has(`${spec.fleet.shared}/CHANGELOG.md`), 'opencode emits the workspace changelog');
 
   // The pointers must reference it, never carry the table themselves —
   // they are regenerated on every build and would destroy recorded history.
@@ -1361,7 +1361,7 @@ test('changelog lives in the workspace, not in the regenerated pointers', () => 
 test('changelog is in the preserve class and survives build --force', () => {
   const spec = demoSpec();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-preserve-'));
-  const rel = `${spec.fleet.workspace}/CHANGELOG.md`;
+  const rel = `${spec.fleet.shared}/CHANGELOG.md`;
   const abs = path.join(dir, rel);
 
   buildClaudeCode(spec, {}).write(dir, { force: true });
@@ -1396,7 +1396,7 @@ test('pointers are byte-stable across rebuilds', () => {
 
 test('buildAll and install carry the preserve flag through merges', () => {
   const spec = demoSpec();
-  const rel = `${spec.fleet.workspace}/CHANGELOG.md`;
+  const rel = `${spec.fleet.shared}/CHANGELOG.md`;
 
   const all = buildAll(spec, {});
   assert.ok(all.preserved.has(rel), 'buildAll dropped the preserve flag');
@@ -1422,7 +1422,7 @@ test('logger writes parseable JSONL and closes runs', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-telem-'));
   buildClaudeCode(spec, {}).write(dir, { force: true });
 
-  const log = path.join(dir, spec.fleet.workspace, 'scripts/log-event.sh');
+  const log = path.join(dir, spec.fleet.local, 'scripts/log-event.sh');
   assert.ok(fs.existsSync(log), 'logger script emitted');
 
   const run = (...args) => spawnSync('sh', [log, ...args], { encoding: 'utf8' });
@@ -1432,8 +1432,8 @@ test('logger writes parseable JSONL and closes runs', () => {
   run('execute_tool_error', 'analyst', 'boom "quoted"\nsecond line');
   run('run_end', '', 'done');
 
-  const runsDir = path.join(dir, spec.fleet.workspace, 'runs');
-  const runIds = fs.readdirSync(runsDir).filter((f) => f !== 'CURRENT');
+  const runsDir = path.join(dir, spec.fleet.local, 'runs');
+  const runIds = fs.readdirSync(runsDir).filter((f) => !f.startsWith('CURRENT'));
   assert.equal(runIds.length, 1, 'events landed in exactly one run directory');
 
   const lines = fs
@@ -1463,7 +1463,7 @@ test('handover gate records its verdict without changing it', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-gate-telem-'));
   buildClaudeCode(spec, {}).write(dir, { force: true });
 
-  const gate = path.join(dir, spec.fleet.workspace, 'scripts/validate-handoff.sh');
+  const gate = path.join(dir, spec.fleet.local, 'scripts/validate-handoff.sh');
   const handoffAgent = spec.agents.find((a) => a.handoff.to.length > 0).name;
   const res = spawnSync('sh', [gate], {
     input: JSON.stringify({ agent_type: handoffAgent }),
@@ -1474,8 +1474,8 @@ test('handover gate records its verdict without changing it', () => {
   // Behavior is unchanged: a missing handoff still blocks.
   assert.equal(res.status, 2, 'gate must still block a missing handoff');
 
-  const runsDir = path.join(dir, spec.fleet.workspace, 'runs');
-  const runIds = fs.readdirSync(runsDir).filter((f) => f !== 'CURRENT');
+  const runsDir = path.join(dir, spec.fleet.local, 'runs');
+  const runIds = fs.readdirSync(runsDir).filter((f) => !f.startsWith('CURRENT'));
   const events = fs
     .readFileSync(path.join(runsDir, runIds[0], 'events.jsonl'), 'utf8')
     .trim()
@@ -1497,18 +1497,18 @@ test('gate still passes and records when the handoff is complete', () => {
   const agent = spec.agents.find((a) => a.handoff.to.length > 0);
   const tmpl = fs.readFileSync(path.join(dir, spec.handover.dir, 'HANDOFF.template.md'), 'utf8');
   fs.writeFileSync(path.join(dir, spec.handover.dir, `01-${agent.name}-to-x.md`), tmpl);
-  const ledger = path.join(dir, spec.fleet.workspace, 'LEDGER.md');
+  const ledger = path.join(dir, spec.fleet.local, 'LEDGER.md');
   if (fs.existsSync(ledger)) fs.appendFileSync(ledger, `| 2 | work | ${agent.name} | - | done | x |\n`);
 
-  const res = spawnSync('sh', [path.join(dir, spec.fleet.workspace, 'scripts/validate-handoff.sh')], {
+  const res = spawnSync('sh', [path.join(dir, spec.fleet.local, 'scripts/validate-handoff.sh')], {
     input: JSON.stringify({ agent_type: agent.name }),
     cwd: dir,
     encoding: 'utf8',
   });
   assert.equal(res.status, 0, `gate should accept a complete handoff: ${res.stderr}`);
 
-  const runsDir = path.join(dir, spec.fleet.workspace, 'runs');
-  const runIds = fs.readdirSync(runsDir).filter((f) => f !== 'CURRENT');
+  const runsDir = path.join(dir, spec.fleet.local, 'runs');
+  const runIds = fs.readdirSync(runsDir).filter((f) => !f.startsWith('CURRENT'));
   const events = fs
     .readFileSync(path.join(runsDir, runIds[0], 'events.jsonl'), 'utf8')
     .trim()
@@ -1617,7 +1617,7 @@ test('qa drift ignores preserve-class files by design', () => {
   built.write(dir, { force: true });
 
   // A run appending a changelog row is the system working, not drift.
-  fs.appendFileSync(path.join(dir, spec.fleet.workspace, 'CHANGELOG.md'), '| d | c | t | evolved | r |\n');
+  fs.appendFileSync(path.join(dir, spec.fleet.shared, 'CHANGELOG.md'), '| d | c | t | evolved | r |\n');
   assert.ok(runQa(spec, { builtDir: dir }).pass, 'preserve-class divergence reported as drift');
 
   fs.rmSync(dir, { recursive: true, force: true });
@@ -1630,17 +1630,127 @@ test('qa drift tolerates an unseeded workspace but still catches a tampered one'
   const spec = demoSpec();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-qa-ws-'));
   buildAll(spec, {}).write(dir, { force: true });
-  fs.rmSync(path.join(dir, spec.fleet.workspace), { recursive: true, force: true });
+  fs.rmSync(path.join(dir, spec.fleet.local), { recursive: true, force: true });
   assert.ok(runQa(spec, { builtDir: dir }).pass, 'absent workspace reported as drift');
 
   // But a workspace file that exists and differs is drift — this is how a
   // tampered handover gate gets caught, and the gate is a protected path.
   buildAll(spec, {}).write(dir, { force: true });
-  const gate = path.join(dir, spec.fleet.workspace, 'scripts/validate-handoff.sh');
+  const gate = path.join(dir, spec.fleet.local, 'scripts/validate-handoff.sh');
   fs.writeFileSync(gate, '#!/bin/sh\nexit 0\n'); // neutered: always passes
   const drift = runQa(spec, { builtDir: dir }).checks.find((c) => c.name === 'drift vs built output');
   assert.equal(drift.pass, false, 'tampered handover gate not caught');
   assert.match(drift.evidence.join('\n'), /validate-handoff\.sh:1: differs/);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// --- T15: two-tier workspace (multi-developer) ------------------------------
+
+test('workspace splits into a committed shared tier and a local runtime tier', () => {
+  const spec = demoSpec();
+  const files = buildAll(spec, {});
+  const paths = files.list();
+
+  // Team knowledge is committed; runtime state is per-developer.
+  assert.ok(paths.includes('_fleet/shared/CHANGELOG.md'), 'changelog belongs to the shared tier');
+  assert.ok(paths.includes('_fleet/local/LEDGER.md'), 'ledger belongs to the local tier');
+  assert.ok(paths.includes('_fleet/local/handoffs/HANDOFF.template.md'), 'handoffs are local');
+  assert.ok(paths.includes('_fleet/local/scripts/log-event.sh'), 'generated scripts are local');
+
+  // Nothing may sit directly in the workspace root: every artifact must
+  // declare a tier, or it silently inherits whichever gitignore rule wins.
+  const untiered = paths.filter(
+    (p) => p.startsWith('_fleet/') && !p.startsWith('_fleet/shared/') && !p.startsWith('_fleet/local/')
+  );
+  assert.deepEqual(untiered, [], `untiered workspace files: ${untiered.join(', ')}`);
+});
+
+test('gitignore commits the shared tier and excludes the local one', () => {
+  const ignore = fs.readFileSync(new URL('../.gitignore', import.meta.url), 'utf8');
+  assert.match(ignore, /^_fleet\/\*$/m, 'workspace must be excluded by default');
+  assert.match(ignore, /^!_fleet\/shared\/$/m, 'shared tier must be re-included');
+});
+
+test('run ids are namespaced by actor so concurrent developers do not collide', () => {
+  const spec = demoSpec();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-actor-'));
+  buildClaudeCode(spec, {}).write(dir, { force: true });
+  const log = path.join(dir, spec.fleet.local, 'scripts/log-event.sh');
+
+  // Two developers, same checkout — the case that corrupts a shared log.
+  for (const actor of ['ada', 'grace']) {
+    spawnSync('sh', [log, 'run_start'], { env: { ...process.env, FLEETSMITH_ACTOR: actor }, encoding: 'utf8' });
+    spawnSync('sh', [log, 'invoke_agent', 'analyst', actor], {
+      env: { ...process.env, FLEETSMITH_ACTOR: actor },
+      encoding: 'utf8',
+    });
+  }
+
+  const runsDir = path.join(dir, spec.fleet.local, 'runs');
+  const runIds = fs.readdirSync(runsDir).filter((f) => !f.startsWith('CURRENT'));
+  assert.equal(runIds.length, 2, 'each actor should get its own run directory');
+  assert.ok(runIds.some((r) => r.startsWith('ada-')), 'run id carries the actor');
+  assert.ok(runIds.some((r) => r.startsWith('grace-')));
+
+  // Each log contains only its own actor's events.
+  for (const actor of ['ada', 'grace']) {
+    const id = runIds.find((r) => r.startsWith(`${actor}-`));
+    const events = fs
+      .readFileSync(path.join(runsDir, id, 'events.jsonl'), 'utf8')
+      .trim().split('\n').map((l) => JSON.parse(l));
+    assert.ok(events.every((e) => e.run_id === id), `${actor}'s log interleaved another run`);
+  }
+
+  // And one developer's run_end must not close the other's run.
+  spawnSync('sh', [log, 'run_end'], { env: { ...process.env, FLEETSMITH_ACTOR: 'ada' }, encoding: 'utf8' });
+  assert.ok(!fs.existsSync(path.join(runsDir, 'CURRENT-ada')), "ada's run should be closed");
+  assert.ok(fs.existsSync(path.join(runsDir, 'CURRENT-grace')), "grace's run was closed by ada");
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('qa drift treats shared as committed and local as exempt when unseeded', () => {
+  const spec = demoSpec();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-tier-drift-'));
+  buildAll(spec, {}).write(dir, { force: true });
+
+  // A fresh clone has the shared tier (committed) but no local tier.
+  fs.rmSync(path.join(dir, spec.fleet.local), { recursive: true, force: true });
+  assert.ok(runQa(spec, { builtDir: dir }).pass, 'absent local tier reported as drift');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('migrate-workspace is idempotent and refuses to run mid-run', () => {
+  const spec = demoSpec();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-migrate-'));
+  const cli = new URL('../src/cli.js', import.meta.url).pathname;
+  const specFile = path.join(dir, 'fleet.yaml');
+  fs.writeFileSync(specFile, YAML.stringify(archetype('pipeline', 'demo', 'demo domain')));
+
+  // A pre-tier workspace: everything flat under _fleet/.
+  fs.mkdirSync(path.join(dir, '_fleet/handoffs'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '_fleet/LEDGER.md'), 'ledger');
+  fs.writeFileSync(path.join(dir, '_fleet/CHANGELOG.md'), 'changelog');
+
+  const run = (...args) => spawnSync('node', [cli, ...args], { cwd: dir, encoding: 'utf8' });
+
+  run('migrate-workspace', 'fleet.yaml');
+  assert.equal(fs.readFileSync(path.join(dir, '_fleet/local/LEDGER.md'), 'utf8'), 'ledger');
+  assert.equal(fs.readFileSync(path.join(dir, '_fleet/shared/CHANGELOG.md'), 'utf8'), 'changelog');
+  assert.ok(fs.existsSync(path.join(dir, '_fleet/local/handoffs')));
+
+  // Second run finds nothing to move.
+  assert.match(run('migrate-workspace', 'fleet.yaml').stdout, /already uses the shared\/ \+ local\/ tiers/);
+
+  // A run in flight blocks migration: moving files under a live run loses events.
+  fs.mkdirSync(path.join(dir, '_fleet/runs'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '_fleet/runs/CURRENT-ada'), 'ada-123');
+  fs.writeFileSync(path.join(dir, '_fleet/LEDGER.md'), 'reintroduced');
+  const blocked = run('migrate-workspace', 'fleet.yaml');
+  assert.equal(blocked.status, 1);
+  assert.match(blocked.stderr, /refusing to migrate.*in flight/s);
 
   fs.rmSync(dir, { recursive: true, force: true });
 });

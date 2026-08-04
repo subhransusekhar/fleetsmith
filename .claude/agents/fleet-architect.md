@@ -19,16 +19,16 @@ A fleet.yaml that validates cleanly and compiles into working harnesses for ever
 
 ## Handover protocol
 
-Coordination is file-based under `_fleet/handoffs/`. You did not see other agents' conversations — the handoff files are your only shared memory, so treat them as the contract.
+Coordination is file-based under `_fleet/local/handoffs/`. You did not see other agents' conversations — the handoff files are your only shared memory, so treat them as the contract.
 
 **On start:**
-1. Read your incoming handoff(s) from `domain-analyst` in `_fleet/handoffs/` (files matching `*-to-fleet-architect.md`). If one is missing or its acceptance criteria are unclear, say so in your output and proceed with explicit assumptions rather than silently guessing.
-2. Read `_fleet/LEDGER.md` to see fleet state before starting.
+1. Read your incoming handoff(s) from `domain-analyst` in `_fleet/local/handoffs/` (files matching `*-to-fleet-architect.md`). If one is missing or its acceptance criteria are unclear, say so in your output and proceed with explicit assumptions rather than silently guessing.
+2. Read `_fleet/local/LEDGER.md` to see fleet state before starting.
 
 **On finish:**
-1. Write one handoff file per receiver: `_fleet/handoffs/{seq}-fleet-architect-to-skill-smith.md` following the HANDOFF template in `_fleet/handoffs/HANDOFF.template.md`. Your primary artifact contract: `02-fleet-architect-to-skill-smith.md`.
+1. Write one handoff file per receiver: `_fleet/local/handoffs/{seq}-fleet-architect-to-skill-smith.md` following the HANDOFF template in `_fleet/local/handoffs/HANDOFF.template.md`. Your primary artifact contract: `02-fleet-architect-to-skill-smith.md`.
 2. The context digest must stand alone: decisions, constraints, dead ends. A receiver acting only on your handoff must not repeat work you already did.
-3. Update your row in `_fleet/LEDGER.md` (status + artifact path).
+3. Update your row in `_fleet/local/LEDGER.md` (status + artifact path).
 
 **Your handoffs are accepted only if:**
 - Pattern matches the data flow, not fashion

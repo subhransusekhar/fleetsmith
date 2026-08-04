@@ -115,7 +115,7 @@ function metaBlock(spec) {
 
 function preamble(spec) {
   const dir = spec.handover.dir;
-  const ledger = spec.handover.ledger ? `${spec.fleet.workspace}/LEDGER.md` : null;
+  const ledger = spec.handover.ledger ? `${spec.fleet.local}/LEDGER.md` : null;
   return [
     '// The request to run the fleet on. `args` is whatever the caller passed;',
     '// a bare string is the request itself.',
@@ -435,7 +435,7 @@ One consequence worth knowing: an \`Agent(<name>)\` deny rule in
 since both go through the same permission check.
 
 Agents still write handoff files under \`${spec.handover.dir}/\`${
-    spec.handover.ledger ? ` and update \`${spec.fleet.workspace}/LEDGER.md\`` : ''
+    spec.handover.ledger ? ` and update \`${spec.fleet.local}/LEDGER.md\`` : ''
   }.
 That is deliberate: a workflow run that dies mid-phase leaves the same
 recoverable state a skill-driven run does, and the files remain the audit

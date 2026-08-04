@@ -80,19 +80,19 @@ export function buildGoose(spec, options = {}) {
     for (const skill of spec.skills) {
       emitSkill(out, `.goose/skills/${skill.name}`, skill, spec);
     }
-    if (spec.skills.length > 0) out.add(`${spec.fleet.workspace}/evals/README.md`, evalsReadme(spec));
+    if (spec.skills.length > 0) out.add(`${spec.fleet.local}/evals/README.md`, evalsReadme(spec));
   }
 
   out.add(`${spec.handover.dir}/HANDOFF.template.md`, handoffTemplate());
   if (spec.handover.ledger) {
-    out.add(`${spec.fleet.workspace}/LEDGER.md`, ledgerTemplate(spec.fleet.name));
+    out.add(`${spec.fleet.local}/LEDGER.md`, ledgerTemplate(spec.fleet.name));
   }
   out.add(
-    `${spec.fleet.workspace}/CHANGELOG.md`,
+    `${spec.fleet.shared}/CHANGELOG.md`,
     changelogTemplate(spec.fleet.name, options.today),
     { preserve: true }
   );
-  out.add(`${spec.fleet.workspace}/${TELEMETRY_PATH}`, logEventScript(spec));
+  out.add(`${spec.fleet.local}/${TELEMETRY_PATH}`, logEventScript(spec));
 
   if (options.agentsMd !== false) {
     out.add('AGENTS.md', agentsMdPointer(spec));

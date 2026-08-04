@@ -15,6 +15,7 @@ Usage:
   fleetsmith init [name] --pattern <p> [--domain "..."] [--out fleet.yaml]
   fleetsmith validate <fleet.yaml>
   fleetsmith qa <fleet.yaml> [--built DIR] [--target ...]
+  fleetsmith migrate-workspace <fleet.yaml> [--dry-run]
   fleetsmith build <fleet.yaml> [--target claude-code|opencode|goose|all] [--out DIR] [--dry-run] [--force] [--force-preserved]
   fleetsmith install <fleet.yaml> [--target ...] [--scope project|user] [--into DIR] [--dry-run] [--force]
   fleetsmith patterns
@@ -42,6 +43,8 @@ function main() {
         return cmdValidate(positional, flags);
       case 'qa':
         return cmdQa(positional, flags);
+      case 'migrate-workspace':
+        return cmdMigrateWorkspace(positional, flags);
       case 'build':
         return cmdBuild(positional, flags);
       case 'install':
@@ -99,6 +102,59 @@ function cmdQa(positional, flags) {
   const report = runQa(spec, { builtDir: flags.built ?? null, targets });
   console.log(formatQa(report));
   process.exitCode = report.pass ? 0 : 1;
+}
+
+/**
+ * Move a pre-tier workspace into local/ and seed shared/.
+ *
+ * The workspace was never committed, so no history is at stake — the only
+ * hazard is a developer with a run in flight, which is why this refuses to
+ * touch a workspace holding a CURRENT-* marker. Idempotent: a second run finds
+ * nothing to move and says so.
+ */
+function cmdMigrateWorkspace(positional, flags) {
+  const spec = loadSpec(positional[0]);
+  const ws = spec.fleet.workspace;
+  if (!fs.existsSync(ws)) {
+    console.log(`nothing to migrate: ${ws}/ does not exist`);
+    return;
+  }
+
+  const runs = path.join(ws, 'runs');
+  const inFlight = fs.existsSync(runs)
+    ? fs.readdirSync(runs).filter((f) => f.startsWith('CURRENT'))
+    : [];
+  if (inFlight.length > 0) {
+    throw new Error(
+      `refusing to migrate: ${inFlight.length} run(s) in flight (${inFlight.join(', ')}). ` +
+        'Let them finish, or delete the marker if the run is abandoned.'
+    );
+  }
+
+  const LOCAL = ['handoffs', 'runs', 'scripts', 'evals', 'notes', 'LEDGER.md'];
+  const SHARED = ['CHANGELOG.md', 'playbooks', 'decisions.jsonl'];
+  const moves = [];
+  for (const [names, tier] of [[LOCAL, 'local'], [SHARED, 'shared']]) {
+    for (const name of names) {
+      const from = path.join(ws, name);
+      if (fs.existsSync(from)) moves.push([from, path.join(ws, tier, name)]);
+    }
+  }
+
+  if (moves.length === 0) {
+    console.log('workspace already uses the shared/ + local/ tiers — nothing to do');
+    return;
+  }
+  for (const [from, to] of moves) console.log(`  ${from} -> ${to}`);
+  if (flags['dry-run']) {
+    console.log(`dry run — would move ${moves.length} path(s)`);
+    return;
+  }
+  for (const [from, to] of moves) {
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    fs.renameSync(from, to);
+  }
+  console.log(`migrated ${moves.length} path(s); run \`fleetsmith build\` to seed anything missing`);
 }
 
 function cmdBuild(positional, flags) {

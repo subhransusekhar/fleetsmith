@@ -51,7 +51,7 @@ export function compileAgentBody(agent, spec, { team = false } = {}) {
     protocolBlock({
       agent: agent.name,
       dir: spec.handover.dir,
-      ledgerPath: spec.handover.ledger ? `${spec.fleet.workspace}/LEDGER.md` : null,
+      ledgerPath: spec.handover.ledger ? `${spec.fleet.local}/LEDGER.md` : null,
       incoming,
       outgoing: agent.handoff.to,
       artifact: agent.handoff.artifact,

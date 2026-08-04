@@ -33,15 +33,15 @@ A PASS/FAIL verdict per check with file:line evidence for every failure, plus a 
 
 ## Handover protocol
 
-Coordination is file-based under `_fleet/handoffs/`. You did not see other agents' conversations — the handoff files are your only shared memory, so treat them as the contract.
+Coordination is file-based under `_fleet/local/handoffs/`. You did not see other agents' conversations — the handoff files are your only shared memory, so treat them as the contract.
 
 **On start:**
-1. Read your incoming handoff(s) from `skill-smith` in `_fleet/handoffs/` (files matching `*-to-harness-qa.md`). If one is missing or its acceptance criteria are unclear, say so in your output and proceed with explicit assumptions rather than silently guessing.
-2. Read `_fleet/LEDGER.md` to see fleet state before starting.
+1. Read your incoming handoff(s) from `skill-smith` in `_fleet/local/handoffs/` (files matching `*-to-harness-qa.md`). If one is missing or its acceptance criteria are unclear, say so in your output and proceed with explicit assumptions rather than silently guessing.
+2. Read `_fleet/local/LEDGER.md` to see fleet state before starting.
 
 **On finish:**
 1. You are a terminal agent: write your final result to the path given in your task brief and summarize it in your reply.
-2. Update your row in `_fleet/LEDGER.md` (status + artifact path).
+2. Update your row in `_fleet/local/LEDGER.md` (status + artifact path).
 
 **What you return to the orchestrator:**
 A distilled summary of roughly 1,000–2,000 tokens: what you found or produced, the artifact paths, and open questions. Not your search trace, not the file contents — the files are already on disk and re-narrating them costs the orchestrator context it needs for every remaining phase.
