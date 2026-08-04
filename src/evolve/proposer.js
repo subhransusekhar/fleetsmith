@@ -28,8 +28,9 @@ const KIND_RULES = {
   playbook: (name) =>
     `"${name}" is a PROTECTED, human-authored agent. You may NOT edit its definition. ` +
     `The only legal ops are "add-playbook-bullet" (field "body") and "update-bullet-counter". ` +
-    `A playbook bullet is an advisory note appended to the agent, and it MUST be at most ${MAX_BULLET_CHARS} characters — ` +
-    `one specific, reusable lesson, not a paragraph. Anything longer is rejected outright.`,
+    `A playbook bullet is an advisory note appended to the agent. The HARD limit is ${MAX_BULLET_CHARS} characters and ` +
+    `anything longer is rejected outright, so aim for under ${Math.floor(MAX_BULLET_CHARS * 0.75)} — writing to the exact ` +
+    `limit overshoots it. One specific, reusable lesson; not a paragraph, not a restatement of the agent's role.`,
   skill: (name) => `"${name}" is a machine-authored skill; you may edit its body or description.`,
   agent: (name) => `"${name}" is a machine-authored agent; you may edit its instruction body.`,
 };

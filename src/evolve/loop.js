@@ -109,7 +109,7 @@ export async function evolve(spec, opts = {}) {
 
   const proposals = [];
   for (const target of candidates.slice(0, budget)) {
-    const dossier = buildDossier({ spec, target, health, qa, evalResult, runsDir });
+    const dossier = buildDossier({ spec, target, health, qa, evalResult, runsDir, playbook: loadPlaybook(cwd, spec, target.name) });
 
     let ops;
     try {
@@ -177,7 +177,7 @@ const LEGAL_OPS = {
  * while one that sees the validator error and the failing case knows what to
  * change.
  */
-export function buildDossier({ spec, target, health, qa, evalResult, runsDir }) {
+export function buildDossier({ spec, target, health, qa, evalResult, runsDir, playbook = [] }) {
   const lines = [];
   lines.push(`# Evolution dossier — ${target.kind} "${target.name}"`);
   lines.push('');
@@ -213,6 +213,18 @@ export function buildDossier({ spec, target, health, qa, evalResult, runsDir }) 
     for (const c of evalFailures) lines.push(`- [${c.suite}] ${c.name} — ${c.detail}`);
   }
 
+  if (target.kind === 'playbook') {
+    lines.push('');
+    lines.push('## Current learned notes');
+    if (playbook.length === 0) {
+      // Without this the proposer cannot know that counter ops are impossible,
+      // and will propose them against bullets that do not exist.
+      lines.push('(none yet — this playbook is empty, so only add-playbook-bullet is possible)');
+    } else {
+      for (const b of playbook) lines.push(`- [${b.id}] (+${b.helpful}/-${b.harmful}) ${b.text}`);
+    }
+  }
+
   const runEvents = recentEvents(runsDir, target.name);
   if (runEvents.length) {
     lines.push('');
@@ -221,6 +233,11 @@ export function buildDossier({ spec, target, health, qa, evalResult, runsDir }) 
   }
 
   return lines.join('\n');
+}
+
+function loadPlaybook(cwd, spec, agent) {
+  const file = path.join(cwd, spec.fleet.shared, 'playbooks', `${agent}.md`);
+  return fs.existsSync(file) ? parsePlaybook(fs.readFileSync(file, 'utf8')) : [];
 }
 
 function recentEvents(runsDir, name, limit = 20) {
