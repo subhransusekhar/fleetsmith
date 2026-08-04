@@ -69,11 +69,24 @@ export async function evolve(spec, opts = {}) {
 
   // --- OBSERVE ---------------------------------------------------------------
   const runsDir = path.join(cwd, spec.fleet.local, 'runs');
-  const healthPath = path.join(cwd, spec.fleet.local, 'health.json');
+  // The loop keeps its OWN baseline, separate from `fleetsmith health`'s
+  // report. They answer different questions — "what changed since anyone last
+  // looked" versus "what changed since the loop last considered acting" — and
+  // sharing one file means an operator running a read-only report silently
+  // disables the loop until something else moves.
+  const healthPath = path.join(cwd, spec.fleet.local, 'health.evolved.json');
   const previous = fs.existsSync(healthPath) ? readJson(healthPath) : null;
   const health = computeHealth(spec, { runsDir, previous });
 
+  // Record the baseline before deciding, so a run that exits early still moves
+  // the mark and does not re-report the same delta forever.
+  const persistBaseline = () => {
+    fs.mkdirSync(path.dirname(healthPath), { recursive: true });
+    fs.writeFileSync(healthPath, `${JSON.stringify(health, null, 2)}\n`);
+  };
+
   if (!health.maintenanceNeeded) {
+    persistBaseline();
     // SkillOps' early exit. A loop that re-derives "nothing changed" on every
     // invocation is a loop that costs money to stand still.
     say(`no maintenance needed (ΔH ${health.deltaH ?? 0}); nothing to evolve`);
@@ -115,6 +128,7 @@ export async function evolve(spec, opts = {}) {
     proposals.push(outcome);
   }
 
+  persistBaseline();
   const survivors = proposals.filter((p) => p.accepted);
   const autoApplied = apply ? survivors.filter((p) => p.ops.every((o) => AUTO_APPLY.has(o.op))) : [];
 
