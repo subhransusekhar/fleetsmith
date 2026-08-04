@@ -1622,3 +1622,25 @@ test('qa drift ignores preserve-class files by design', () => {
 
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('qa drift tolerates an unseeded workspace but still catches a tampered one', () => {
+  // A fresh clone has no workspace: it is gitignored runtime scaffolding, so
+  // its absence is not drift. This is the case that failed CI when the check
+  // was first written.
+  const spec = demoSpec();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-qa-ws-'));
+  buildAll(spec, {}).write(dir, { force: true });
+  fs.rmSync(path.join(dir, spec.fleet.workspace), { recursive: true, force: true });
+  assert.ok(runQa(spec, { builtDir: dir }).pass, 'absent workspace reported as drift');
+
+  // But a workspace file that exists and differs is drift — this is how a
+  // tampered handover gate gets caught, and the gate is a protected path.
+  buildAll(spec, {}).write(dir, { force: true });
+  const gate = path.join(dir, spec.fleet.workspace, 'scripts/validate-handoff.sh');
+  fs.writeFileSync(gate, '#!/bin/sh\nexit 0\n'); // neutered: always passes
+  const drift = runQa(spec, { builtDir: dir }).checks.find((c) => c.name === 'drift vs built output');
+  assert.equal(drift.pass, false, 'tampered handover gate not caught');
+  assert.match(drift.evidence.join('\n'), /validate-handoff\.sh:1: differs/);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});

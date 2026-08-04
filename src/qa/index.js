@@ -190,16 +190,24 @@ function checkOriginMarkers(spec) {
  * and the files it generated" claim exact — a hand-edited generated file is
  * caught with the path that differs.
  *
- * Preserve-class files are skipped by design: they are seeded once and then
- * owned by the running fleet, so divergence there is the feature.
+ * Two deliberate exemptions:
+ *  - Preserve-class files, which are seeded once and then owned by the running
+ *    fleet, so divergence there is the feature.
+ *  - *Absence* of a runtime workspace file. The workspace is scaffolding
+ *    created when a fleet runs and is conventionally gitignored, so a fresh
+ *    checkout legitimately has none of it. A workspace file that exists and
+ *    DIFFERS is still reported: that is how a tampered handover gate is
+ *    caught, which matters because the gate is on the protected path list.
  */
 function checkDrift(spec, builtDir) {
   const evidence = [];
   const built = buildAll(spec, {});
+  const workspace = `${spec.fleet.workspace}/`;
   for (const [rel, content] of built.files) {
     if (built.preserved.has(rel)) continue;
     const abs = path.join(builtDir, rel);
     if (!fs.existsSync(abs)) {
+      if (rel.startsWith(workspace)) continue; // not yet seeded — not drift
       evidence.push(`${rel}: missing on disk (run \`fleetsmith build\`)`);
       continue;
     }
