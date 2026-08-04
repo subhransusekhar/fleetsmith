@@ -1,2 +1,0 @@
-{"ts":"2026-08-04T13:50:11.578Z","branch":"fleet-evolve/evolve-1785851360702-fleet-architect-playbook","ops":[],"verdict":"accept","generation":1,"reason":""}
-{"ts":"2026-08-04T13:50:21.309Z","branch":"fleet-evolve/evolve-1785851360702-skill-smith-playbook","ops":["add-playbook-bullet"],"verdict":"reject","reason":"Restates the agent's existing goal ('researched from the codebase, not vibes') rather than adding new information. A learned note that repeats standing instruction consumes budget and dilutes the advisory section without changing behaviour."}
