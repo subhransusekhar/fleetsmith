@@ -76,6 +76,17 @@ Every agentic CLI grew its own harness format: Claude Code has subagents + Agent
 - **Loop engineering, translated per tool.** Declare an iteration loop on a phase (`loop: { until, max, check }`, repeat-until-quality) or a recurring schedule on the fleet (`schedule: { cron, interval }`). Each compiles to a bounded prose loop on every target — plus goose's native `retry` for checked loops, and `/loop`/routines, cron wrappers, or `goose schedule` for recurring runs. See [`docs/spec.md`](docs/spec.md#loop-engineering).
 - **Enforced contracts, not advisory ones.** Where a target can check something deterministically, fleetsmith emits the check rather than an instruction: a Claude Code `SubagentStop` hook that blocks an agent until its handoff file is complete, opencode `permission.task` maps that compile the handoff graph (a denied agent disappears from the task tool entirely), and goose `response.json_schema` that validates the handoff summary at runtime.
 
+### What v0.5 adds
+
+A generated harness now has a feedback loop. It records what its runs did, checks itself deterministically, and can propose its own improvements for review — with **one model call in the whole system** and gates that never depend on it. Full detail in [Self-evolution](#self-evolution-v050); evidence in [`docs/research/self-evolving-agents-2026-08.md`](docs/research/self-evolving-agents-2026-08.md).
+
+- **Run telemetry, for free.** The handover gate already decided, per agent per stop, whether a handoff was complete — and threw the verdict away. It now logs it, along with retries and human corrections, to `_fleet/local/runs/`.
+- **`fleetsmith qa`** — the verification battery that used to be prose an agent executed: spec gate, per-target compile, handoff graph checked against *compiled* output, capability leaks, loop bounds, and drift. Runs in CI on every PR.
+- **`fleetsmith eval`** — trigger discrimination plus a held-out corpus of fleet specs, with a staged 3/10/full ladder, a measured noise floor, and paired baseline comparison. Running it on our own fleet immediately found five real description defects.
+- **`fleetsmith evolve`** — observe → evaluate → mutate → validate → promote. Proposals land on a branch, clear qa and eval, and wait for `--review`. Rollback is `git revert fleet-gen/<n>`.
+- **Provenance and protection.** `origin: human|evolved` on every agent and skill; the loop may only modify what it generated, and the validator, QA battery, eval corpus, and tests are hard-coded off limits — enforced in-process *and* in CI, because a control inside the agent's runtime is reachable by inputs that influence the agent.
+- **A two-tier workspace.** `_fleet/shared/` (committed team knowledge) and `_fleet/local/` (per-developer runtime), so a fleet's accumulated learning stops living on one laptop while run logs stop causing merge conflicts.
+
 ### What v0.4 adds
 
 Generated harnesses now carry the platform features and research-backed techniques verified in [August 2026 research](docs/research/) — see [`docs/research/platform-optimizations-2026-08.md`](docs/research/platform-optimizations-2026-08.md) and [`docs/research/harness-best-practices-2026-08.md`](docs/research/harness-best-practices-2026-08.md) for the evidence, and [the milestone](docs/milestones/v0.4.0-harness-optimizations.md) for the task-by-task breakdown.
@@ -253,7 +264,19 @@ fleetsmith install fleet.yaml --scope user --dry-run   # preview first
 | **opencode** | `/run-<fleet>` command, or switch to the `run-<fleet>` primary agent |
 | **goose** | `goose run --recipe .goose/recipes/run-<fleet>.yaml` (skills need goose ≥ 1.25) |
 
-The orchestrator handles fresh runs, partial re-runs ("redo the X part"), and resumption — fleet state lives in `_fleet/LEDGER.md` and `_fleet/handoffs/`, so any run is auditable and resumable.
+The orchestrator handles fresh runs, partial re-runs ("redo the X part"), and resumption — fleet state lives in `_fleet/local/LEDGER.md` and `_fleet/local/handoffs/`, so any run is auditable and resumable.
+
+### 6. Keep it healthy
+
+Once the fleet has run a few times, it has something to tell you:
+
+```bash
+fleetsmith health fleet.yaml          # which agents and skills are actually working
+fleetsmith qa     fleet.yaml --built . # is the compiled harness still faithful to the spec?
+fleetsmith eval   fleet.yaml --stage 2 # do the skills still route correctly?
+```
+
+`qa` is the one to wire into CI — it catches a hand-edited generated file, a dead handoff edge, a capability leak, and drift between `fleet.yaml` and what was built from it. See [Self-evolution](#self-evolution-v050) for what to do with the results.
 
 ## Examples by category
 
@@ -368,20 +391,73 @@ A built harness can improve itself: it records what its runs did, checks the res
 ```bash
 fleetsmith health fleet.yaml            # what the runs say about each agent and skill
 fleetsmith eval   fleet.yaml --stage 2  # trigger discrimination + held-out fleet corpus
+fleetsmith qa     fleet.yaml --built .  # the deterministic gate (also runs in CI)
 fleetsmith evolve fleet.yaml            # propose one change, on a branch
 fleetsmith evolve fleet.yaml --review   # review it, one proposal at a time
 ```
 
 **There is exactly one model call in the whole system** — the proposer. Telemetry, health metrics, verification, evaluation, patching, and merging are all deterministic. The model proposes; deterministic checks dispose, and nothing merges without you unless every operation in it is one a validator fully decides.
 
-What it will not do:
+### The loop, end to end
 
-- **It cannot edit human-authored definitions.** Your skills and agents are protected by default; the loop may attach an advisory learned note, and may edit only what it generated itself.
+| Stage | Command | What it does |
+|-------|---------|--------------|
+| **Observe** | *(automatic)* | the handover gate and orchestrator log run events to `_fleet/local/runs/` |
+| | `fleetsmith health` | aggregates them into per-agent and per-skill metrics, with a ΔH early exit so a quiet week costs nothing |
+| **Evaluate** | `fleetsmith qa` | spec gate, per-target compile, handoff graph, capability leaks, loop bounds, drift |
+| | `fleetsmith eval` | trigger discrimination + a held-out fleet corpus, staged 3/10/full |
+| **Mutate** | `fleetsmith evolve` | one reflective proposal, applied on a `fleet-evolve/*` branch |
+| **Validate** | *(inside evolve)* | qa → eval stage 1 → paired stage 2 above the measured noise floor |
+| **Promote** | `fleetsmith evolve --review` | one proposal at a time; accept merges and tags `fleet-gen/N` |
+
+Rollback is `git revert fleet-gen/<n>`. Full guide: [docs/evolution.md](docs/evolution.md) · cadence: [docs/evolution-cadence.md](docs/evolution-cadence.md).
+
+### What it will not do
+
+- **It cannot edit human-authored definitions.** Your skills and agents are protected by default. The loop may attach an advisory *learned note* to any agent, and may edit only what it generated itself.
 - **It cannot touch the validator, the QA battery, the eval corpus, or the tests.** That list is hard-coded and cannot be widened from `fleet.yaml`, because an optimizer with write access to its own scorecard edits the scorecard.
 - **It cannot change a handoff contract** without an explicit flag and a human.
-- **It does not measure output quality.** It measures whether skills route correctly and whether the compiler still works. Whether a skill produces *better work* is not yet automated.
+- **It does not measure output quality in the gate.** Promotion depends on deterministic checks only.
 
-Rollback is `git revert fleet-gen/<n>` — every promotion is a tagged merge. See [docs/evolution.md](docs/evolution.md) and [docs/evolution-cadence.md](docs/evolution-cadence.md).
+### Supporting commands
+
+```bash
+fleetsmith playbook fleet.yaml add <agent> "one reusable lesson"   # learned notes
+fleetsmith playbook fleet.yaml show <agent>
+fleetsmith patch    fleet.yaml --ops ops.json                      # typed, format-preserving spec edits
+fleetsmith protected fleet.yaml --check-diff main                  # what the loop may never touch
+fleetsmith migrate-workspace fleet.yaml                            # split an old flat _fleet/
+```
+
+### Two advisory tools that gate nothing
+
+Both are opt-in, both need a model, and neither can influence a build, a patch, or a promotion — enforced by tests, not convention.
+
+```bash
+fleetsmith eval fleet.yaml --judge            # is a skill's methodology substantive or generic?
+fleetsmith eval fleet.yaml --exec --repeat 2  # run declared cases in real sessions
+```
+
+The judge is deliberately **not** trusted as a metric: it disagrees with itself on 19% of verdicts across identical runs, and is least stable on exactly the borderline skills where judgment would help. Read one verdict as a prompt to go look at a skill; never aggregate it. Evidence: [docs/research/judge-calibration.md](docs/research/judge-calibration.md).
+
+Live execution (`--exec`) answers what the deterministic suites cannot — is the output any better with the skill than without — but it is slow, needs a model, and stays outside the gate for exactly that reason. Scope a case at one skill's methodology; a query that triggers the orchestrator runs the whole fleet.
+
+### The workspace has two tiers
+
+`_fleet/` splits so team knowledge and per-developer runtime state stop fighting each other:
+
+| Tier | Holds | Committed |
+|------|-------|-----------|
+| `_fleet/shared/` | changelog, learned playbooks, promotion decisions, eval baselines | **yes** |
+| `_fleet/local/` | handoffs, ledger, run logs, generated scripts | no (gitignored) |
+
+Run ids are namespaced per developer, so two people in one checkout never interleave, and health metrics can tell "this agent fails for everyone" from "it fails for one person's setup". Design: [docs/architecture/multi-user-context.md](docs/architecture/multi-user-context.md).
+
+## Memory backends (v0.6.0, in progress)
+
+Everything a fleet remembers now sits behind a five-verb port — `remember`, `recall`, `consolidate`, `forget`, `justify` — with the **file backend as the default and only bundled implementation**. It is not a stub: each kind maps onto an artifact the fleet already writes (lessons to the committed playbooks, decisions to `decisions.jsonl`, notes to the local tier), so adopting the port changed no on-disk format.
+
+An optional [RelataDB](https://relatadb.dev) adapter is planned for deployments that need semantic recall, provenance queries, bi-temporal history, or multi-tenant isolation — BYOL, customer-supplied instance, no vendored code, and always degrading to the file backend. A stated non-goal: **no capability may be backend-only.** See [`docs/milestones/v0.6.0-enterprise-memory.md`](docs/milestones/v0.6.0-enterprise-memory.md).
 
 ## Design notes
 
@@ -394,18 +470,28 @@ Rollback is `git revert fleet-gen/<n>` — every promotion is a tagged merge. Se
 
 ```
 src/
-├── cli.js               # fleetsmith init | validate | build | patterns
-├── spec/                # schema defaults + graph-aware validator
+├── cli.js               # every command (init, build, qa, eval, evolve, ...)
+├── spec/                # schema defaults + graph-aware validator + design lint
 ├── adapters/            # claude-code, opencode, goose — pure spec -> FileSet
-├── compile/             # shared prompt/orchestrator/pointer compilers
+├── compile/             # shared prompt/orchestrator/pointer/telemetry compilers
 ├── handover/            # portable file-based handoff protocol
 ├── patterns/            # fleet archetypes for `init`
+├── qa/                  # the deterministic verification battery (the gate)
+├── eval/                # trigger tests, eval fleets, advisory judge, live exec
+├── health/              # run telemetry -> per-artifact health metrics
+├── playbook/            # ACE-style learned notes (deterministic merge)
+├── memory/              # backend-agnostic memory port + file backend
+├── evolve/              # typed patch API, protected paths, the loop, promotion
 ├── opencode-plugin.js   # opencode plugin core (tools) — no peer dep, testable
 └── opencode.js          # opencode plugin entry (imports @opencode-ai/plugin)
-.claude/                 # the meta-fleet (agents + harness-builder skill)
+.claude/                 # the meta-fleet (agents + skills + harness-builder)
+_fleet/shared/           # committed team knowledge (changelog, playbooks, decisions)
 docs/spec.md             # full fleet.yaml reference
-docs/research/           # format + interop research (4 docs, cited)
+docs/evolution.md        # the self-evolution loop, invariants, rollback
+docs/architecture/       # multi-developer workspace design
+docs/research/           # cited research (formats, harness practice, self-evolution)
 fleet.example.yaml       # full-featured example spec
+test/eval-fleets/        # held-out specs used as a regression corpus
 test/                    # node --test suite
 ```
 
