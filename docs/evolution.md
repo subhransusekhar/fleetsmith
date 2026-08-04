@@ -111,8 +111,12 @@ deterministic check and still makes real runs worse.
 
 ## What it does not do
 
-- **It does not measure output quality.** Trigger discrimination is measured;
-  whether a skill produces *better work* is not. See issue #26.
+- **Output quality is measured only on demand, never in the gate.**
+  `fleetsmith eval --exec` runs declared cases in real sessions; it is opt-in,
+  slow, needs a model, and gates nothing. The deterministic suites are what
+  promotion depends on. Scope a case at one skill's methodology — a query that
+  triggers the orchestrator runs the whole fleet and will hit the 120s
+  per-case timeout.
 - **The advisory judge (`eval --judge`) is not a metric.** It disagrees with
   itself on 19% of verdicts across identical runs, and is least stable on
   exactly the borderline skills where judgment would be useful. Read one
