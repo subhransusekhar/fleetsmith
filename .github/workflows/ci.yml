@@ -20,3 +20,41 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm ci
       - run: npm test
+
+  # The deterministic verification battery, run against fleetsmith's own
+  # meta-fleet. This is the gate an evolved harness has to clear before it can
+  # be promoted, so it must stay green on main at all times — a false PASS here
+  # is the path by which a bad mutation reaches the default branch.
+  qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      # --built . also catches drift: a generated file edited by hand, or a
+      # spec change committed without rebuilding.
+      - run: node src/cli.js qa fleet.yaml --built .
+      # Stage 2 is the promotion gate's tier: trigger discrimination plus the
+      # held-out fleet corpus. Both are deterministic, so this runs with no
+      # model available.
+      - run: node src/cli.js eval fleet.yaml --stage 2
+
+  # The out-of-process half of the self-modification guard. Only evolution
+  # branches are constrained: protected paths are human territory by
+  # definition, so a person editing them is the system working. What must never
+  # happen is the loop editing its own referee — the spec layer, the QA
+  # battery, the eval corpus, the tests, or this workflow.
+  protected-paths:
+    if: startsWith(github.head_ref, 'fleet-evolve/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: node src/cli.js protected fleet.yaml --check-diff origin/${{ github.base_ref }}

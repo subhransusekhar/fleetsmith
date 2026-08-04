@@ -1,3 +1,31 @@
+## 0.5.0 — Self-evolving harness
+
+A harness can now observe its own runs, evaluate the result, propose a change, validate it, and hand you a reviewable branch. One model call in the whole system; everything else is deterministic.
+
+**Observe**
+- Run telemetry: a dependency-free JSONL logger under `<workspace>/local/runs/`, with run ids namespaced per developer. The handover gate now records its verdicts instead of discarding them.
+- `fleetsmith health` — per-agent and per-skill utility, failure risk, redundancy, validation gaps, and handoff compatibility, with no LLM calls and a ΔH early exit so a steady state costs nothing.
+
+**Evaluate**
+- `fleetsmith qa` — the deterministic verification battery (spec gate, per-target compile, handoff graph, capability leaks, loop bounds, origin markers, drift), wired into CI.
+- `fleetsmith eval` — trigger discrimination plus a held-out fleet corpus, with a staged ladder, a measured noise floor, and paired baseline comparison.
+
+**Mutate and promote**
+- `fleetsmith patch` — a typed, format-preserving mutation API. Comments and formatting survive; protected targets are refused; a patch either fully applies and validates or does nothing.
+- ACE-style learned playbooks: id'd bullets with helpful/harmful counters, merged deterministically, compiled in as an advisory section after all human-authored instruction.
+- `fleetsmith evolve` — the reflective loop, and `--review` for one-at-a-time promotion with a decision log that deprioritizes categories you keep rejecting.
+- `fleetsmith protected` — a hard-coded protected-path manifest, enforced in-process and again in CI on `fleet-evolve/*` branches.
+
+**Workspace**
+- The workspace now has two tiers: `shared/` (committed team knowledge — changelog, playbooks, decisions, eval baselines) and `local/` (gitignored per-developer runtime). `fleetsmith migrate-workspace` moves an existing install.
+- Provenance: `origin: human|evolved` and `protected`, emitted into compiled frontmatter.
+- The meta-fleet's four methodologies are now vendored into `fleet.yaml` rather than living only at user scope.
+
+**Fixes**
+- The harness changelog moved to `<workspace>/shared/CHANGELOG.md`; it was previously regenerated into CLAUDE.md and AGENTS.md and destroyed on every build.
+- `CLAUDE.md` and `AGENTS.md` are byte-stable across rebuilds (they embedded the build date).
+- Drift detection compares content, not line endings — it previously reported every generated file as drifted on Windows.
+
 # Changelog
 
 Notable changes per release. Dates are release dates.

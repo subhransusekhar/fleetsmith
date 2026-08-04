@@ -1,0 +1,15 @@
+# Smallest thing that should still compile to three working targets.
+fleet:
+  name: solo
+  domain: "answers questions about one codebase"
+  pattern: pipeline
+agents:
+  - name: answerer
+    role: "Answers questions about the codebase."
+    goal: "A correct answer with file:line citations."
+expect:
+  agents: 1
+  pattern: pipeline
+  emits:
+    - .claude/agents/answerer.md
+    - .goose/recipes/answerer.yaml

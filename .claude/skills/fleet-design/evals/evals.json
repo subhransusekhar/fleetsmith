@@ -1,0 +1,14 @@
+{
+  "skill": "fleet-design",
+  "description": "Methodology for designing an agent fleet as a fleet.yaml — choosing the pattern from the data flow, setting execution mode, drawing the handoff graph with artifact contracts, granting least capability, and declaring iteration and recurring loops. Use when designing or restructuring an agent fleet roster, choosing between pipeline / fanout / generate-verify / supervisor / expert-pool, deciding which agents to split or merge, adding another agent to an existing roster, or fixing fleetsmith validator errors.",
+  "should_trigger": [
+    "should this fleet be a pipeline or a fanout",
+    "add another agent to the existing fleet roster",
+    "fix these fleetsmith validator errors in my spec"
+  ],
+  "should_not_trigger": [
+    "the SKILL.md body has grown past 500 lines",
+    "audit the compiled output for drift"
+  ],
+  "cases": []
+}

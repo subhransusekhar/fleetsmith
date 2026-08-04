@@ -1,0 +1,35 @@
+# A fleet whose skills must remain discriminable from each other.
+fleet:
+  name: writer
+  domain: "produces and reviews technical documentation"
+  pattern: pipeline
+agents:
+  - name: drafter
+    role: "Drafts documentation."
+    skills: [drafting-method]
+    capabilities: { read: true, edit: true }
+    handoff: { to: [reviewer], artifact: draft.md }
+  - name: reviewer
+    role: "Reviews documentation for accuracy."
+    skills: [review-method]
+    capabilities: { read: true }
+skills:
+  - name: drafting-method
+    description: "Methodology for drafting new technical documentation from source code and specifications. Use when writing a first draft, outlining a document, or expanding notes into prose."
+    body: |
+      # Drafting
+      Outline first, then expand. Cite sources by path.
+    triggers:
+      should: ["draft the API documentation from these specs"]
+      shouldNot: ["review this document for factual errors"]
+  - name: review-method
+    description: "Methodology for reviewing existing documentation for factual accuracy against the code it describes. Use when checking a document, verifying claims, or auditing published docs."
+    body: |
+      # Review
+      Verify every claim against the source. Cite file:line for each defect.
+    triggers:
+      should: ["review this document for factual errors"]
+      shouldNot: ["draft the API documentation from these specs"]
+expect:
+  agents: 2
+  skills: 2

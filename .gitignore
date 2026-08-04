@@ -1,5 +1,10 @@
 node_modules/
 dist/
 dist-example/
-_fleet/
+# The workspace has two tiers (docs/architecture/multi-user-context.md):
+# local/ is per-developer runtime state and stays out of git; shared/ is the
+# team's accumulated knowledge (changelog, learned playbooks, promotion
+# decisions, eval baselines) and is committed.
+_fleet/*
+!_fleet/shared/
 .claude/scheduled_tasks.lock

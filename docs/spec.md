@@ -24,7 +24,7 @@ The fleet spec is the single tool-agnostic source of truth. `normalizeSpec` fill
 | `domain` | `''` | one-line domain statement; feeds every description — leaving it empty makes the harness generic (validator warns) |
 | `pattern` | `pipeline` | `pipeline`, `fanout`, `expert-pool`, `generate-verify`, `supervisor`, `hierarchical` |
 | `execution` | `subagents` | `team` (Claude Code agent teams; degrades to orchestrated subagents on opencode/goose), `subagents`, `hybrid` (per-phase `mode`) |
-| `workspace` | `_fleet` | coordination directory emitted into the project. Must be a safe relative path (`[A-Za-z0-9._-/]`, no leading `/`, no `..`) — it is interpolated into generated shell scripts and config, so anything else is an error |
+| `workspace` | `_fleet` | coordination directory root, emitted into the project. Splits into two tiers: `<workspace>/shared/` (committed team knowledge — changelog, playbooks, decisions, eval baselines) and `<workspace>/local/` (gitignored per-developer runtime — handoffs, ledger, runs, generated scripts); see `docs/architecture/multi-user-context.md`. Must be a safe relative path (`[A-Za-z0-9._-/]`, no leading `/`, no `..`) — it is interpolated into generated shell scripts and config, so anything else is an error |
 | `schedule` | `null` | recurring-loop config — see [Loop engineering](#loop-engineering) |
 | `mcp` | `null` | map `name -> {type, url \| command, args, env}`. Compiles to `.mcp.json` (Claude Code), `opencode.json` `mcp`, and goose recipe `extensions`. Validator errors if a remote server has no `url` or a stdio server no `command` |
 | `allowParallelWrites` | `false` | escape hatch for the single-writer rule (see [Validation rules](#validation-rules)) — set only when concurrent writers provably touch disjoint paths |
@@ -34,6 +34,8 @@ The fleet spec is the single tool-agnostic source of truth. `normalizeSpec` fill
 | Key | Default | Notes |
 |-----|---------|-------|
 | `model` | `inherit` | tier inherited by every agent |
+| `origin` | `human` | `human` or `evolved` — who authored this artifact. Emitted into compiled frontmatter as `x-fleetsmith-origin` so provenance survives into the generated files |
+| `protected` | `true` when `origin: human` | whether the evolution loop may modify it. Implements the invariant *evolution may only modify what evolution generated*: the Darwin Gödel Machine, scored by a function counting marker tokens, deleted the markers rather than fix the behaviour. Set explicitly to freeze an evolved artifact |
 | `capabilities` | `{read: true}` | capability defaults for every agent |
 | `claudeModels` | `null` | map tier → Claude Code alias or id, e.g. `{smart: opus, cheap: haiku}` |
 | `opencodeModels` | `null` | same, using provider-qualified ids: `{smart: "anthropic/claude-opus-5"}` |
@@ -57,6 +59,8 @@ Cost control that does not require pinning: `agents[].effort` and `agents[].turn
 | `role` | `''` | one sentence, "who am I" |
 | `goal` | `''` | measurable outcome, feeds description + orchestrator |
 | `model` | `defaults.model` | `smart` / `fast` / `cheap` / `inherit` — an intent. Emits `inherit` on every target unless `defaults.<target>Models` binds it (see [Model tiers](#model-tiers-are-intents-not-names)) |
+| `origin` | `human` | `human` or `evolved` — who authored this artifact. Emitted into compiled frontmatter as `x-fleetsmith-origin` so provenance survives into the generated files |
+| `protected` | `true` when `origin: human` | whether the evolution loop may modify it. Implements the invariant *evolution may only modify what evolution generated*: the Darwin Gödel Machine, scored by a function counting marker tokens, deleted the markers rather than fix the behaviour. Set explicitly to freeze an evolved artifact |
 | `capabilities` | `{read: true}` | `read`, `edit`, `run`, `web`, `spawn` booleans — mapped to Claude Code `tools:` allowlist, opencode `tools:` booleans, goose extensions (+ stated read-only constraint, since goose has no tool-level sandbox) |
 | `skills` | `[]` | names from `skills[]`; compiled prompt instructs the agent to load them |
 | `principles` | `[]` | working principles injected verbatim |
@@ -149,3 +153,27 @@ Errors (block build): missing/duplicate/non-kebab agent or skill names, unknown 
 Errors also: phase `loop.max` not a positive integer, unknown `agents[].effort` tier, unknown `skills[].freedom` level, `fleet.mcp` entry missing `url` (remote) or `command` (stdio), `fleet.workspace` / `handover.dir` not a safe relative path, a skill `description` over 1,536 chars (it would be truncated in the skill listing, cutting off its trigger vocabulary), and a `parallel` phase containing more than one editing agent (override with `fleet.allowParallelWrites` only when the writers provably touch disjoint paths).
 
 Warnings: empty domain, roleless agent, handoff edge without artifact, handoff cycle outside supervisor-family patterns, disconnected agent, unattached skill, short skill description, skill body >500 lines, `agents[].turns` >200, `loop.max` >10, loop with no exit condition (no `until`/`check`), malformed `schedule.cron`, `schedule` with both cron and interval.
+
+## Typed mutations (`fleetsmith patch`)
+
+A fleet.yaml is edited by a human with an editor, or by `fleetsmith patch` — nothing else. Patches run against the YAML Document API so comments, key order, and formatting survive; the normalized object is never re-serialized, because filling defaults and re-emitting produces a diff nobody can review.
+
+| Op | Target | Notes |
+|----|--------|-------|
+| `add-skill` | new skill name | `payload.description` required; created with `origin: evolved` |
+| `update-skill-body` / `repair-skill` | skill | replaces `body` |
+| `merge-skills` | skill | `payload.from`; **refuses non-identical bodies** — merging differing methodology is editorial, not mechanical |
+| `retire-skill` | skill | renames to `<name>-retired` and drops agent references. Retirement is not deletion; only a human removes the file |
+| `add-validator` | skill | appends eval cases |
+| `update-agent-body` | agent | replaces `prompt` |
+| `add-playbook-bullet` / `update-bullet-counter` | agent | written to the playbook file, not the spec |
+| `contract-change` | agent | anything under `handoff`. Refused without `--allow-contract-change`, and never auto-applied |
+
+Two rules the command enforces:
+
+- **Protected targets are refused.** Anything with `protected: true` (the default for `origin: human`) cannot be modified. Checked against the pre-patch spec, so an op cannot make its own target writable by first flipping its origin.
+- **All or nothing.** The patched spec must normalize and validate, or nothing is written. There is no partial-apply state.
+
+`--dry-run` is the default when stdin is not a TTY, so an automated caller that forgets the flag prints a diff instead of writing.
+
+Run `fleetsmith patch <spec> --normalize` once on an existing spec: flow-collection padding is a single library-wide rule, so a file mixing padded maps with unpadded sequences picks up unrelated churn on its first patch. Normalizing separates that one-time reformat from real changes.

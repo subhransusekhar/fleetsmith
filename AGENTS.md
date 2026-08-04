@@ -12,10 +12,8 @@ For building an agent harness for a project or domain — creating an agent flee
 
 ## Coordination
 
-Fleet coordination is file-based under `_fleet/`: handoff documents in `_fleet/handoffs/` (template provided) and a task ledger at `_fleet/LEDGER.md`. Handoff files are the source of truth between agents — read them before resuming or auditing fleet work, and never delete them mid-run.
+Fleet coordination is file-based under `_fleet/`: handoff documents in `_fleet/local/handoffs/` (template provided) and a task ledger at `_fleet/local/LEDGER.md`. Handoff files are the source of truth between agents — read them before resuming or auditing fleet work, and never delete them mid-run.
 
 ## Changelog
 
-| Date | Change | Target | Reason |
-|------|--------|--------|--------|
-| 2026-08-01 | Initial fleet build (fleetsmith) | all | - |
+Harness changes are recorded in `_fleet/shared/CHANGELOG.md` — append a row there rather than editing this file, which is regenerated on every build.

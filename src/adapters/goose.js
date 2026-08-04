@@ -2,10 +2,11 @@ import YAML from 'yaml';
 import { FileSet } from '../lib/fs-utils.js';
 import { prune, mdWithFrontmatter } from '../lib/md.js';
 import { compileAgentBody, title, isVerifier } from '../compile/agent-prompt.js';
-import { handoffTemplate, ledgerTemplate } from '../handover/protocol.js';
+import { handoffTemplate, ledgerTemplate, changelogTemplate } from '../handover/protocol.js';
 import { compileOrchestratorBody } from '../compile/orchestrator.js';
 import { agentsMdPointer } from '../compile/pointers.js';
 import { skillEvals, evalsReadme } from '../compile/evals.js';
+import { logEventScript, TELEMETRY_PATH } from '../compile/telemetry.js';
 
 /**
  * goose adapter (aaif-goose/goose, recipe format v1.0.0, skills need goose >= 1.25).
@@ -61,7 +62,7 @@ export function buildGoose(spec, options = {}) {
     if (orchestratorIsAgent && agent.name === spec.orchestrator.name) {
       continue;
     }
-    out.add(`.goose/recipes/${agent.name}.yaml`, agentRecipe(agent, spec));
+    out.add(`.goose/recipes/${agent.name}.yaml`, agentRecipe(agent, spec, options.playbooks ?? {}));
   }
 
   out.add(`.goose/recipes/${spec.orchestrator.name}.yaml`, orchestratorRecipe(spec));
@@ -79,23 +80,29 @@ export function buildGoose(spec, options = {}) {
     for (const skill of spec.skills) {
       emitSkill(out, `.goose/skills/${skill.name}`, skill, spec);
     }
-    if (spec.skills.length > 0) out.add(`${spec.fleet.workspace}/evals/README.md`, evalsReadme(spec));
+    if (spec.skills.length > 0) out.add(`${spec.fleet.local}/evals/README.md`, evalsReadme(spec));
   }
 
   out.add(`${spec.handover.dir}/HANDOFF.template.md`, handoffTemplate());
   if (spec.handover.ledger) {
-    out.add(`${spec.fleet.workspace}/LEDGER.md`, ledgerTemplate(spec.fleet.name));
+    out.add(`${spec.fleet.local}/LEDGER.md`, ledgerTemplate(spec.fleet.name));
   }
+  out.add(
+    `${spec.fleet.shared}/CHANGELOG.md`,
+    changelogTemplate(spec.fleet.name, options.today),
+    { preserve: true }
+  );
+  out.add(`${spec.fleet.local}/${TELEMETRY_PATH}`, logEventScript(spec));
 
   if (options.agentsMd !== false) {
-    out.add('AGENTS.md', agentsMdPointer(spec, options.today));
+    out.add('AGENTS.md', agentsMdPointer(spec));
   }
 
   return out;
 }
 
-function agentRecipe(agent, spec) {
-  const instructions = [compileAgentBody(agent, spec, { team: false }), readOnlyClause(agent)]
+function agentRecipe(agent, spec, playbooks = {}) {
+  const instructions = [compileAgentBody(agent, spec, { team: false, playbook: playbooks[agent.name] ?? [] }), readOnlyClause(agent)]
     .filter(Boolean)
     .join('\n\n');
 

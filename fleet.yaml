@@ -25,9 +25,10 @@ agents:
     role: "Explores a target project or domain description and produces the decomposition brief that drives fleet design — work types, expertise areas, parallelism opportunities, existing agent/skill inventory."
     goal: "A decomposition brief a fleet architect can design from without re-exploring: concrete work types with inputs/outputs, not a list of adjectives."
     model: smart
+    skills: [ domain-decomposition ]
     capabilities: { read: true, web: true }
     handoff:
-      to: [fleet-architect]
+      to: [ fleet-architect ]
       artifact: 01-domain-analyst-to-fleet-architect.md
       criteria:
         - "Brief names 3-7 concrete work types, each with input, output, and required expertise"
@@ -38,9 +39,10 @@ agents:
     role: "Takes a domain decomposition brief and designs the fleet — pattern choice, execution mode, agent roster with capabilities, handoff graph with artifact contracts — as a valid fleet.yaml."
     goal: "A fleet.yaml that validates cleanly and compiles into working harnesses for every target."
     model: smart
+    skills: [ fleet-design ]
     capabilities: { read: true, edit: true, run: true }
     handoff:
-      to: [skill-smith]
+      to: [ skill-smith ]
       artifact: 02-fleet-architect-to-skill-smith.md
       criteria:
         - "Pattern matches the data flow, not fashion"
@@ -52,9 +54,10 @@ agents:
     role: "Writes the methodology bodies of fleet skills — lean SKILL.md content, progressive-disclosure references, bundled scripts — inside fleet.yaml."
     goal: "Every skill carries real methodology researched from the codebase and domain standards, not vibes."
     model: smart
+    skills: [ skill-authoring ]
     capabilities: { read: true, edit: true, run: true, web: true }
     handoff:
-      to: [harness-qa]
+      to: [ harness-qa ]
       artifact: 03-skill-smith-to-harness-qa.md
       criteria:
         - "Every TODO(skill-smith) marker replaced with researched methodology"
@@ -65,8 +68,11 @@ agents:
     role: "Adversarially verifies a generated harness end-to-end — spec validation, compiled output cross-checks across Claude Code/opencode/goose targets, handoff-graph dead links, trigger tests on skill descriptions."
     goal: "A PASS/FAIL verdict per check with file:line evidence for every failure, plus a ranked fix list."
     model: smart
+    skills: [ harness-verification ]
     capabilities: { read: true, run: true }
     principles:
+      - "Run `fleetsmith qa <spec> --built <dir>` first and paste its output — the mechanical battery (spec gate, per-target compile, handoff graph, capability leaks, loop bounds, drift) is deterministic and already implemented. Never re-derive it by hand."
+      - "Your judgment is for what that command cannot decide: is the methodology substantive or generic, is the decomposition right, are the trigger phrases the ones a real user would type"
       - "Boundary-crossing comparison is the value, not existence checks — 'file exists' is not a finding"
       - "Every defect needs reproducible evidence: a command and its output, or file:line"
       - "Never fix files yourself — you verify; producers fix"
@@ -74,28 +80,288 @@ agents:
       to: []
       artifact: 04-harness-qa-verdict.md
 
+skills:
+  - name: domain-decomposition
+    description: >-
+      Methodology for decomposing a project or domain into the work types an agent fleet should mirror — codebase reconnaissance, work-type extraction with input/output contracts, parallelism analysis, existing-harness inventory, and quality-risk spotting. Use when analysing a project before any design work, when asked what work types a codebase involves, or when re-analysing a domain whose scope has changed. Produces the decomposition brief, not the design that follows it.
+    triggers:
+      should:
+        - "what agents does this codebase need"
+        - "analyze this project before we design the fleet roster"
+        - "decompose this domain into work types"
+      shouldNot:
+        - "my skill never fires when I ask for it"
+        - "check whether the generated harness still works"
+    body: |
+      # Domain decomposition
+
+      The brief you write is the only thing the architect sees. If it is vague, the harness
+      is generic — which is the single most common failure of generated agent fleets.
+
+      ## 1. Reconnaissance (skip only for a pure domain description)
+
+      Establish ground truth from the repository, in this order:
+
+      | Question | Where to look |
+      |----------|---------------|
+      | What is this? | README, package manifests, top-level dirs |
+      | How does work enter? | CLI entry points, HTTP routes, job queues, workflow files |
+      | What is the data? | schema/model/migration files, type definitions |
+      | How is correctness established? | test dirs, CI workflows, linters, review checklists |
+      | What automation exists? | `.claude/`, `.opencode/`, `.goose/`, `AGENTS.md`, `CLAUDE.md` |
+
+      Record file paths as evidence. A brief that cites no paths was not researched.
+
+      ## 2. Extract work types
+
+      A work type is a repeated unit of judgment, not a file or a feature. Name 3-7 of them.
+      For each: **input** (what must exist first), **output** (the artifact it produces),
+      **expertise** (what someone must know to do it well), **parallel?** (does it need
+      another work type's output).
+
+      Test each candidate: could a competent person do it in isolation given only the stated
+      input? If not, the input is understated or the work type is really two.
+
+      ## 3. Parallelism and roster size
+
+      Work types that share no input/output edge can run in parallel — that is what makes a
+      `fanout` fleet worth building. Work types in a strict chain argue for `pipeline`.
+      Recommend the smallest roster covering every work type; three sharp agents outperform
+      five vague ones because each one's context stays focused.
+
+      ## 4. Quality risks
+
+      Ask: in this domain, what does plausible-but-wrong output look like? Those failure
+      modes become the verifier's checklist. Be specific — "hallucinated API endpoints that
+      compile but 404" beats "inaccuracy".
+
+      ## Output
+
+      Write the handoff with: the work-type table, the harness inventory with collision
+      notes, the recommended roster with one-line justification, and the quality risks.
+
+  - name: fleet-design
+    description: >-
+      Methodology for designing an agent fleet as a fleet.yaml — choosing the pattern from the data flow, setting execution mode, drawing the handoff graph with artifact contracts, granting least capability, and declaring iteration and recurring loops. Use when designing or restructuring an agent fleet roster, choosing between pipeline / fanout / generate-verify / supervisor / expert-pool, deciding which agents to split or merge, adding another agent to an existing roster, or fixing fleetsmith validator errors.
+    triggers:
+      should:
+        - "should this fleet be a pipeline or a fanout"
+        - "add another agent to the existing fleet roster"
+        - "fix these fleetsmith validator errors in my spec"
+      shouldNot:
+        - "the SKILL.md body has grown past 500 lines"
+        - "audit the compiled output for drift"
+    body: |
+      # Fleet design
+
+      ## Pattern from the data flow
+
+      | Data flow | Pattern |
+      |-----------|---------|
+      | Each stage needs the previous stage's output | `pipeline` |
+      | Independent slices explored, then merged | `fanout` |
+      | An artifact plus an adversarial check on it | `generate-verify` |
+      | A lead owns shared state and delegates dynamically | `supervisor` |
+      | Heterogeneous requests routed to specialists | `expert-pool` |
+
+      Pick from the brief's parallelism column, not from what sounds sophisticated.
+
+      ## Execution mode
+
+      `team` when agents benefit from cross-referencing mid-flight; `subagents` when results
+      simply flow forward as files; `hybrid` when phases genuinely differ. Prefer
+      `subagents` — it is the mode every target supports natively.
+
+      ## Splitting agents
+
+      Split on exactly four axes: distinct **expertise**, real **parallelism**, needed
+      **context isolation**, or **reusability** elsewhere. A split serving none of these
+      just adds handoff overhead — merge it.
+
+      ## Capabilities
+
+      Grant the minimum: analysts get `read` (plus `web` if research is part of the job),
+      builders add `edit` and `run`, verifiers get `read` + `run` but never `edit` — a
+      verifier that can edit will fix instead of report, and the defect disappears from the
+      record.
+
+      ## Handoff contracts
+
+      Every edge carries an `artifact` filename and 2-4 `criteria`. Criteria must be
+      checkable by reading the artifact: "every finding cites file:line and a repro command"
+      is checkable; "high quality analysis" is not.
+
+      ## Loop engineering
+
+      - **Iteration loop** — a phase that must repeat until quality holds gets
+        `loop: { until, max, check? }`. Keep `max` tight (≤ 5). Add a shell `check`
+        (`npm test`, a linter) whenever a deterministic pass/fail signal exists: it compiles
+        to goose's native `retry` and becomes the objective signal every target defers to.
+      - **Recurring loop** — a fleet meant to run on a schedule gets
+        `fleet.schedule: { cron | interval | note }`. Omit it for one-shot fleets.
+      - Never bury "loop back up to N times" in a `gate` string. A loop that cannot exit is
+        a design bug, so state the exit condition first and the bound second.
+
+      ## Naming the orchestrator
+
+      Give the orchestrator its own name (`run-<fleet>`, `build-<thing>`) unless the lead
+      agent genuinely *is* the orchestrator. In a `supervisor` fleet that identity is often
+      real — then reuse the agent's name deliberately and expect the validator warning: the
+      orchestrator file replaces the agent file, promoted to primary mode, and the lead is
+      excluded from its own delegation map. Anywhere else, a shared name is an accident that
+      silently costs you an agent definition.
+
+      ## Skills
+
+      Every producing agent gets 1-N skills carrying its methodology. Name skills by method
+      (`api-contract-review`), never by agent (`reviewer-skill`) — that is what makes them
+      reusable across fleets.
+
+      ## Validate before handing off
+
+      `fleetsmith validate fleet.yaml` must exit 0. Warnings are design smells — orphaned
+      agents, missing artifact contracts, unused skills, over-long descriptions. Fix them or
+      justify each one in writing.
+
+  - name: skill-authoring
+    description: >-
+      Methodology for writing Agent Skills that actually fire and actually help — pushy trigger-rich descriptions, lean imperative bodies, progressive disclosure into references, and bundled scripts for deterministic steps. Use when authoring or deepening a skill, when a skill never fires or triggers on the wrong requests, when a SKILL.md has grown past ~500 lines, or when feedback says the output of a skill-driven agent is too shallow or too generic.
+    triggers:
+      should:
+        - "my skill never fires when I ask for it"
+        - "the SKILL.md body has grown past 500 lines"
+        - "this skill's output is too shallow and generic"
+      shouldNot:
+        - "should this fleet be a pipeline or a fanout"
+        - "what agents does this codebase need"
+    body: |
+      # Skill authoring
+
+      Agents carry *who*; skills carry *how*. A fleet with empty skills is a fleet of
+      improvisers.
+
+      ## The description is the whole trigger mechanism
+
+      It is the only text matched against a user's request, so make it pushy and concrete:
+      what the skill does + the situations that should invoke it + follow-up phrasings
+      ("re-run", "update", "fix the X part"). Third person, under 1024 characters.
+
+      Test it: write 5 requests that should trigger it and 5 near-misses that plausibly
+      should not. If a near-miss matches, the description is too broad; if a should-trigger
+      misses, it is too narrow.
+
+      ## Body: lean, imperative, reasoned
+
+      - Target well under 500 lines. Long bodies burn context on every invocation.
+      - Explain **why** a step exists — reasons generalize to the cases you did not foresee.
+      - Prefer tables and checklists over prose paragraphs.
+      - Generalize past the example that prompted the skill; no overfitting to one input.
+
+      ## Progressive disclosure
+
+      Detail that is needed occasionally goes into `references:` with a one-line
+      "read `X` when …" pointer in the body. A reference over ~300 lines gets its own table
+      of contents. This keeps the always-loaded portion small while the depth stays
+      reachable.
+
+      ## Bundle determinism
+
+      If every run of the skill would write the same helper script, put it in `scripts:`
+      now. Deterministic work belongs in code — the model should call it, not re-derive it.
+
+      ## Research, don't improvise
+
+      Read the codebase for house conventions and the web for domain standards before
+      writing. A skill that encodes generic best practice adds nothing the base model did
+      not already have; the value is in the specifics.
+
+  - name: harness-verification
+    description: >-
+      Adversarial QA battery for a compiled agent harness — spec gate, per-target compile checks for Claude Code / opencode / goose, handoff boundary cross-checks, skill trigger tests, capability-leak grep, and loop-bound verification. Use as the final gate after building a fleet, and whenever asked to audit a harness, check whether a fleet still works, find why a compiled agent is never delegated to, or detect drift between a fleet.yaml and the files it generated.
+    triggers:
+      should:
+        - "check whether the generated harness still works"
+        - "audit the compiled output for drift"
+        - "find why this compiled agent is never delegated to"
+      shouldNot:
+        - "decompose this domain into work types"
+        - "add another agent to the existing fleet roster"
+    body: |
+      # Harness verification
+
+      Run every check, every time. Report PASS/FAIL per check with file:line evidence.
+
+      ## 1. Spec gate
+      `fleetsmith validate <fleet.yaml>` exits 0. Every surviving warning needs a recorded
+      justification from the architect.
+
+      ## 2. Compile gate
+      `fleetsmith build <fleet.yaml> --target all --out <tmpdir> --force`, then per target:
+
+      - **claude-code** — every agent file has parseable frontmatter (name, description,
+        tools, model); the orchestrator skill references only agents that exist.
+      - **opencode** — fleet agents are `mode: subagent`, the orchestrator is
+        `mode: primary`; permission maps match declared capabilities (a read-only agent has
+        bash denied and edit denied outside the fleet workspace); the orchestrator's task
+        map allows exactly the fleet's agents.
+      - **goose** — every recipe parses as YAML and the orchestrator's `sub_recipes` paths
+        point at files that actually exist in the output.
+
+      ## 2b. Delegation maps
+      Where the orchestrator shares a name with an agent, confirm the promotion landed:
+      exactly one file per name (no duplicate agent + orchestrator definition), opencode
+      `mode: primary`, and the lead absent from its own `permission.task` map and from
+      goose `sub_recipes` — an orchestrator that can delegate to itself will.
+
+      ## 3. Boundary cross-checks
+      For each handoff edge A→B: the path A writes on finish must match the path B reads on
+      start, and the artifact named in the orchestrator must match the producer's contract.
+      Compare the compiled texts — a spec that says they match is not evidence.
+
+      ## 4. Trigger tests
+      For the orchestrator skill and each fleet skill, write 5 should-trigger and 5
+      near-miss should-NOT-trigger queries. Judge each description against them and report
+      misfires with a suggested description edit.
+
+      ## 5. Capability-leak grep
+      Grep the compiled output for grants the spec did not make: an agent with
+      `edit: false` whose Claude Code file lists Write/Edit, or whose opencode permission
+      map allows edits outside the workspace.
+
+      ## 6. Loop bounds (only if the spec declares loops or a schedule)
+      Every phase `loop` renders a bounded "iterate until … (max N)" callout in all three
+      orchestrators — no unbounded loop ships. A loop with a shell `check` produces a
+      matching goose `retry` block (same command, `max_retries` == loop `max`). A
+      `fleet.schedule` renders a runnable per-tool command. Confirm the `until` condition
+      can actually be reached; a loop that can never exit is a FAIL.
+
+      ## Verdict
+      Rank the fixes and route each: architecture flaw → fleet-architect, shallow skill →
+      skill-smith, wrong compiled output → a fleetsmith adapter bug (include a minimal
+      repro spec snippet).
+
 orchestrator:
   name: harness-builder
   trigger: "building an agent harness for a project or domain — creating an agent fleet or team, generating agents and skills for a codebase, setting up a multi-agent workflow, or extending, auditing, or porting an existing fleet across Claude Code, opencode, and goose"
   phases:
     - name: Domain analysis
       mode: subagents
-      agents: [domain-analyst]
+      agents: [ domain-analyst ]
       gate: "The brief names concrete work types with inputs/outputs. A brief of adjectives goes back once with the gaps named."
     - name: Fleet architecture
       mode: subagents
-      agents: [fleet-architect]
+      agents: [ fleet-architect ]
       gate: "fleet.yaml validates (exit 0). Show the user the roster + pattern one-liner before proceeding — cheapest moment for course correction."
     - name: Skill authoring
       mode: subagents
-      agents: [skill-smith]
+      agents: [ skill-smith ]
     - name: Compile
       mode: subagents
-      agents: [fleet-architect]
+      agents: [ fleet-architect ]
       gate: "Orchestrator runs `node src/cli.js build fleet.yaml --target <targets> --out <root> --force` itself (no agent needed). Build emits all requested targets without collisions."
     - name: QA gate
       mode: subagents
-      agents: [harness-qa]
+      agents: [ harness-qa ]
       loop:
         until: "harness-qa reports PASS on every check, or two repair loops are exhausted and the fleet ships with documented gaps"
         max: 2

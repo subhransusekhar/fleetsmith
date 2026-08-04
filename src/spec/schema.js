@@ -87,6 +87,20 @@ export function normalizeSpec(raw) {
   spec.fleet.pattern ??= 'pipeline';
   spec.fleet.execution ??= 'subagents';
   spec.fleet.workspace ??= '_fleet';
+  // The workspace has two tiers, because it holds two kinds of thing that need
+  // opposite treatment in a repo shared by several developers:
+  //
+  //   shared/ — permanent team knowledge (changelog, learned playbooks,
+  //             promotion decisions, eval baselines). Committed. Designed to
+  //             merge: append-only, stable ids, one record per line.
+  //   local/  — per-developer runtime state (handoffs, ledger, run logs, and
+  //             the generated scripts). Gitignored. Never merged.
+  //
+  // Committing the second kind puts a merge conflict in the path of every run;
+  // leaving the first kind uncommitted means a fleet's accumulated learning
+  // lives on one laptop. See docs/architecture/multi-user-context.md.
+  spec.fleet.shared ??= `${spec.fleet.workspace}/shared`;
+  spec.fleet.local ??= `${spec.fleet.workspace}/local`;
   spec.fleet.domain ??= spec.fleet.description ?? '';
   spec.fleet.schedule = normalizeSchedule(spec.fleet.schedule);
 
@@ -123,14 +137,14 @@ export function normalizeSpec(raw) {
   spec.handover ??= {};
   spec.handover.strategy ??= 'file';
   spec.handover.ledger ??= true;
-  spec.handover.dir ??= `${spec.fleet.workspace}/handoffs`;
+  spec.handover.dir ??= `${spec.fleet.local}/handoffs`;
 
   return spec;
 }
 
 function normalizeAgent(a, spec) {
   if (!a.name) throw new Error('Every agent needs a name');
-  const agent = { ...a };
+  const agent = { ...a, ...normalizeProvenance(a) };
   agent.role ??= '';
   agent.goal ??= '';
   agent.model ??= spec.defaults.model;
@@ -257,10 +271,33 @@ function normalizeSchedule(s) {
   return { cron: s.cron ?? null, interval: s.interval ?? null, note: s.note ?? '' };
 }
 
+/**
+ * Provenance. `origin` records who authored an artifact; `protected` records
+ * whether the evolution loop may modify it.
+ *
+ * This is the mechanism behind the loop's first invariant — *evolution may
+ * only modify what evolution generated*. It is not bookkeeping: the Darwin
+ * Godel Machine, scored by a function that counted marker tokens, deleted the
+ * markers rather than fix the behaviour it was asked to fix. Anthropic states
+ * the same rule as policy for long-running harnesses: an agent may write
+ * results into the scorecard but never edit the scorecard's criteria.
+ *
+ * Human-authored artifacts are protected by default, so the safe case is the
+ * one you get by saying nothing.
+ */
+function normalizeProvenance(o) {
+  const origin = o.origin === 'evolved' ? 'evolved' : 'human';
+  return {
+    origin,
+    protected: o.protected === undefined ? origin === 'human' : o.protected === true,
+  };
+}
+
 function normalizeSkill(s) {
   if (!s.name) throw new Error('Every skill needs a name');
   return {
     name: s.name,
+    ...normalizeProvenance(s),
     description: s.description ?? '',
     body: s.body ?? '',
     references: s.references ?? {},

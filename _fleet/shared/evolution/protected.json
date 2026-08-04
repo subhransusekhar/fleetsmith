@@ -1,0 +1,31 @@
+{
+  "note": "Paths and artifacts the evolution loop may not modify. The paths list is hard-coded in src/evolve/protected.js and cannot be widened from fleet.yaml — a mutation must not be able to grant itself permission. Enforced in-process by the patch API and again, out of process, by CI.",
+  "why": "An optimizer with write access to its own scorecard edits the scorecard: the Darwin Godel Machine deleted the marker tokens its reward function counted rather than fix the behaviour they measured. Do not remove entries from this list to make a build pass.",
+  "paths": [
+    "src/spec/**",
+    "src/qa/**",
+    "src/eval/**",
+    "src/evolve/patch.js",
+    "src/evolve/protected.js",
+    "test/**",
+    ".github/workflows/**",
+    "_fleet/local/scripts/validate-handoff.sh",
+    "docs/milestones/v0.5.0-self-evolution.md",
+    "docs/research/self-evolving-agents-2026-08.md",
+    "docs/architecture/multi-user-context.md"
+  ],
+  "artifacts": [
+    "agent:domain-analyst",
+    "agent:fleet-architect",
+    "agent:skill-smith",
+    "agent:harness-qa",
+    "skill:domain-decomposition",
+    "skill:fleet-design",
+    "skill:skill-authoring",
+    "skill:harness-verification"
+  ],
+  "caps": {
+    "skillLines": 500,
+    "agentLines": 300
+  }
+}

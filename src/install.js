@@ -87,7 +87,7 @@ export function planInstall(fileSet, { scope = 'project', home = os.homedir(), i
       skipped.push({ path: p, reason: 'no user-scope location defined for this file' });
       continue;
     }
-    out.add(p.replace(rule.from, rule.to), content);
+    out.add(p.replace(rule.from, rule.to), content, { preserve: fileSet.preserved.has(p) });
   }
   return { fileSet: out, baseDir: home, skipped, scope };
 }

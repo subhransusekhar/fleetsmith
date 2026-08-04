@@ -12,7 +12,8 @@
       "Bash",
       "WebSearch",
       "WebFetch",
-      "Bash(sh _fleet/scripts/validate-handoff.sh:*)"
+      "Bash(sh _fleet/local/scripts/validate-handoff.sh:*)",
+      "Bash(sh _fleet/local/scripts/log-event.sh:*)"
     ]
   },
   "hooks": {
@@ -22,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"$CLAUDE_PROJECT_DIR/_fleet/scripts/validate-handoff.sh\"",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/_fleet/local/scripts/validate-handoff.sh\"",
             "timeout": 15
           }
         ]

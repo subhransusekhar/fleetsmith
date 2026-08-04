@@ -1,10 +1,11 @@
 import { FileSet } from '../lib/fs-utils.js';
 import { mdWithFrontmatter } from '../lib/md.js';
 import { compileAgentBody, title } from '../compile/agent-prompt.js';
-import { handoffTemplate, ledgerTemplate } from '../handover/protocol.js';
+import { handoffTemplate, ledgerTemplate, changelogTemplate } from '../handover/protocol.js';
 import { compileOrchestratorBody } from '../compile/orchestrator.js';
 import { agentsMdPointer } from '../compile/pointers.js';
 import { skillEvals, evalsReadme } from '../compile/evals.js';
+import { logEventScript, TELEMETRY_PATH } from '../compile/telemetry.js';
 
 /**
  * opencode adapter (opencode.ai — anomalyco/opencode).
@@ -48,7 +49,7 @@ export function buildOpencode(spec, options = {}) {
     if (orchestratorIsAgent && agent.name === spec.orchestrator.name) {
       out.add(`.opencode/agents/${agent.name}.md`, orchestratorAgent(spec));
     } else {
-      out.add(`.opencode/agents/${agent.name}.md`, agentFile(agent, spec));
+      out.add(`.opencode/agents/${agent.name}.md`, agentFile(agent, spec, options.playbooks ?? {}));
     }
   }
 
@@ -65,22 +66,28 @@ export function buildOpencode(spec, options = {}) {
     for (const skill of spec.skills) {
       emitSkill(out, `.opencode/skills/${skill.name}`, skill, spec);
     }
-    if (spec.skills.length > 0) out.add(`${spec.fleet.workspace}/evals/README.md`, evalsReadme(spec));
+    if (spec.skills.length > 0) out.add(`${spec.fleet.local}/evals/README.md`, evalsReadme(spec));
   }
 
   out.add(`${spec.handover.dir}/HANDOFF.template.md`, handoffTemplate());
   if (spec.handover.ledger) {
-    out.add(`${spec.fleet.workspace}/LEDGER.md`, ledgerTemplate(spec.fleet.name));
+    out.add(`${spec.fleet.local}/LEDGER.md`, ledgerTemplate(spec.fleet.name));
   }
+  out.add(
+    `${spec.fleet.shared}/CHANGELOG.md`,
+    changelogTemplate(spec.fleet.name, options.today),
+    { preserve: true }
+  );
+  out.add(`${spec.fleet.local}/${TELEMETRY_PATH}`, logEventScript(spec));
 
   if (options.agentsMd !== false) {
-    out.add('AGENTS.md', agentsMdPointer(spec, options.today));
+    out.add('AGENTS.md', agentsMdPointer(spec));
   }
 
   return out;
 }
 
-function agentFile(agent, spec) {
+function agentFile(agent, spec, playbooks = {}) {
   return mdWithFrontmatter(
     {
       description: agentDescription(agent, spec),
@@ -96,7 +103,7 @@ function agentFile(agent, spec) {
       hidden: agent.hidden || undefined,
       permission: capsToPermission(agent, spec),
     },
-    compileAgentBody(agent, spec, { team: false })
+    compileAgentBody(agent, spec, { team: false, playbook: playbooks[agent.name] ?? [] })
   );
 }
 
@@ -211,7 +218,7 @@ function opencodeConfig(spec) {
  * real workspace state instead of spending its first turn collecting it.
  */
 function statusCommand(spec) {
-  const ledger = spec.handover.ledger ? `${spec.fleet.workspace}/LEDGER.md` : null;
+  const ledger = spec.handover.ledger ? `${spec.fleet.local}/LEDGER.md` : null;
   const body = [
     `Report the current state of the ${spec.fleet.name} fleet.`,
     '',

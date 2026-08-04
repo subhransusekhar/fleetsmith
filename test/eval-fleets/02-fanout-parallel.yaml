@@ -1,0 +1,31 @@
+# Parallel independent workers -> merge. Exercises the parallel-writer lint and
+# worktree isolation, neither of which the meta-fleet triggers.
+fleet:
+  name: sweep
+  domain: "audits a repository from several independent angles"
+  pattern: fanout
+agents:
+  - name: security-scan
+    role: "Finds security defects."
+    capabilities: { read: true }
+    handoff: { to: [merger], artifact: sec.md }
+  - name: perf-scan
+    role: "Finds performance defects."
+    capabilities: { read: true }
+    handoff: { to: [merger], artifact: perf.md }
+  - name: merger
+    role: "Merges findings into one ranked report."
+    capabilities: { read: true, edit: true }
+orchestrator:
+  name: run-sweep
+  phases:
+    - name: Scan
+      agents: [security-scan, perf-scan]
+      parallel: true
+    - name: Merge
+      agents: [merger]
+expect:
+  agents: 3
+  pattern: fanout
+  emits:
+    - .opencode/agents/merger.md

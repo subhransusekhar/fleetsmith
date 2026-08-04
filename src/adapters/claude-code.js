@@ -1,10 +1,11 @@
 import { FileSet } from '../lib/fs-utils.js';
 import { mdWithFrontmatter } from '../lib/md.js';
 import { compileAgentBody, title } from '../compile/agent-prompt.js';
-import { handoffTemplate, ledgerTemplate } from '../handover/protocol.js';
+import { handoffTemplate, ledgerTemplate, changelogTemplate } from '../handover/protocol.js';
 import { compileOrchestratorBody } from '../compile/orchestrator.js';
 import { settingsJson, validatorScript, loopMd, VALIDATOR_PATH } from './claude-settings.js';
 import { skillEvals, evalsReadme } from '../compile/evals.js';
+import { logEventScript, TELEMETRY_PATH } from '../compile/telemetry.js';
 
 /**
  * Claude Code adapter.
@@ -56,31 +57,31 @@ const SUBAGENT_FORBIDDEN_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode', 'Wo
 export function buildClaudeCode(spec, options = {}) {
   const out = new FileSet();
 
-  for (const [p, content] of claudeAgentFiles(spec)) out.add(p, content);
+  for (const [p, content] of claudeAgentFiles(spec, options.playbooks ?? {})) out.add(p, content);
 
   for (const skill of spec.skills) {
     emitSkill(out, `.claude/skills/${skill.name}`, skill, spec);
   }
-  if (spec.skills.length > 0) out.add(`${spec.fleet.workspace}/evals/README.md`, evalsReadme(spec));
+  if (spec.skills.length > 0) out.add(`${spec.fleet.local}/evals/README.md`, evalsReadme(spec));
 
   out.add(
     `.claude/skills/${spec.orchestrator.name}/SKILL.md`,
     orchestratorSkill(spec)
   );
 
-  emitWorkspace(out, spec);
+  emitWorkspace(out, spec, options);
 
   // Deterministic layer: an allowlist so the fleet runs unattended, and a
   // SubagentStop gate so a missing handoff blocks the agent instead of
   // silently becoming the next agent's problem.
-  const validatorPath = `${spec.fleet.workspace}/${VALIDATOR_PATH}`;
+  const validatorPath = `${spec.fleet.local}/${VALIDATOR_PATH}`;
   out.add('.claude/settings.json', settingsJson(spec, { validatorPath }));
   out.add(validatorPath, validatorScript(spec));
 
   if (spec.fleet.schedule) out.add('.claude/loop.md', loopMd(spec));
 
   if (options.claudeMd !== false) {
-    out.add('CLAUDE.md', claudeMdPointer(spec, options.today));
+    out.add('CLAUDE.md', claudeMdPointer(spec));
   }
 
   return out;
@@ -94,18 +95,18 @@ export function buildClaudeCode(spec, options = {}) {
  * `agent()` call with "agent type not found". Sharing the emitter keeps the two
  * targets from drifting into subtly different definitions.
  */
-export function claudeAgentFiles(spec) {
+export function claudeAgentFiles(spec, playbooks = {}) {
   const team = spec.fleet.execution !== 'subagents';
   const parallelEditors = parallelEditingAgents(spec);
   return new Map(
     spec.agents.map((agent, i) => [
       `.claude/agents/${agent.name}.md`,
-      agentFile(agent, spec, team, i, parallelEditors),
+      agentFile(agent, spec, team, i, parallelEditors, playbooks),
     ])
   );
 }
 
-function agentFile(agent, spec, team, index = 0, parallelEditors = new Set()) {
+function agentFile(agent, spec, team, index = 0, parallelEditors = new Set(), playbooks = {}) {
   const tools = capsToTools(agent.capabilities);
   // A worktree keeps concurrent editors off each other's files. It branches
   // from the repo's default branch (not the caller's HEAD) and is discarded
@@ -127,8 +128,13 @@ function agentFile(agent, spec, team, index = 0, parallelEditors = new Set()) {
       memory: agent.memory ? 'project' : undefined,
       isolation: isolate ? 'worktree' : undefined,
       color: COLORS[index % COLORS.length],
+      // Provenance travels into the generated file so `fleetsmith qa` can
+      // detect machine-authored content laundered into a human-marked
+      // artifact — which would place it outside the evolution loop's
+      // protected set while still being machine-written.
+      'x-fleetsmith-origin': agent.origin,
     },
-    [compileAgentBody(agent, spec, { team }), isolate ? worktreeClause() : '']
+    [compileAgentBody(agent, spec, { team, playbook: playbooks[agent.name] ?? [] }), isolate ? worktreeClause() : '']
       .filter(Boolean)
       .join('\n\n')
   );
@@ -216,6 +222,7 @@ function emitSkill(out, dir, skill, spec) {
         // permission prompt. The grant is scoped to this skill's directory and
         // lasts only for the invoking turn.
         'allowed-tools': scriptGrants(skill),
+        'x-fleetsmith-origin': skill.origin,
       },
       skillBody(skill)
     )
@@ -290,7 +297,7 @@ function orchestratorSkill(spec) {
  */
 function liveStateBlock(spec) {
   const dir = spec.handover.dir;
-  const ledger = spec.handover.ledger ? `${spec.fleet.workspace}/LEDGER.md` : null;
+  const ledger = spec.handover.ledger ? `${spec.fleet.local}/LEDGER.md` : null;
   const lines = ['## Workspace state, as of right now', '', '```!'];
   lines.push(`ls -1 ${dir}/*.md 2>/dev/null | grep -v HANDOFF.template || echo "(no handoffs yet — this is an initial run)"`);
   if (ledger) lines.push(`echo "--- ledger ---"; cat ${ledger} 2>/dev/null || echo "(no ledger yet)"`);
@@ -300,25 +307,28 @@ function liveStateBlock(spec) {
   return lines.join('\n');
 }
 
-function emitWorkspace(out, spec) {
+function emitWorkspace(out, spec, options = {}) {
   out.add(`${spec.handover.dir}/HANDOFF.template.md`, handoffTemplate());
   if (spec.handover.ledger) {
-    out.add(`${spec.fleet.workspace}/LEDGER.md`, ledgerTemplate(spec.fleet.name));
+    out.add(`${spec.fleet.local}/LEDGER.md`, ledgerTemplate(spec.fleet.name));
   }
+  out.add(
+    `${spec.fleet.shared}/CHANGELOG.md`,
+    changelogTemplate(spec.fleet.name, options.today),
+    { preserve: true }
+  );
+  out.add(`${spec.fleet.local}/${TELEMETRY_PATH}`, logEventScript(spec));
 }
 
-function claudeMdPointer(spec, today = 'YYYY-MM-DD') {
+function claudeMdPointer(spec) {
   return `## Harness: ${spec.fleet.name}
 
 **Goal:** ${spec.fleet.domain || spec.fleet.name}
 
 **Trigger:** For ${spec.orchestrator.trigger}, use the \`${spec.orchestrator.name}\` skill. Simple questions can be answered directly.
 
-**Handover gate:** \`.claude/settings.json\` registers a \`SubagentStop\` hook running \`${spec.fleet.workspace}/${VALIDATOR_PATH}\`, which blocks a fleet agent from finishing until its handoff file exists and carries every required section. Note that project-level hooks do not run until this workspace is trusted — until you accept that dialog the gate is silently skipped and the fleet degrades to advisory instructions.
+**Handover gate:** \`.claude/settings.json\` registers a \`SubagentStop\` hook running \`${spec.fleet.local}/${VALIDATOR_PATH}\`, which blocks a fleet agent from finishing until its handoff file exists and carries every required section. Note that project-level hooks do not run until this workspace is trusted — until you accept that dialog the gate is silently skipped and the fleet degrades to advisory instructions.
 
-**Changelog:**
-| Date | Change | Target | Reason |
-|------|--------|--------|--------|
-| ${today} | Initial fleet build (fleetsmith) | all | - |
+**Changelog:** harness changes are recorded in \`${spec.fleet.shared}/CHANGELOG.md\` — append a row there rather than editing this file, which is regenerated on every build.
 `;
 }
