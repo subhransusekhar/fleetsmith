@@ -114,11 +114,15 @@ chmod +x fleetsmith
 
 Assets: `fleetsmith-linux-x64`, `fleetsmith-macos-arm64`, `fleetsmith-macos-x64`, `fleetsmith-windows-x64.exe`. Each is a single self-contained file (Node runtime + code + the one dependency baked in) — copy it onto any machine, no install step.
 
-**B. Global CLI via npm (needs Node.js ≥ 18):**
+**B. Global CLI via npm, from the GitHub release (needs Node.js ≥ 18):**
 
 ```bash
-npm install -g fleetsmith      # then: fleetsmith <command>
+npm install -g github:subhransusekhar/fleetsmith#v0.5.0   # then: fleetsmith <command>
 ```
+
+> **Not on the npm registry yet.** `npm install -g fleetsmith` will fail with a
+> 404 — the name is not published. Install from the tag above (drop `#v0.5.0`
+> to track `main`), or use option A or C.
 
 **C. Zero-install via npx (needs Node.js ≥ 18):**
 
@@ -140,7 +144,7 @@ npm run build:binary           # optional: build a standalone binary for this OS
 
 The only runtime dependency (`yaml`) is bundled into the binary and installed automatically by npm/npx. `esbuild` and `postject` are build-time-only devDependencies used to produce binaries — they never reach end users.
 
-> **The rest of this guide uses the command `fleetsmith`.** That's the binary you downloaded (option A — write `./fleetsmith` if it's not on your `PATH`), the global npm install (B), or an `npm link`ed checkout (D). For the zero-install path (C), replace `fleetsmith` with `npx --yes github:subhransusekhar/fleetsmith`. Running from a clone without linking? Use `node src/cli.js`.
+> **The rest of this guide uses the command `fleetsmith`.** That's the binary you downloaded (option A — write `./fleetsmith` if it's not on your `PATH`), the global install from the release tag (B), or an `npm link`ed checkout (D). For the zero-install path (C), replace `fleetsmith` with `npx --yes github:subhransusekhar/fleetsmith`. Running from a clone without linking? Use `node src/cli.js`.
 
 ## Quickstart (60 seconds, using the binary)
 
