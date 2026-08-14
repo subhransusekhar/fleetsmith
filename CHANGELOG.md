@@ -1,7 +1,5 @@
 ## 0.6.1 — Portable models, and eval that stops thinking
 
-Also carries the backend-agnostic memory port and its file implementation, which landed after 0.5.0 and was never released on its own.
-
 **The harness stopped reasoning its way through checks it already ships**
 - `harness-verification` §4 told the QA agent to write 5 should-trigger and 5 near-miss queries per skill and judge each one in-context — roughly 50 routing calls per pass, up to 2 passes — for an answer `fleetsmith eval` produces deterministically in 0.1s. `fleetsmith eval` was referenced nowhere in the compiled harness. It now runs the scorer and spends its judgment on corpus gaps and reported FAILs. Same fix in `skill-authoring` and the generated evals README.
 
@@ -17,6 +15,19 @@ Also carries the backend-agnostic memory port and its file implementation, which
 - `eval --judge` and `eval --exec` fan out with bounded concurrency instead of running strictly sequentially, and report progress to stderr. `--judge` on this repo: 2:33 → 14.1s. `--exec` stays serial in the default shared workspace, where concurrent sessions would race on `expect.file`; `--fresh` isolates per case and raises it. New `--concurrency` on both.
 - Judge timeout 120s → 60s with one retry. Measured p50 is ~10s at `num_turns: 1`, so a 120s ceiling was not patience — an intermittent stall burned two minutes and returned an unmeasured row, once per full run in both runs observed.
 - An unjudged skill printed "(all criteria met)" — with no criteria the failed-criteria list is empty. It now reads `NOT JUDGED — no verdict, not a pass`.
+
+## 0.6.0 — Advisory measurement, and a memory port
+
+Tagged retroactively at `3c9cf3c`; `package.json` at that commit still reads `0.5.0`.
+
+Two measurements that deliberately do **not** gate, and the port underneath fleet memory.
+
+**Measurement, kept outside the gate**
+- Advisory skill-substance judge (T9) — four binary criteria, never a holistic score, and the calibration work that says not to trust an aggregate judge metric below 0.8 kappa. A test asserts no gate imports or calls it.
+- Opt-in live case execution (T16) — real headless sessions per declared case, via `eval --exec`. Reachable only from the CLI flag, never from `runEval` and so never from `evolve`: a promotion gate has to be reproducible in CI with no model, no API key, and no wall-clock cost, and live execution is none of those. A test asserts the gate path cannot reach it.
+
+**Memory**
+- A backend-agnostic memory port with a documented contract, plus the file implementation every user gets (JSONL runs, markdown playbooks and ledgers — unchanged, still the default). No RelataDB adapter ships; per the milestone, the architecture is the risk mitigation.
 
 ## 0.5.0 — Self-evolving harness
 
