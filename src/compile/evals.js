@@ -51,10 +51,19 @@ Each skill has an \`evals/evals.json\` next to its \`SKILL.md\`${
 A skill that never fires is indistinguishable from one that was never written, and
 nothing in the run will tell you which happened. This is the check to run first.
 
-For each prompt in \`should_trigger\`, start a **fresh** session and give the prompt
-verbatim; the skill should be invoked. For each prompt in \`should_not_trigger\`, it
-should not. Both directions matter — a description broad enough to always fire is
-as wrong as one that never does.
+**Start with \`fleetsmith eval <fleet.yaml>\`.** It scores every declared prompt against
+every skill description and reports which skill each one routes to, plus ties, in under a
+second with no model involved. Run it after every description edit. Reading the corpus and
+judging it yourself is the same work done worse and thousands of times slower.
+
+It is a lexical proxy for the router, not the router, so it catches the failure that
+matters — two descriptions so alike that a prompt meant for one matches the other — and
+cannot tell you how a given model would actually route. When it reports a FAIL, or when
+you want to confirm a real routing decision, fall back to a live check: start a **fresh**
+session and give the prompt verbatim; the skill should be invoked, and for
+\`should_not_trigger\` it should not. Both directions matter — a description broad enough
+to always fire is as wrong as one that never does. Spend live sessions on the cases the
+scorer flags, not on the whole corpus.
 
 When a prompt fails, edit the \`description\`, not the prompt. The description is the
 entire routing signal: it needs what the skill does, when to use it, and the literal

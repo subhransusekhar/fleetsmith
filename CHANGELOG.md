@@ -1,3 +1,23 @@
+## 0.6.1 — Portable models, and eval that stops thinking
+
+Also carries the backend-agnostic memory port and its file implementation, which landed after 0.5.0 and was never released on its own.
+
+**The harness stopped reasoning its way through checks it already ships**
+- `harness-verification` §4 told the QA agent to write 5 should-trigger and 5 near-miss queries per skill and judge each one in-context — roughly 50 routing calls per pass, up to 2 passes — for an answer `fleetsmith eval` produces deterministically in 0.1s. `fleetsmith eval` was referenced nowhere in the compiled harness. It now runs the scorer and spends its judgment on corpus gaps and reported FAILs. Same fix in `skill-authoring` and the generated evals README.
+
+**Models are never invented for you**
+- Removed the tier→model fallback table from the Claude Code and claude-workflow adapters. Supplying `defaults.claudeModels` for one tier used to stamp provider-specific model names onto every *other* agent, on a target you may not use. Only the tiers you name are pinned now; the rest stay on `inherit`, and opencode/goose omit the field entirely. A fleet compiles unchanged across targets running entirely different models.
+
+**Stale installs are detectable**
+- New `fleetsmith qa --installed`. A harness can be correct on disk and still fail because an older copy of itself sits at user scope: after a rename the old copy keeps its old directory name, so scope precedence never applies — nothing is shadowed, the two coexist and split routing, and the pre-rename copy writes handoffs to a path the `SubagentStop` gate rejects. Every agent is blocked and retrying, which presents only as "the orchestrator takes forever to start". Kept out of `runQa` because it reads `$HOME`, and a gate whose verdict depends on the machine is worse than no gate.
+
+**Fixes**
+- The orchestrator skill's live-state block used a ` ```! ` fenced form, which is not an injection syntax — Phase 0 read literal shell source under a heading promising live state and re-derived it by hand. Now `` !`cmd` ``, matching the opencode `fleet-status` command that had it right.
+- Orchestrator description read "…across Claude Code, opencode, and goose request"; `"Use for any ${trigger} request"` only parses for short noun-phrase triggers. Now "Use when the request is about …".
+- `eval --judge` and `eval --exec` fan out with bounded concurrency instead of running strictly sequentially, and report progress to stderr. `--judge` on this repo: 2:33 → 14.1s. `--exec` stays serial in the default shared workspace, where concurrent sessions would race on `expect.file`; `--fresh` isolates per case and raises it. New `--concurrency` on both.
+- Judge timeout 120s → 60s with one retry. Measured p50 is ~10s at `num_turns: 1`, so a 120s ceiling was not patience — an intermittent stall burned two minutes and returned an unmeasured row, once per full run in both runs observed.
+- An unjudged skill printed "(all criteria met)" — with no criteria the failed-criteria list is empty. It now reads `NOT JUDGED — no verdict, not a pass`.
+
 ## 0.5.0 — Self-evolving harness
 
 A harness can now observe its own runs, evaluate the result, propose a change, validate it, and hand you a reviewable branch. One model call in the whole system; everything else is deterministic.

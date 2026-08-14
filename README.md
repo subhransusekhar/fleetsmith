@@ -117,11 +117,11 @@ Assets: `fleetsmith-linux-x64`, `fleetsmith-macos-arm64`, `fleetsmith-macos-x64`
 **B. Global CLI via npm, from the GitHub release (needs Node.js ≥ 18):**
 
 ```bash
-npm install -g github:subhransusekhar/fleetsmith#v0.5.0   # then: fleetsmith <command>
+npm install -g github:subhransusekhar/fleetsmith#v0.6.1   # then: fleetsmith <command>
 ```
 
 > **Not on the npm registry yet.** `npm install -g fleetsmith` will fail with a
-> 404 — the name is not published. Install from the tag above (drop `#v0.5.0`
+> 404 — the name is not published. Install from the tag above (drop `#v0.6.1`
 > to track `main`), or use option A or C.
 
 **C. Zero-install via npx (needs Node.js ≥ 18):**

@@ -7,6 +7,7 @@ import YAML from 'yaml';
 import { normalizeSpec } from './spec/schema.js';
 import { validateSpec } from './spec/validate.js';
 import { runQa, formatQa } from './qa/index.js';
+import { checkInstalled } from './qa/installed.js';
 import { applyOps, canonicalize, OPS } from './evolve/patch.js';
 import { protectedManifest, violations } from './evolve/protected.js';
 import { evolve } from './evolve/loop.js';
@@ -26,15 +27,15 @@ const USAGE = `fleetsmith — meta agent-fleet builder
 Usage:
   fleetsmith init [name] --pattern <p> [--domain "..."] [--out fleet.yaml]
   fleetsmith validate <fleet.yaml>
-  fleetsmith qa <fleet.yaml> [--built DIR] [--target ...]
+  fleetsmith qa <fleet.yaml> [--built DIR] [--target ...] [--installed]
   fleetsmith evolve <fleet.yaml> [--budget N] [--apply] [--model M] [--force]
   fleetsmith evolve <fleet.yaml> --review [--accept BRANCH | --reject BRANCH --reason R]
   fleetsmith protected <fleet.yaml> [--check-diff BASE] [--json FILE]
   fleetsmith health <fleet.yaml> [--json FILE]
   fleetsmith playbook <fleet.yaml> add|helpful|harmful|dedupe|show <agent> [text|id]
   fleetsmith eval <fleet.yaml> [--stage 1|2|3] [--fleets DIR] [--baseline FILE] [--calibrate] [--json FILE]
-  fleetsmith eval <fleet.yaml> --judge [--ratings FILE] [--model M]   (advisory; gates nothing)
-  fleetsmith eval <fleet.yaml> --exec [--target T] [--repeat N] [--fresh]  (live sessions; gates nothing)
+  fleetsmith eval <fleet.yaml> --judge [--ratings FILE] [--model M] [--concurrency N]   (advisory; gates nothing)
+  fleetsmith eval <fleet.yaml> --exec [--target T] [--repeat N] [--fresh] [--concurrency N]  (live sessions; gates nothing)
   fleetsmith migrate-workspace <fleet.yaml> [--dry-run]
   fleetsmith patch <fleet.yaml> --ops ops.json [--dry-run] [--allow-contract-change]
   fleetsmith build <fleet.yaml> [--target claude-code|opencode|goose|all] [--out DIR] [--dry-run] [--force] [--force-preserved]
@@ -65,7 +66,7 @@ async function main() {
       case 'qa':
         return cmdQa(positional, flags);
       case 'eval':
-        return cmdEval(positional, flags);
+        return await cmdEval(positional, flags);
       case 'health':
         return cmdHealth(positional, flags);
       case 'protected':
@@ -134,6 +135,18 @@ function cmdQa(positional, flags) {
   const targets = flags.target && flags.target !== 'all' ? [flags.target] : undefined;
   const report = runQa(spec, { builtDir: flags.built ?? null, targets, playbooks: loadPlaybooks(spec) });
   console.log(formatQa(report));
+
+  if (flags.installed) {
+    // Opt-in and reported separately: this check reads $HOME and the live
+    // filesystem, so its verdict is machine-dependent. Folding it into the gate
+    // would make promotion depend on whose laptop ran it.
+    const ambient = checkInstalled(spec);
+    console.log('');
+    console.log(`${ambient.pass ? 'PASS' : 'FAIL'}  ${ambient.name} (advisory — machine-specific, not part of the gate)`);
+    for (const line of ambient.evidence) console.log(`        ${line}`);
+    if (ambient.detail) console.log(`        ${ambient.detail}`);
+  }
+
   process.exitCode = report.pass ? 0 : 1;
 }
 
@@ -524,7 +537,7 @@ function cmdHealth(positional, flags) {
   // maintenanceNeeded to decide whether to spend anything at all.
 }
 
-function cmdEval(positional, flags) {
+async function cmdEval(positional, flags) {
   const spec = loadSpec(positional[0]);
   const fleetsDir = flags.fleets ?? defaultFleetsDir();
   const stage = Number(flags.stage ?? 1);
@@ -551,7 +564,21 @@ function cmdEval(positional, flags) {
     const target = flags.target ?? 'claude-code';
     const repeat = Number(flags.repeat ?? 1);
     const runs = [];
-    for (let i = 0; i < repeat; i++) runs.push(runExecCases(spec, { target, fresh: !!flags.fresh }));
+    for (let i = 0; i < repeat; i++) {
+      runs.push(
+        await runExecCases(spec, {
+          target,
+          fresh: !!flags.fresh,
+          concurrency: flags.concurrency ?? null,
+          // Progress to stderr, so piping stdout to a file still yields a clean
+          // report while an operator watching the terminal can tell a slow run
+          // from a hung one. Each case is a whole session; silence for minutes
+          // is what makes someone kill a suite that was working.
+          onProgress: ({ skill, done, total }) =>
+            process.stderr.write(`  [${done}/${total}${repeat > 1 ? ` run ${i + 1}/${repeat}` : ''}] ${skill}\n`),
+        })
+      );
+    }
     console.log(formatExec(runs[0]));
     if (repeat > 1) {
       const st = execStability(runs);
@@ -567,7 +594,10 @@ function cmdEval(positional, flags) {
   if (flags.judge) {
     // Deliberately a separate path that returns before any exit-code logic:
     // there is no branch in which a judge score can influence the result.
-    const results = judgeSkills(spec, claudeJudge({ model: flags.model ?? null }));
+    const results = await judgeSkills(spec, claudeJudge({ model: flags.model ?? null }), {
+      concurrency: Number(flags.concurrency) || 4,
+      onProgress: ({ skill, done, total }) => process.stderr.write(`  [${done}/${total}] judged ${skill}\n`),
+    });
     console.log(formatJudge(results));
     if (flags.json) fs.writeFileSync(flags.json, `${JSON.stringify(results, null, 2)}\n`);
 

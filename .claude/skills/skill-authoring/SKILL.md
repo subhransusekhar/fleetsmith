@@ -16,8 +16,13 @@ what the skill does + the situations that should invoke it + follow-up phrasings
 ("re-run", "update", "fix the X part"). Third person, under 1024 characters.
 
 Test it: write 5 requests that should trigger it and 5 near-misses that plausibly
-should not. If a near-miss matches, the description is too broad; if a should-trigger
-misses, it is too narrow.
+should not, declare them as the skill's `triggers.should` / `triggers.shouldNot`, and
+let `fleetsmith eval <fleet.yaml>` score them — it reports which skill each prompt
+routes to, and ties, in under a second. Do not grade the corpus by reading it back to
+yourself; a description always looks discriminating to whoever just wrote it. If a
+near-miss matches, the description is too broad; if a should-trigger misses, it is too
+narrow. Write prompts in the words a user would type, never paraphrases of your own
+description — matching your vocabulary back to yourself measures nothing.
 
 ## Body: lean, imperative, reasoned
 

@@ -1,6 +1,6 @@
 ---
 name: harness-builder
-description: 'Orchestrates the fleetsmith agent fleet for Meta agent-fleet builder: one fleet.yaml spec compiles into coordinated agents, skills, and a file-based handover protocol for Claude Code, opencode, and goose: domain-analyst, fleet-architect, skill-smith, harness-qa. Use for any building an agent harness for a project or domain — creating an agent fleet or team, generating agents and skills for a codebase, setting up a multi-agent workflow, or extending, auditing, or porting an existing fleet across Claude Code, opencode, and goose request — including re-runs, updates, partial fixes ("redo the X part"), and improvements to previous results. Simple factual questions can be answered directly without the fleet.'
+description: 'Orchestrates the fleetsmith agent fleet for Meta agent-fleet builder: one fleet.yaml spec compiles into coordinated agents, skills, and a file-based handover protocol for Claude Code, opencode, and goose: domain-analyst, fleet-architect, skill-smith, harness-qa. Use when the request is about building an agent harness for a project or domain — creating an agent fleet or team, generating agents and skills for a codebase, setting up a multi-agent workflow, or extending, auditing, or porting an existing fleet across Claude Code, opencode, and goose. This includes re-runs, updates, partial fixes ("redo the X part"), and improvements to previous results. Simple factual questions can be answered directly without the fleet.'
 argument-hint: "[what the fleet should work on]"
 ---
 
@@ -114,9 +114,12 @@ Never edit past event lines — the file is append-only, and a rewritten history
 
 ## Workspace state, as of right now
 
-```!
-ls -1 _fleet/local/handoffs/*.md 2>/dev/null | grep -v HANDOFF.template || echo "(no handoffs yet — this is an initial run)"
-echo "--- ledger ---"; cat _fleet/local/LEDGER.md 2>/dev/null || echo "(no ledger yet)"
-```
+Handoffs written so far:
+
+!`ls -1 _fleet/local/handoffs/*.md 2>/dev/null | grep -v HANDOFF.template || echo "(no handoffs yet — this is an initial run)"`
+
+Ledger:
+
+!`cat _fleet/local/LEDGER.md 2>/dev/null || echo "(no ledger yet)"`
 
 This is the real state of the workspace for this invocation. Run the Phase 0 check against it rather than re-reading the same files.

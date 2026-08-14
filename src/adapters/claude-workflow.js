@@ -47,11 +47,10 @@ import { DEFAULT_HANDOFF_SCHEMA } from '../spec/schema.js';
  *    when calls are concurrent.
  */
 
-// Same rule as the claude-code target: a tier only becomes a concrete model
-// when the spec opted in via `defaults.claudeModels`. Omitting `model` from the
-// opts lets the agent definition — and ultimately the session — decide, instead
-// of the workflow overriding both.
-const DEFAULT_CLAUDE_MODELS = { smart: 'opus', fast: 'sonnet', cheap: 'haiku' };
+// Same rule as the claude-code target: a tier becomes a concrete model only for
+// the tiers the author actually named in `defaults.claudeModels`. Omitting
+// `model` from the opts lets the agent definition — and ultimately the session —
+// decide, instead of the workflow overriding both.
 const EFFORT_MAP = { minimal: 'low', low: 'low', medium: 'medium', high: 'high', max: 'max' };
 
 export function buildClaudeWorkflow(spec, options = {}) {
@@ -285,9 +284,7 @@ function agentCall(name, spec, phase, { extra = null, indent = '' } = {}) {
   const task = agent.goal || agent.role || `Carry out your role as ${name}.`;
   const opts = [`label: ${JSON.stringify(name)}`, `phase: ${JSON.stringify(phase.name)}`];
   if (agent.name) opts.push(`agentType: ${JSON.stringify(name)}`);
-  const model = spec.defaults.claudeModels
-    ? spec.defaults.claudeModels[agent.model] ?? DEFAULT_CLAUDE_MODELS[agent.model]
-    : null;
+  const model = spec.defaults.claudeModels?.[agent.model] ?? null;
   if (model) opts.push(`model: ${JSON.stringify(model)}`);
   if (agent.effort) opts.push(`effort: ${JSON.stringify(EFFORT_MAP[agent.effort])}`);
   if (isParallelEditor(agent, spec)) opts.push("isolation: 'worktree'");

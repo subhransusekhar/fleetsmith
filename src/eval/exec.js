@@ -1,8 +1,12 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
 import { buildAll } from '../adapters/index.js';
+import { mapPool } from '../lib/pool.js';
+
+const execFileAsync = promisify(execFile);
 
 /**
  * Live case execution — the measurement `fleetsmith eval` deliberately does
@@ -89,45 +93,83 @@ export function runnerAvailable(target) {
  */
 export const DEFAULT_CASE_TIMEOUT = 120_000;
 
-export function runExecCases(spec, { target = 'claude-code', timeout = DEFAULT_CASE_TIMEOUT, cwd = null, fresh = false, run = null } = {}) {
-  const results = [];
+/**
+ * How many cases may run at once, and why the default depends on isolation.
+ *
+ * Under `--fresh` each case owns a temp workspace, so cases are independent and
+ * concurrency is pure wall-clock: N sessions cost roughly one session's latency.
+ *
+ * In the default shared-workspace mode they are NOT independent. Cases run in
+ * the real project directory and may write files; `expect.file` then asks "does
+ * this path exist", which a concurrent case's session can satisfy or clobber.
+ * Running two at once would make that assertion depend on scheduling, so the
+ * default stays 1 — a suite that is fast and wrong is worse than one that is
+ * slow. `--concurrency` overrides it for anyone who knows their cases only read.
+ */
+export const DEFAULT_CONCURRENCY = { shared: 1, fresh: 4 };
+
+export async function runExecCases(
+  spec,
+  {
+    target = 'claude-code',
+    timeout = DEFAULT_CASE_TIMEOUT,
+    cwd = null,
+    fresh = false,
+    run = null,
+    concurrency = null,
+    onProgress = null,
+  } = {}
+) {
   const cases = spec.skills.flatMap((s) => s.evals.map((c) => ({ skill: s.name, ...c })));
-  if (cases.length === 0) return { results, target, ran: 0, skipped: 0 };
+  if (cases.length === 0) return { results: [], target, ran: 0, skipped: 0 };
 
   const runner = RUNNERS[target];
   const exec = run ?? defaultRun;
   const available = run ? true : runnerAvailable(target);
 
-  for (const c of cases) {
-    if (!available) {
-      results.push({
-        skill: c.skill,
-        query: c.query,
-        status: 'skipped',
-        detail: `${runner?.bin ?? target} not found on PATH — case not measured`,
-      });
-      continue;
-    }
+  if (!available) {
+    // One decision for the whole suite rather than one per case: the binary is
+    // either on PATH or it is not, and re-probing per case measures nothing.
+    const results = cases.map((c) => ({
+      skill: c.skill,
+      query: c.query,
+      status: 'skipped',
+      detail: `${runner?.bin ?? target} not found on PATH — case not measured`,
+    }));
+    return { results, target, ran: 0, skipped: results.length };
+  }
+
+  const width = Number(concurrency) || (fresh ? DEFAULT_CONCURRENCY.fresh : DEFAULT_CONCURRENCY.shared);
+  let done = 0;
+
+  const settled = await mapPool(cases, width, async (c) => {
     const workspace = fresh ? freshWorkspace(spec) : (cwd ?? process.cwd());
-    let output = '';
     try {
-      output = exec({ target, query: c.query, cwd: workspace, spec, timeout });
+      const output = await exec({ target, query: c.query, cwd: workspace, spec, timeout });
+      return { skill: c.skill, query: c.query, ...assess(c, output, workspace) };
     } catch (e) {
       const timedOut = /ETIMEDOUT|timed out|SIGTERM/i.test(e.message);
-      results.push({
+      return {
         skill: c.skill,
         query: c.query,
         status: 'skipped',
         detail: timedOut
           ? `no result in ${Math.round(timeout / 1000)}s — a query that triggers the orchestrator runs the whole fleet; scope the case at one skill`
           : `runner failed: ${e.message}`,
-      });
+      };
+    } finally {
       if (fresh) fs.rmSync(workspace, { recursive: true, force: true });
-      continue;
+      onProgress?.({ skill: c.skill, done: ++done, total: cases.length });
     }
-    results.push({ skill: c.skill, query: c.query, ...assess(c, output, workspace) });
-    if (fresh) fs.rmSync(workspace, { recursive: true, force: true });
-  }
+  });
+
+  // mapPool only rejects on a throw outside the per-case try above; fold it into
+  // the same skipped shape so no caller sees an undefined row.
+  const results = settled.map((s, i) =>
+    s.error
+      ? { skill: cases[i].skill, query: cases[i].query, status: 'skipped', detail: `runner failed: ${s.error.message}` }
+      : s.value
+  );
 
   return {
     results,
@@ -170,9 +212,15 @@ function freshWorkspace(spec) {
   return dir;
 }
 
-function defaultRun({ target, query, cwd, spec, timeout }) {
+async function defaultRun({ target, query, cwd, spec, timeout }) {
   const r = RUNNERS[target];
-  return execFileSync(r.bin, r.args(query, spec), { cwd, encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024 });
+  const { stdout } = await execFileAsync(r.bin, r.args(query, spec), {
+    cwd,
+    encoding: 'utf8',
+    timeout,
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  return stdout;
 }
 
 /**

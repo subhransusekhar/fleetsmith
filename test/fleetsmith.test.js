@@ -16,10 +16,11 @@ import { archetype, ARCHETYPES } from '../src/patterns/index.js';
 import { planInstall } from '../src/install.js';
 import { FileSet } from '../src/lib/fs-utils.js';
 import { runQa, formatQa } from '../src/qa/index.js';
+import { checkInstalled, installedSkills, NEAR_DUPLICATE } from '../src/qa/installed.js';
 import { applyOps, canonicalize } from '../src/evolve/patch.js';
-import { runEval, runTriggerTests, runEvalFleets, compare, classifyDelta, calibrate } from '../src/eval/index.js';
-import { judgeSkills, formatJudge, parseVerdict, agreement, CRITERIA } from '../src/eval/judge.js';
-import { runExecCases, formatExec, execStability } from '../src/eval/exec.js';
+import { runEval, runTriggerTests, runEvalFleets, compare, classifyDelta, calibrate, descriptionOverlap } from '../src/eval/index.js';
+import { judgeSkills, formatJudge, parseVerdict, agreement, CRITERIA, claudeJudge, DEFAULT_JUDGE_TIMEOUT } from '../src/eval/judge.js';
+import { runExecCases, formatExec, execStability, DEFAULT_CONCURRENCY } from '../src/eval/exec.js';
 import { runContract, ITEM_KINDS } from '../src/memory/port.js';
 import { fileBackend } from '../src/memory/file.js';
 import { computeHealth, formatHealth } from '../src/health/index.js';
@@ -316,21 +317,36 @@ test('claude-code agents inherit the session model unless the spec opts into pin
   assert.match(plain.files.get('.claude/agents/thinker.md'), /^model: inherit$/m);
   assert.match(plain.files.get('.claude/agents/worker.md'), /^model: inherit$/m);
 
-  // Opting in binds the tiers the author supplied.
+  // Opting in binds the tiers the author supplied, verbatim. The values are
+  // opaque strings the author chose for THIS target — a fleet compiles just as
+  // well for opencode and goose, where the same tiers run on entirely different
+  // models, so the compiler never interprets them.
   const pinned = buildClaudeCode(
-    normalizeSpec({ ...raw, defaults: { claudeModels: { smart: 'opus', cheap: 'haiku' } } }),
+    normalizeSpec({ ...raw, defaults: { claudeModels: { smart: 'my-big-model', cheap: 'my-small-model' } } }),
     {}
   );
-  assert.match(pinned.files.get('.claude/agents/thinker.md'), /^model: opus$/m);
-  assert.match(pinned.files.get('.claude/agents/worker.md'), /^model: haiku$/m);
+  assert.match(pinned.files.get('.claude/agents/thinker.md'), /^model: my-big-model$/m);
+  assert.match(pinned.files.get('.claude/agents/worker.md'), /^model: my-small-model$/m);
 
-  // A partial map leaves the tiers it does not name on inherit.
+  // A partial map leaves the tiers it does not name on inherit — no tier ever
+  // resolves to a name the author did not write. A fallback table used to fill
+  // them in with provider-specific aliases, so pinning one tier silently stamped
+  // a model onto every other agent, on a target the author may not even use.
   const partial = buildClaudeCode(
-    normalizeSpec({ ...raw, defaults: { claudeModels: { smart: 'opus' } } }),
+    normalizeSpec({ ...raw, defaults: { claudeModels: { smart: 'my-big-model' } } }),
     {}
   );
-  assert.match(partial.files.get('.claude/agents/thinker.md'), /^model: opus$/m);
-  assert.match(partial.files.get('.claude/agents/worker.md'), /^model: haiku$/m);
+  assert.match(partial.files.get('.claude/agents/thinker.md'), /^model: my-big-model$/m);
+  assert.match(partial.files.get('.claude/agents/worker.md'), /^model: inherit$/m);
+
+  // And nothing in the compiler carries a hardcoded model name to fall back to.
+  for (const f of ['src/adapters/claude-code.js', 'src/adapters/claude-workflow.js']) {
+    const src = fs.readFileSync(fileURLToPath(new URL(`../${f}`, import.meta.url)), 'utf8')
+      .split('\n')
+      .filter((l) => !/^\s*(\*|\/\/)/.test(l))
+      .join('\n');
+    assert.doesNotMatch(src, /\bDEFAULT_CLAUDE_MODELS\b/, `${f} still has a model fallback table`);
+  }
 });
 
 test('claude-code isolates concurrent editors in worktrees, unless opted out', () => {
@@ -635,15 +651,59 @@ test('agents with memory get a durable-notes location', () => {
 test('orchestrator skill injects live workspace state and guards autonomous runs', () => {
   const plain = buildClaudeCode(demoSpec(), {}).files.get('.claude/skills/run-demo/SKILL.md');
   assert.match(plain, /argument-hint:/);
-  // shell injection block: state arrives inlined, not as an instruction to go read it
-  assert.match(plain, /```!\n.*_fleet\/local\/handoffs/s);
-  assert.match(plain, /cat _fleet\/local\/LEDGER\.md/);
+  // Shell injection: state arrives inlined, not as an instruction to go read it.
+  // The syntax must be the inline `` !`cmd` `` form. A ` ```! ` fenced block is
+  // not an injection anywhere in Claude Code — it ships literal shell source
+  // under a heading promising live state, so Phase 0 branches on a lie and the
+  // model re-derives the state it was told it already had.
+  assert.match(plain, /!`ls -1 _fleet\/local\/handoffs/);
+  assert.match(plain, /!`cat _fleet\/local\/LEDGER\.md/);
+  assert.doesNotMatch(plain, /```!/, 'a fenced ```! block is inert, not an injection');
+  // Same mechanism, same form as the opencode fleet-status command.
+  const status = buildOpencode(demoSpec(), {}).files.get('.opencode/commands/fleet-status.md');
+  assert.match(status, /!`ls -1 _fleet\/local\/handoffs/);
   // an attended fleet may still ask the user questions
   assert.doesNotMatch(plain, /disallowed-tools/);
 
   // a scheduled fleet fires unattended, so the blocking tool is removed
   const scheduled = buildClaudeCode(loopSpec(), {}).files.get('.claude/skills/run-looped/SKILL.md');
   assert.match(scheduled, /disallowed-tools: AskUserQuestion/);
+});
+
+test('the orchestrator description reads as a sentence, whatever the trigger', () => {
+  // "Use for any <trigger> request" only parses when the trigger is a short noun
+  // phrase. Real triggers are long clauses ending in a list, which produced
+  // "…across Claude Code, opencode, and goose request" — ungrammatical, and the
+  // very first thing the router reads.
+  const raw = archetype('pipeline', 'demo', 'demo domain');
+  raw.orchestrator = {
+    ...raw.orchestrator,
+    trigger: 'porting an existing fleet across Claude Code, opencode, and goose',
+  };
+  const spec = normalizeSpec(raw);
+  const skill = buildClaudeCode(spec, {}).files.get(`.claude/skills/${spec.orchestrator.name}/SKILL.md`);
+  assert.doesNotMatch(skill, /goose request/);
+  assert.match(skill, /Use when the request is about porting an existing fleet across Claude Code, opencode, and goose\./);
+});
+
+test("the QA methodology delegates trigger scoring to the CLI it already ships", () => {
+  // `fleetsmith eval` scores the whole trigger corpus deterministically in well
+  // under a second. Instructing the QA agent to hand-judge 5 should + 5
+  // should-not queries per skill instead is tens of routing calls reasoned out
+  // in-context, per pass, for an answer a command already has — and it was the
+  // dominant model cost of a fleet run. Assert the methodology points at the
+  // command, and that nothing has quietly re-added the manual version.
+  const spec = normalizeSpec(YAML.parse(fs.readFileSync(new URL('../fleet.yaml', import.meta.url), 'utf8')));
+  const qa = spec.skills.find((s) => s.name === 'harness-verification');
+  assert.ok(qa, 'harness-verification skill missing from the dogfood spec');
+  assert.match(qa.body, /fleetsmith eval/, 'the trigger section must invoke the scorer');
+  assert.doesNotMatch(qa.body, /write 5 should-trigger/i, 'hand-rolled trigger judging is back');
+
+  const agent = spec.agents.find((a) => a.name === 'harness-qa');
+  assert.ok(
+    agent.principles.some((p) => /fleetsmith eval/.test(p)),
+    'harness-qa must be told to run the eval suite, not re-derive it'
+  );
 });
 
 test('skills carry scoped script grants and freedom-appropriate framing', () => {
@@ -2957,7 +3017,7 @@ test('drift rebuilds with playbooks, so an accepted note is not reported as drif
 
 // --- T9: the advisory judge -------------------------------------------------
 
-test('the judge scores binary criteria and never produces a pass/fail', () => {
+test('the judge scores binary criteria and never produces a pass/fail', async () => {
   const spec = normalizeSpec({
     fleet: { name: 'j' },
     agents: [{ name: 'a', role: 'r' }],
@@ -2968,7 +3028,7 @@ test('the judge scores binary criteria and never produces a pass/fail', () => {
     score: 2,
     notes: 'no failure modes named',
   });
-  const [r] = judgeSkills(spec, stub);
+  const [r] = await judgeSkills(spec, stub);
   assert.equal(r.score, 2);
   assert.equal(r.of, CRITERIA.length);
   // The absence of a pass field is the point: nothing to gate on by accident.
@@ -2976,16 +3036,23 @@ test('the judge scores binary criteria and never produces a pass/fail', () => {
   assert.equal(r.criteria['domain-specifics'], false);
 });
 
-test('a judge that is unavailable degrades to advice, not to a failure', () => {
+test('a judge that is unavailable degrades to advice, not to a failure', async () => {
   const spec = normalizeSpec({
     fleet: { name: 'j' },
     agents: [{ name: 'a', role: 'r' }],
     skills: [{ name: 's', description: 'd', body: 'b' }],
   });
-  const [r] = judgeSkills(spec, () => null);
+  const [r] = await judgeSkills(spec, () => null);
   assert.equal(r.score, null);
   assert.match(r.notes, /unavailable/);
-  assert.match(formatJudge([r]), /ADVISORY ONLY/);
+  const out = formatJudge([r]);
+  assert.match(out, /ADVISORY ONLY/);
+  // An unjudged row must not read as a clean one. With no criteria the
+  // failed-criteria list is empty, and rendering that as "(all criteria met)" is
+  // the same unmeasured-reads-as-passing bug the exec suite guards against.
+  assert.doesNotMatch(out, /all criteria met/);
+  assert.match(out, /NOT JUDGED/);
+  assert.match(out, /unmeasured, not passing/);
 });
 
 test('no gate anywhere consults a judge score', () => {
@@ -3019,6 +3086,56 @@ test('no gate anywhere consults a judge score', () => {
     .join('\n');
   assert.ok(judgeBlock.length > 0, 'judge path not found');
   assert.doesNotMatch(judgeBlock, /process\.exitCode/, 'the judge path must not set an exit code');
+});
+
+test('a stalled judge call is retried, because p50 is 10s and the ceiling was 120s', async () => {
+  // Both full runs observed lost exactly one skill to an intermittent stall,
+  // spending two minutes to return an unmeasured row. Eight consecutive calls
+  // measured 8-16s, so a stall is transient and a second ask usually lands.
+  assert.ok(DEFAULT_JUDGE_TIMEOUT <= 60_000, 'the ceiling must sit near the measured p50, not 12x it');
+
+  const spec = normalizeSpec({
+    fleet: { name: 'j' },
+    agents: [{ name: 'a', role: 'r' }],
+    skills: [{ name: 's', description: 'd', body: 'b' }],
+  });
+  const good = JSON.stringify({
+    'concrete-tools': true,
+    'domain-specifics': true,
+    'executable-steps': true,
+    'failure-modes': true,
+  });
+
+  // A timeout on the first attempt, a good reply on the second.
+  let stalls = 0;
+  const [stalled] = await judgeSkills(spec, claudeJudge({
+    exec: async () => {
+      if (stalls++ === 0) throw Object.assign(new Error('ETIMEDOUT'), { killed: true });
+      return good;
+    },
+  }));
+  assert.equal(stalls, 2, 'a stalled call was not retried');
+  assert.equal(stalled.score, 4);
+
+  // An unparseable reply is indistinguishable from no verdict, so it retries too.
+  let junk = 0;
+  const [parsed] = await judgeSkills(spec, claudeJudge({
+    exec: async () => (junk++ === 0 ? 'not json at all' : good),
+  }));
+  assert.equal(junk, 2, 'an unparseable reply was not retried');
+  assert.equal(parsed.score, 4);
+
+  // Exhausting the attempts yields an unmeasured row, never a passing one.
+  let always = 0;
+  const [dead] = await judgeSkills(spec, claudeJudge({
+    exec: async () => {
+      always++;
+      throw new Error('ETIMEDOUT');
+    },
+  }));
+  assert.equal(always, 2, 'attempts must be bounded');
+  assert.equal(dead.score, null);
+  assert.match(formatJudge([dead]), /NOT JUDGED/);
 });
 
 test('judge verdict parsing survives wrappers and rejects junk', () => {
@@ -3073,14 +3190,14 @@ test('no gate path can reach live execution', () => {
   assert.doesNotMatch(block, /process\.exitCode/, 'the --exec path must not set an exit code');
 });
 
-test('a case that could not run is skipped, never passed', () => {
+test('a case that could not run is skipped, never passed', async () => {
   // Silent skips are how a suite reports green while measuring nothing.
   const spec = normalizeSpec({
     fleet: { name: 'e' },
     agents: [{ name: 'a', role: 'r' }],
     skills: [{ name: 's', description: 'd', evals: [{ query: 'do the thing', expect: { mentions: ['x'] } }] }],
   });
-  const out = runExecCases(spec, {
+  const out = await runExecCases(spec, {
     target: 'claude-code',
     run: () => {
       throw new Error('runner exploded');
@@ -3095,7 +3212,7 @@ test('a case that could not run is skipped, never passed', () => {
   assert.equal(typeof out.results[0].status, 'string');
 });
 
-test('deterministic assertions decide a live case', () => {
+test('deterministic assertions decide a live case', async () => {
   const spec = normalizeSpec({
     fleet: { name: 'e' },
     agents: [{ name: 'a', role: 'r' }],
@@ -3107,13 +3224,283 @@ test('deterministic assertions decide a live case', () => {
       },
     ],
   });
-  const pass = runExecCases(spec, { run: () => 'use a pipeline here', cwd: os.tmpdir() });
+  const pass = await runExecCases(spec, { run: () => 'use a pipeline here', cwd: os.tmpdir() });
   assert.equal(pass.results[0].status, 'pass');
 
-  const fail = runExecCases(spec, { run: () => 'use a fanout here', cwd: os.tmpdir() });
+  const fail = await runExecCases(spec, { run: () => 'use a fanout here', cwd: os.tmpdir() });
   assert.equal(fail.results[0].status, 'fail');
   assert.match(fail.results[0].detail, /missing expected mention: "pipeline"/);
   assert.match(fail.results[0].detail, /forbidden mention: "fanout"/);
+});
+
+test('independent model calls fan out, and rows keep spec order', async () => {
+  // The whole cost of both advisory suites is N headless sessions. Sequentially
+  // that is sum-of-latencies for calls that share nothing; the fix is only real
+  // if concurrency is observable AND the report stays diffable against a
+  // baseline, which requires spec order regardless of completion order.
+  const spec = normalizeSpec({
+    fleet: { name: 'j' },
+    agents: [{ name: 'a', role: 'r' }],
+    skills: ['s1', 's2', 's3', 's4'].map((n) => ({ name: n, description: `d ${n}`, body: `b ${n}` })),
+  });
+
+  let live = 0;
+  let peak = 0;
+  const slowJudge = async (skill) => {
+    peak = Math.max(peak, ++live);
+    // Finish in reverse order, so passing the order assertion cannot be luck.
+    await new Promise((r) => setTimeout(r, 20 - Number(skill.name.slice(1)) * 4));
+    live--;
+    return { criteria: {}, score: Number(skill.name.slice(1)), notes: skill.name };
+  };
+
+  const results = await judgeSkills(spec, slowJudge, { concurrency: 4 });
+  assert.equal(peak, 4, 'judges did not run concurrently');
+  assert.deepEqual(results.map((r) => r.skill), ['s1', 's2', 's3', 's4']);
+  assert.deepEqual(results.map((r) => r.score), [1, 2, 3, 4]);
+});
+
+test('one unreachable runner degrades its own row, never its siblings', async () => {
+  // These suites cost real money per row. A throw on case 2 must not discard
+  // the results of 1 and 3, and must not read as a pass.
+  const spec = normalizeSpec({
+    fleet: { name: 'e' },
+    agents: [{ name: 'a', role: 'r' }],
+    skills: ['s1', 's2', 's3'].map((n) => ({
+      name: n,
+      description: `d ${n}`,
+      evals: [{ query: n, expect: { mentions: ['ok'] } }],
+    })),
+  });
+
+  const out = await runExecCases(spec, {
+    cwd: os.tmpdir(),
+    concurrency: 3,
+    run: ({ query }) => {
+      if (query === 's2') throw new Error('runner exploded');
+      return 'ok';
+    },
+  });
+  assert.deepEqual(out.results.map((r) => r.status), ['pass', 'skipped', 'pass']);
+  assert.equal(out.ran, 2);
+  assert.equal(out.skipped, 1);
+});
+
+test('shared-workspace exec stays serial, because expect.file races', async () => {
+  // Under --fresh each case owns a temp dir and concurrency is free. In the
+  // default shared mode cases write into the real project directory, so an
+  // expect.file assertion would depend on scheduling. Fast and wrong is worse
+  // than slow, so the default width is 1 and only --fresh raises it.
+  assert.equal(DEFAULT_CONCURRENCY.shared, 1);
+  assert.ok(DEFAULT_CONCURRENCY.fresh > 1);
+
+  const spec = normalizeSpec({
+    fleet: { name: 'e' },
+    agents: [{ name: 'a', role: 'r' }],
+    skills: ['s1', 's2', 's3'].map((n) => ({
+      name: n,
+      description: `d ${n}`,
+      evals: [{ query: n, expect: { mentions: ['ok'] } }],
+    })),
+  });
+
+  let live = 0;
+  let peak = 0;
+  const run = async () => {
+    peak = Math.max(peak, ++live);
+    await new Promise((r) => setTimeout(r, 5));
+    live--;
+    return 'ok';
+  };
+  await runExecCases(spec, { cwd: os.tmpdir(), run });
+  assert.equal(peak, 1, 'shared-workspace cases must not overlap');
+});
+
+// --- ambient install hygiene ------------------------------------------------
+
+/** Reconstruct the real failure: a pre-rename copy of a fleet left at user scope. */
+function stagedInstall(spec, { staleOrchestrator = null, staleNames = [] } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-install-'));
+  const home = path.join(root, 'home');
+  const cwd = path.join(root, 'project');
+
+  const write = (dir, name, description) => {
+    fs.mkdirSync(path.join(dir, 'skills', name), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'skills', name, 'SKILL.md'),
+      `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n\n# ${name}\n`
+    );
+  };
+
+  // The project install: what the current spec compiles to.
+  for (const s of spec.skills) write(path.join(cwd, '.claude'), s.name, s.description);
+  write(path.join(cwd, '.claude'), spec.orchestrator.name, 'orchestrates the fleet');
+
+  // The stale user-scope copy under its OLD name — never shadowed, because
+  // precedence keys on the directory name and the directory name changed.
+  if (staleOrchestrator) write(path.join(home, '.claude'), staleOrchestrator, spec.skills[0].description);
+  for (const n of staleNames) write(path.join(home, '.claude'), n, 'a stale duplicate');
+
+  return { home, cwd, root };
+}
+
+test('a renamed fleet competing with its own stale copy is reported', async () => {
+  // The failure this check exists for. Directory names differ, so nothing is
+  // shadowed: the two coexist, split routing, and the older one writes handoffs
+  // to a path the SubagentStop gate rejects — every agent blocked, every agent
+  // retrying, and no report anywhere explaining the wall-clock.
+  const spec = normalizeSpec({
+    fleet: { name: 'f' },
+    agents: [{ name: 'a', role: 'r' }],
+    skills: [
+      {
+        name: 'fleet-design',
+        description: 'Methodology for designing an agent fleet as a spec — pattern choice and handoff graph.',
+        triggers: { should: ['designing an agent fleet as a spec'] },
+      },
+    ],
+  });
+  const { home, cwd, root } = stagedInstall(spec, { staleOrchestrator: 'build-harness' });
+  try {
+    const report = checkInstalled(spec, { home, cwd });
+    assert.equal(report.pass, false);
+    // Both passes are independent detectors of the same fault and both should
+    // see this one: the prompt loses to the rival, AND the descriptions are
+    // near-identical. Either alone is enough to report it.
+    assert.ok(report.rivals.every((r) => r.rival === 'build-harness' && r.scope === 'user'));
+    const outcomes = new Set(report.rivals.map((r) => r.outcome));
+    assert.ok(outcomes.has('is a near-duplicate of'), 'the corpus-free pass missed it');
+    assert.ok([...outcomes].some((o) => /loses to|ties with/.test(o)), 'the prompt pass missed it');
+    assert.match(report.evidence[0], /build-harness/);
+    assert.match(report.detail, /never shadowed/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the orchestrator rival is caught without a trigger corpus', () => {
+  // The regression that matters most, and the one a prompt-based check misses by
+  // construction: an orchestrator has no `triggers.should`, and it is exactly the
+  // skill a fleet rename duplicates, because its name follows the fleet's. Only
+  // the description-overlap pass can see it.
+  const spec = normalizeSpec({
+    fleet: { name: 'f' },
+    agents: [{ name: 'a', role: 'r' }],
+    skills: [{ name: 'unrelated', description: 'something entirely different about spreadsheets' }],
+    orchestrator: { name: 'harness-builder', trigger: 'building an agent harness' },
+  });
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-orch-'));
+  const mk = (dir, name, description) => {
+    fs.mkdirSync(path.join(dir, 'skills', name), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'skills', name, 'SKILL.md'),
+      `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n`
+    );
+  };
+  const shared =
+    'Orchestrates the agent fleet for building an agent harness: domain-analyst, fleet-architect, skill-smith. ' +
+    'Use when the request is about creating an agent fleet or team, generating agents and skills for a codebase, ' +
+    'or porting an existing fleet across Claude Code, opencode, and goose.';
+  try {
+    mk(path.join(root, 'project', '.claude'), 'harness-builder', shared);
+    mk(path.join(root, 'project', '.claude'), 'unrelated', 'something entirely different about spreadsheets');
+    // Same fleet, pre-rename name — never shadowed, because the dir name changed.
+    mk(path.join(root, 'home', '.claude'), 'build-harness', shared.replace('agent fleet', 'harness-init fleet'));
+
+    const report = checkInstalled(spec, { home: path.join(root, 'home'), cwd: path.join(root, 'project') });
+    assert.equal(report.pass, false);
+    const rival = report.rivals.find((r) => r.rival === 'build-harness');
+    assert.ok(rival, 'the pre-rename orchestrator copy was not reported');
+    assert.equal(rival.skill, 'harness-builder');
+    assert.equal(rival.prompt, null, 'this pass is corpus-free by design');
+    assert.match(report.evidence.join('\n'), /two names, one skill/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('near-duplicate detection separates a real duplicate from a mere neighbour', () => {
+  // The threshold has to sit in a gap, not on a slope. Measured on the install
+  // that prompted this check: the true duplicate scored 0.691, the next-nearest
+  // of nineteen installed skills scored 0.113.
+  const a =
+    'Orchestrates the fleetsmith agent fleet for building an agent harness: domain-analyst, fleet-architect. ' +
+    'Use when creating an agent fleet, generating agents and skills for a codebase, or porting a fleet.';
+  const b = a.replace('fleetsmith', 'harness-init');
+  const neighbour = 'Adversarial QA battery for a compiled harness — spec gate, compile checks, capability-leak grep.';
+
+  assert.ok(descriptionOverlap(a, b) > NEAR_DUPLICATE, 'a renamed copy must clear the threshold');
+  assert.ok(descriptionOverlap(a, neighbour) < NEAR_DUPLICATE, 'a sibling skill must not');
+  assert.equal(descriptionOverlap(a, ''), 0, 'an empty description is never a duplicate');
+  assert.equal(descriptionOverlap(a, a), 1);
+});
+
+test('a same-name copy at user scope is reported as shadowed, not as a rival', async () => {
+  // Precedence resolves this one, so it is harmless in THIS project — but it is
+  // a stale copy that will fire in every other project, against a fleet that
+  // does not exist there. Different problem, different wording, still a finding.
+  const spec = normalizeSpec({
+    fleet: { name: 'f' },
+    agents: [{ name: 'a', role: 'r' }],
+    skills: [{ name: 'fleet-design', description: 'designing an agent fleet', triggers: { should: ['design a fleet'] } }],
+  });
+  const { home, cwd, root } = stagedInstall(spec, { staleNames: ['fleet-design'] });
+  try {
+    const report = checkInstalled(spec, { home, cwd });
+    assert.equal(report.pass, false);
+    assert.equal(report.rivals.length, 0, 'a shadowed copy is not a routing rival');
+    assert.equal(report.shadowed.length, 1);
+    assert.equal(report.shadowed[0].name, 'fleet-design');
+    assert.match(report.evidence[0], /stale user-scope skill/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the fleet colliding with itself is eval\'s finding, not an install finding', async () => {
+  // Two project-scope fleet skills that share vocabulary is a spec defect
+  // `fleetsmith eval` already reports. Reporting it here would tell the reader
+  // to delete a file that is supposed to be there.
+  const spec = normalizeSpec({
+    fleet: { name: 'f' },
+    agents: [{ name: 'a', role: 'r' }],
+    skills: [
+      { name: 's1', description: 'designing an agent fleet spec', triggers: { should: ['designing an agent fleet spec'] } },
+      { name: 's2', description: 'designing an agent fleet spec', triggers: { should: ['designing an agent fleet spec'] } },
+    ],
+  });
+  const { home, cwd, root } = stagedInstall(spec);
+  try {
+    const report = checkInstalled(spec, { home, cwd });
+    assert.deepEqual(report.rivals, [], 'in-fleet collisions must not surface as install problems');
+    assert.equal(report.pass, true);
+    // ...and eval does report it, so the finding is not lost.
+    assert.ok(runTriggerTests(spec).cases.some((c) => !c.pass));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a block-scalar description is read whole, not truncated at the first line', () => {
+  // The stale copy on the machine that prompted this check stored its
+  // description as a `|-` block spanning two lines. Reading only the first line
+  // would drop most of the vocabulary and hide the collision.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-fm-'));
+  const dir = path.join(root, 'home', '.claude', 'skills', 'blocky');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'SKILL.md'),
+    '---\nname: blocky\ndescription: |-\n  first line of the description\n  second line with distinctive vocabulary\nargument-hint: "[x]"\n---\n\n# Blocky\n'
+  );
+  try {
+    const found = installedSkills({ home: path.join(root, 'home'), cwd: path.join(root, 'nope') });
+    assert.equal(found.length, 1);
+    assert.match(found[0].description, /first line of the description/);
+    assert.match(found[0].description, /second line with distinctive vocabulary/);
+    assert.doesNotMatch(found[0].description, /argument-hint/, 'the next key leaked into the description');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('exec stability measures a floor for a stochastic suite', () => {

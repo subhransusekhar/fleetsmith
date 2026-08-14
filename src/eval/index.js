@@ -137,6 +137,42 @@ function rank(prompt, skills, idf) {
     .sort((a, b) => b.score - a.score);
 }
 
+/**
+ * Rank an arbitrary set of `{name, description}` records for one prompt.
+ *
+ * Same scoring as the trigger suite, but over a corpus the caller supplies
+ * rather than a spec's skills — so the install-hygiene check can score this
+ * fleet's own prompts against every skill actually installed on the machine,
+ * including ones no spec knows about. IDF is computed over the corpus passed in,
+ * because term rarity is a property of the set being discriminated: a word that
+ * is distinctive among four skills may be worthless among forty.
+ */
+export function rankAgainst(prompt, records) {
+  return rank(prompt, records, buildIdf(records));
+}
+
+/**
+ * Vocabulary overlap between two descriptions, as Jaccard over content tokens.
+ *
+ * Prompt-based ranking needs a declared trigger corpus, and the one skill most
+ * likely to be duplicated by a rename — the orchestrator, whose name follows the
+ * fleet's — is exactly the skill that has none. This is the corpus-free detector
+ * for that case: two descriptions generated from the same template stay
+ * near-identical in vocabulary however the names change around them.
+ *
+ * Unweighted on purpose. IDF would suppress precisely the shared boilerplate
+ * that makes two template-generated descriptions collide, which is the signal
+ * being measured here rather than noise.
+ */
+export function descriptionOverlap(a, b) {
+  const A = new Set(tokens(a));
+  const B = new Set(tokens(b));
+  if (A.size === 0 || B.size === 0) return 0;
+  let shared = 0;
+  for (const t of A) if (B.has(t)) shared++;
+  return shared / (A.size + B.size - shared);
+}
+
 /** True when the top two skills are indistinguishable on this prompt. */
 function isTie(ranked) {
   return ranked.length > 1 && Math.abs(ranked[0].score - ranked[1].score) < 1e-9;

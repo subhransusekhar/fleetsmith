@@ -71,7 +71,7 @@ agents:
     skills: [ harness-verification ]
     capabilities: { read: true, run: true }
     principles:
-      - "Run `fleetsmith qa <spec> --built <dir>` first and paste its output — the mechanical battery (spec gate, per-target compile, handoff graph, capability leaks, loop bounds, drift) is deterministic and already implemented. Never re-derive it by hand."
+      - "Run `fleetsmith qa <spec> --built <dir>` then `fleetsmith eval <spec>` first and paste both outputs — the mechanical battery (spec gate, per-target compile, handoff graph, capability leaks, loop bounds, drift) and the trigger-routing suite are deterministic and already implemented. Never re-derive either by hand: reasoning your way through a check a command already answers is the single most expensive mistake available to you."
       - "Your judgment is for what that command cannot decide: is the methodology substantive or generic, is the decomposition right, are the trigger phrases the ones a real user would type"
       - "Boundary-crossing comparison is the value, not existence checks — 'file exists' is not a finding"
       - "Every defect needs reproducible evidence: a command and its output, or file:line"
@@ -259,8 +259,13 @@ skills:
       ("re-run", "update", "fix the X part"). Third person, under 1024 characters.
 
       Test it: write 5 requests that should trigger it and 5 near-misses that plausibly
-      should not. If a near-miss matches, the description is too broad; if a should-trigger
-      misses, it is too narrow.
+      should not, declare them as the skill's `triggers.should` / `triggers.shouldNot`, and
+      let `fleetsmith eval <fleet.yaml>` score them — it reports which skill each prompt
+      routes to, and ties, in under a second. Do not grade the corpus by reading it back to
+      yourself; a description always looks discriminating to whoever just wrote it. If a
+      near-miss matches, the description is too broad; if a should-trigger misses, it is too
+      narrow. Write prompts in the words a user would type, never paraphrases of your own
+      description — matching your vocabulary back to yourself measures nothing.
 
       ## Body: lean, imperative, reasoned
 
@@ -335,9 +340,18 @@ skills:
       Compare the compiled texts — a spec that says they match is not evidence.
 
       ## 4. Trigger tests
-      For the orchestrator skill and each fleet skill, write 5 should-trigger and 5
-      near-miss should-NOT-trigger queries. Judge each description against them and report
-      misfires with a suggested description edit.
+      `fleetsmith eval <fleet.yaml>` scores every declared trigger prompt against every
+      skill description and reports which skill each one actually routes to. Run it and
+      paste the output. Do NOT hand-judge the corpus prompt by prompt — that is tens of
+      routing calls the scorer already makes deterministically in under a second, and your
+      verdict on a description you just read is the least reliable evidence available.
+
+      Your judgment is for the two things the scorer cannot do:
+      - **Corpus gaps.** The scorer only checks prompts the spec declares. A skill whose
+        `triggers.should` are paraphrases of its own description proves nothing; the
+        prompts must be the words a real user would type. Propose missing cases.
+      - **The FAILs it reports.** A reported tie or misroute names the colliding pair;
+        decide which description should own the request and suggest the edit.
 
       ## 5. Capability-leak grep
       Grep the compiled output for grants the spec did not make: an agent with
@@ -351,10 +365,20 @@ skills:
       `fleet.schedule` renders a runnable per-tool command. Confirm the `until` condition
       can actually be reached; a loop that can never exit is a FAIL.
 
+      ## 7. Ambient install
+      `fleetsmith qa <fleet.yaml> --installed`. A harness can be perfect on disk and still
+      fail because an older copy of itself is installed at user scope. After a rename the
+      old copy keeps its old directory name, so scope precedence never applies — nothing is
+      shadowed, the two coexist and split routing, and the pre-rename copy writes handoffs
+      to a path the SubagentStop gate rejects. Every agent is then blocked and retries,
+      which presents as "the orchestrator takes forever to start" with nothing in any other
+      report to explain it. Findings here are machine-specific, so report them as
+      environment fixes (remove or reinstall the stale copy), never as spec defects.
+
       ## Verdict
       Rank the fixes and route each: architecture flaw → fleet-architect, shallow skill →
       skill-smith, wrong compiled output → a fleetsmith adapter bug (include a minimal
-      repro spec snippet).
+      repro spec snippet), stale copy on the machine → the operator, with the path to remove.
 
 orchestrator:
   name: harness-builder

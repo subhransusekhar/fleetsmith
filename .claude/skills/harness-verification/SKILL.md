@@ -36,9 +36,18 @@ start, and the artifact named in the orchestrator must match the producer's cont
 Compare the compiled texts — a spec that says they match is not evidence.
 
 ## 4. Trigger tests
-For the orchestrator skill and each fleet skill, write 5 should-trigger and 5
-near-miss should-NOT-trigger queries. Judge each description against them and report
-misfires with a suggested description edit.
+`fleetsmith eval <fleet.yaml>` scores every declared trigger prompt against every
+skill description and reports which skill each one actually routes to. Run it and
+paste the output. Do NOT hand-judge the corpus prompt by prompt — that is tens of
+routing calls the scorer already makes deterministically in under a second, and your
+verdict on a description you just read is the least reliable evidence available.
+
+Your judgment is for the two things the scorer cannot do:
+- **Corpus gaps.** The scorer only checks prompts the spec declares. A skill whose
+  `triggers.should` are paraphrases of its own description proves nothing; the
+  prompts must be the words a real user would type. Propose missing cases.
+- **The FAILs it reports.** A reported tie or misroute names the colliding pair;
+  decide which description should own the request and suggest the edit.
 
 ## 5. Capability-leak grep
 Grep the compiled output for grants the spec did not make: an agent with
@@ -52,7 +61,17 @@ matching goose `retry` block (same command, `max_retries` == loop `max`). A
 `fleet.schedule` renders a runnable per-tool command. Confirm the `until` condition
 can actually be reached; a loop that can never exit is a FAIL.
 
+## 7. Ambient install
+`fleetsmith qa <fleet.yaml> --installed`. A harness can be perfect on disk and still
+fail because an older copy of itself is installed at user scope. After a rename the
+old copy keeps its old directory name, so scope precedence never applies — nothing is
+shadowed, the two coexist and split routing, and the pre-rename copy writes handoffs
+to a path the SubagentStop gate rejects. Every agent is then blocked and retries,
+which presents as "the orchestrator takes forever to start" with nothing in any other
+report to explain it. Findings here are machine-specific, so report them as
+environment fixes (remove or reinstall the stale copy), never as spec defects.
+
 ## Verdict
 Rank the fixes and route each: architecture flaw → fleet-architect, shallow skill →
 skill-smith, wrong compiled output → a fleetsmith adapter bug (include a minimal
-repro spec snippet).
+repro spec snippet), stale copy on the machine → the operator, with the path to remove.

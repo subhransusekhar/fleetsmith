@@ -26,19 +26,6 @@ const TOOL_MAP = {
 };
 
 /**
- * Abstract tier → concrete Claude Code model alias. Applied ONLY when the spec
- * supplies `defaults.claudeModels`; otherwise every agent emits `inherit`.
- *
- * `model:` in subagent frontmatter is an override, not a preference — an agent
- * pinned to `opus` spawns Opus even when the session is deliberately running
- * something cheaper, and fails outright where that model is not on the user's
- * plan. Since a fleet is meant to be portable across plans, providers, and the
- * other two targets, the tier stays an intent in the spec and only becomes a
- * name when an author opts in. Same rule as opencode and goose.
- */
-const DEFAULT_CLAUDE_MODELS = { smart: 'opus', fast: 'sonnet', cheap: 'haiku' };
-
-/**
  * Abstract effort tiers → Claude Code's `effort` values. The platform has no
  * `minimal`, so it collapses onto `low`.
  */
@@ -165,18 +152,25 @@ function worktreeClause() {
 }
 
 /**
- * `inherit` unless the spec opted into concrete model names.
+ * `inherit` unless the author named a model for this agent's tier.
  *
- * Supplying `defaults.claudeModels` at all is the decision to pin this fleet's
- * tiers; entries in it override individual tiers, and any tier left unnamed
- * falls back to the conventional alias. So `{smart: 'claude-opus-5'}` pins
- * smart to that exact id and still resolves `cheap` to `haiku` — the author
- * asked for tiering, not for one agent to be special.
+ * No tier ever resolves to a name the author did not write. There used to be a
+ * fallback table (`smart`→opus, `fast`→sonnet, `cheap`→haiku) applied to any
+ * tier left unnamed once `defaults.claudeModels` existed at all, so pinning one
+ * tier silently stamped provider-specific model names onto every other agent.
+ * That is wrong for a spec whose whole purpose is to compile unchanged for
+ * opencode and goose, where the same fleet runs on entirely different models:
+ * the compiler was inventing bindings for an agent the author never configured,
+ * and a name is an override, not a preference — it beats the session's own
+ * choice and hard-fails wherever that model is not available.
+ *
+ * So `{smart: 'some-model-id'}` pins exactly the `smart` agents; `cheap` and
+ * `fast` agents keep inheriting. Tier stays an intent; binding it to a name is
+ * per-target and explicit. Same rule as opencode and goose, which omit the
+ * field entirely when unnamed.
  */
 function resolveModel(agent, spec) {
-  const map = spec.defaults.claudeModels;
-  if (!map) return 'inherit';
-  return map[agent.model] ?? DEFAULT_CLAUDE_MODELS[agent.model] ?? 'inherit';
+  return spec.defaults.claudeModels?.[agent.model] ?? 'inherit';
 }
 
 /**
@@ -274,7 +268,12 @@ function orchestratorSkill(spec) {
       description:
         `Orchestrates the ${spec.fleet.name} agent fleet${spec.fleet.domain ? ` for ${spec.fleet.domain}` : ''}: ` +
         `${spec.agents.map((a) => a.name).join(', ')}. ` +
-        `Use for any ${o.trigger} request — including re-runs, updates, partial fixes ("redo the X part"), and improvements to previous results. ` +
+        // "Use for any <trigger> request" only parses when the trigger is a
+        // short noun phrase. Real triggers are long clauses with their own
+        // dashes and lists, and jamming "request" onto the end produces
+        // "…across Claude Code, opencode, and goose request" — the first thing
+        // the router reads, ungrammatical.
+        `Use when the request is about ${o.trigger}. This includes re-runs, updates, partial fixes ("redo the X part"), and improvements to previous results. ` +
         `Simple factual questions can be answered directly without the fleet.`,
       'argument-hint': '[what the fleet should work on]',
       // A scheduled fleet fires with nobody watching, so a question that waits
@@ -287,10 +286,18 @@ function orchestratorSkill(spec) {
 }
 
 /**
- * Inject current fleet state into the skill at expansion time. `!` command
+ * Inject current fleet state into the skill at expansion time. `` !`cmd` ``
  * output is inlined before the model reads the prompt, so the run starts
  * already knowing whether a previous workspace exists rather than spending a
  * turn discovering it — which is exactly what Phase 0 branches on.
+ *
+ * The syntax is the inline backtick form, NOT a ` ```! ` fenced block. A fenced
+ * block is not an injection anywhere in Claude Code: it renders as literal
+ * shell source under a heading promising live state, so the model reads a
+ * contradiction and re-derives the state with its own tool calls — strictly
+ * worse than not making the promise, because Phase 0 now runs against text that
+ * claims to be an answer. Keep this identical in form to the opencode
+ * `fleet-status` command, which uses the same mechanism correctly.
  *
  * Kept last: the invariant playbook above it stays identical between runs, and
  * the one part that changes lands closest to the user's request.
@@ -298,10 +305,16 @@ function orchestratorSkill(spec) {
 function liveStateBlock(spec) {
   const dir = spec.handover.dir;
   const ledger = spec.handover.ledger ? `${spec.fleet.local}/LEDGER.md` : null;
-  const lines = ['## Workspace state, as of right now', '', '```!'];
-  lines.push(`ls -1 ${dir}/*.md 2>/dev/null | grep -v HANDOFF.template || echo "(no handoffs yet — this is an initial run)"`);
-  if (ledger) lines.push(`echo "--- ledger ---"; cat ${ledger} 2>/dev/null || echo "(no ledger yet)"`);
-  lines.push('```');
+  const lines = ['## Workspace state, as of right now', '', 'Handoffs written so far:', ''];
+  lines.push(
+    `!\`ls -1 ${dir}/*.md 2>/dev/null | grep -v HANDOFF.template || echo "(no handoffs yet — this is an initial run)"\``
+  );
+  if (ledger) {
+    lines.push('');
+    lines.push('Ledger:');
+    lines.push('');
+    lines.push(`!\`cat ${ledger} 2>/dev/null || echo "(no ledger yet)"\``);
+  }
   lines.push('');
   lines.push('This is the real state of the workspace for this invocation. Run the Phase 0 check against it rather than re-reading the same files.');
   return lines.join('\n');

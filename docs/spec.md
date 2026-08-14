@@ -37,7 +37,7 @@ The fleet spec is the single tool-agnostic source of truth. `normalizeSpec` fill
 | `origin` | `human` | `human` or `evolved` — who authored this artifact. Emitted into compiled frontmatter as `x-fleetsmith-origin` so provenance survives into the generated files |
 | `protected` | `true` when `origin: human` | whether the evolution loop may modify it. Implements the invariant *evolution may only modify what evolution generated*: the Darwin Gödel Machine, scored by a function counting marker tokens, deleted the markers rather than fix the behaviour. Set explicitly to freeze an evolved artifact |
 | `capabilities` | `{read: true}` | capability defaults for every agent |
-| `claudeModels` | `null` | map tier → Claude Code alias or id, e.g. `{smart: opus, cheap: haiku}` |
+| `claudeModels` | `null` | map tier → Claude Code alias or id. Only the tiers you name are pinned; every other agent stays on `inherit`. Values are opaque — the compiler never substitutes a model you did not write |
 | `opencodeModels` | `null` | same, using provider-qualified ids: `{smart: "anthropic/claude-opus-5"}` |
 | `gooseModels` | `null` | same, for goose `settings.goose_model` |
 

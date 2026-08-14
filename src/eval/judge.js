@@ -1,4 +1,8 @@
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { mapPool } from '../lib/pool.js';
+
+const run = promisify(execFile);
 
 /**
  * The advisory skill-substance judge.
@@ -79,16 +83,60 @@ Reply with ONLY a JSON object, no markdown fence, no commentary:
 {"concrete-tools": true|false, "domain-specifics": true|false, "executable-steps": true|false, "failure-modes": true|false, "notes": "one sentence naming the weakest criterion and why"}`;
 }
 
-/** Ask Claude Code headlessly. Returns null on any failure — advisory means optional. */
-export function claudeJudge({ command = 'claude', model = null, timeout = 120_000 } = {}) {
-  return (skill) => {
+/**
+ * Per-call timeout, and why it is far below the old 120s.
+ *
+ * Measured over eight consecutive calls on this repo's own skills: every one
+ * completed in 8-16s at `num_turns: 1`. The judge does not explore — it grades
+ * the text it was handed, and running it in a scratch directory instead of the
+ * project changed nothing (13.7s vs 11.1s), so the prompt is the whole workload.
+ *
+ * Against a p50 near 10s, a 120s ceiling is not patience, it is a hole in the
+ * report: an intermittent stall consumed two minutes and then returned an
+ * unmeasured row, once per full run in both runs observed. A ceiling at 6x p50
+ * plus one retry gives two independent chances inside the same worst case, and
+ * an intermittent stall is exactly the failure a retry fixes.
+ */
+export const DEFAULT_JUDGE_TIMEOUT = 60_000;
+
+/**
+ * Ask Claude Code headlessly. Returns null when every attempt fails — advisory
+ * means optional, and a null row is reported as unmeasured, never as a pass.
+ *
+ * Async on purpose. Each call is a whole headless session, so sequentially this
+ * is minutes for a rubric of four booleans; the caller can only fan them out if
+ * they do not block the event loop.
+ *
+ * The model is left unpinned by default. A cheaper tier is the obvious guess and
+ * it is wrong on latency — Haiku measured *slower* than the session default here
+ * (22.9s vs 8.9s) while costing 5.5x less, so the tier is a cost decision for the
+ * caller to make with `--model`, not a speed win to bake in.
+ *
+ * A retry also covers an unparseable reply, not just a timeout: a verdict that
+ * cannot be parsed is indistinguishable from no verdict, and re-asking is
+ * cheaper than reporting a hole.
+ */
+export function claudeJudge({
+  command = 'claude',
+  model = null,
+  timeout = DEFAULT_JUDGE_TIMEOUT,
+  attempts = 2,
+  // The transport is injectable so the retry loop is testable without a model
+  // and without shelling out. Default is the real headless CLI.
+  exec = (cmd, args, opts) => run(cmd, args, opts).then((r) => r.stdout),
+} = {}) {
+  return async (skill) => {
     const args = ['-p', buildJudgePrompt(skill), '--output-format', 'json'];
     if (model) args.push('--model', model);
-    try {
-      return parseVerdict(execFileSync(command, args, { encoding: 'utf8', timeout, maxBuffer: 4 * 1024 * 1024 }));
-    } catch {
-      return null;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        const verdict = parseVerdict(await exec(command, args, { encoding: 'utf8', timeout, maxBuffer: 4 * 1024 * 1024 }));
+        if (verdict) return verdict;
+      } catch {
+        /* fall through to the retry */
+      }
     }
+    return null;
   };
 }
 
@@ -127,20 +175,34 @@ function coerce(obj) {
  *
  * The absence of a `pass` field is deliberate: there is nothing here for a
  * caller to gate on even by accident.
+ *
+ * Skills are judged concurrently because no verdict depends on another — the
+ * rubric is per-skill by construction. Rows keep spec order regardless of which
+ * call returns first, so the output stays diffable against a previous run.
+ * `onProgress` exists because a suite that prints nothing for two minutes is
+ * indistinguishable from one that has hung, and the reasonable response to a
+ * hang is Ctrl-C.
  */
-export function judgeSkills(spec, judge) {
-  const results = [];
-  for (const skill of spec.skills) {
-    const verdict = judge(skill);
-    results.push({
+export async function judgeSkills(spec, judge, { concurrency = 4, onProgress = null } = {}) {
+  let done = 0;
+  const settled = await mapPool(spec.skills, concurrency, async (skill) => {
+    const verdict = await judge(skill);
+    onProgress?.({ skill: skill.name, done: ++done, total: spec.skills.length });
+    return verdict;
+  });
+
+  return spec.skills.map((skill, i) => {
+    // A thrown judge is an unavailable judge: advisory means a broken row, not
+    // a broken run.
+    const verdict = settled[i]?.error ? null : settled[i]?.value;
+    return {
       skill: skill.name,
       score: verdict ? verdict.score : null,
       of: CRITERIA.length,
       criteria: verdict ? verdict.criteria : null,
       notes: verdict ? verdict.notes : 'judge unavailable',
-    });
-  }
-  return results;
+    };
+  });
 }
 
 /**
@@ -189,13 +251,28 @@ export function agreement(judged, human) {
 
 export function formatJudge(results) {
   const lines = ['skill                            score  weakest'];
+  let unjudged = 0;
   for (const r of results) {
-    const failed = r.criteria ? Object.entries(r.criteria).filter(([, v]) => !v).map(([k]) => k) : [];
-    lines.push(
-      `${r.skill.padEnd(32)} ${r.score === null ? ' -- ' : `${r.score}/${r.of} `}  ${failed.join(', ') || '(all criteria met)'}`
-    );
+    // An unjudged skill has no criteria, so the "failed criteria" list is empty
+    // — which must never render as "(all criteria met)". That is the same
+    // unmeasured-reads-as-passing failure the exec suite guards against, and it
+    // is worse here because the score column showing `--` is easy to skim past.
+    let weakest;
+    if (!r.criteria) {
+      unjudged++;
+      weakest = 'NOT JUDGED — no verdict, not a pass';
+    } else {
+      const failed = Object.entries(r.criteria).filter(([, v]) => !v).map(([k]) => k);
+      weakest = failed.join(', ') || '(all criteria met)';
+    }
+    lines.push(`${r.skill.padEnd(32)} ${r.score === null ? ' -- ' : `${r.score}/${r.of} `}  ${weakest}`);
   }
   lines.push('');
+  if (unjudged > 0) {
+    lines.push(
+      `${unjudged} skill(s) returned no verdict — most often the per-call timeout. Those rows are unmeasured, not passing.`
+    );
+  }
   lines.push('ADVISORY ONLY — this score gates nothing. See docs/research/judge-calibration.md');
   return lines.join('\n');
 }

@@ -13,7 +13,7 @@ instructions: |-
   A PASS/FAIL verdict per check with file:line evidence for every failure, plus a ranked fix list.
 
   ## Working principles
-  - Run `fleetsmith qa <spec> --built <dir>` first and paste its output — the mechanical battery (spec gate, per-target compile, handoff graph, capability leaks, loop bounds, drift) is deterministic and already implemented. Never re-derive it by hand.
+  - Run `fleetsmith qa <spec> --built <dir>` then `fleetsmith eval <spec>` first and paste both outputs — the mechanical battery (spec gate, per-target compile, handoff graph, capability leaks, loop bounds, drift) and the trigger-routing suite are deterministic and already implemented. Never re-derive either by hand: reasoning your way through a check a command already answers is the single most expensive mistake available to you.
   - Your judgment is for what that command cannot decide: is the methodology substantive or generic, is the decomposition right, are the trigger phrases the ones a real user would type
   - Boundary-crossing comparison is the value, not existence checks — 'file exists' is not a finding
   - Every defect needs reproducible evidence: a command and its output, or file:line
