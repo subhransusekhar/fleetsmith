@@ -2,7 +2,8 @@
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 import YAML from 'yaml';
 import { normalizeSpec } from './spec/schema.js';
 import { validateSpec } from './spec/validate.js';
@@ -21,7 +22,8 @@ import { parsePlaybook, renderPlaybook, addBullet, bump, dedupe } from './playbo
 import { ADAPTERS, buildAll, DEFAULT_TARGETS } from './adapters/index.js';
 import { ARCHETYPES, archetype } from './patterns/index.js';
 import { planInstall, detectTools } from './install.js';
-import { getCliCommand } from './lib/registry.js';
+import * as registry from './lib/registry.js';
+import { getCliCommand, listRegistered } from './lib/registry.js';
 // Side-effect import: registers the file memory backend through the registry
 // (src/lib/registry.js). Nothing else in the CLI calls a memory backend
 // today, so without this the registry would sit empty on every OSS
@@ -61,8 +63,82 @@ install scopes:
 
 main();
 
+/**
+ * The fail-soft enterprise loader (G0.3, #29).
+ *
+ * `import('fleetsmith-ee')` is the ONLY reference to `ee/` core is allowed to
+ * make (G0.4's CI guard whitelists exactly this specifier — a path-form
+ * `../ee/...` import is always a violation, a bare package name is not). A
+ * broken or absent enterprise install must never brick the OSS CLI:
+ *  - Not installed: total silence. Absence is the normal, default state, and
+ *    warning about it on every invocation would be noise nobody asked for.
+ *  - Installed but its `register()` throws: exactly one warning line, then
+ *    continue with core behavior. An enterprise package is optional by
+ *    construction, and a bug in it must not out-rank the ability to run the
+ *    OSS command the user actually typed.
+ *
+ * `FLEETSMITH_EE_PATH` (an absolute path to an ee checkout's `src/index.js`)
+ * exists so ee/ can be developed and tested against a real core CLI without
+ * `npm install`ing a package first — the loop this repo's own fleet depends on
+ * for dogfooding itself.
+ *
+ * Version metadata (name/version/license, for `--version`) is read from the
+ * loaded package's own `package.json` rather than duplicated into its
+ * exports, so there is exactly one place that can drift out of date.
+ *
+ * Known gap: an installed `fleetsmith-ee` whose OWN internal import of some
+ * other, unrelated module fails also throws `ERR_MODULE_NOT_FOUND`, which
+ * this treats identically to "fleetsmith-ee itself is not installed" and so
+ * stays silent rather than warning. Distinguishing the two reliably needs
+ * inspecting the error's resolved specifier, which Node does not expose
+ * uniformly across the supported engine range (`>=18`); not worth the
+ * fragility for a rare packaging bug in a dependency that fails loudly the
+ * moment someone actually runs an enterprise command.
+ */
+async function loadEnterprise() {
+  const require = createRequire(import.meta.url);
+  let mod;
+  let meta = null;
+  try {
+    mod = await import('fleetsmith-ee');
+    try {
+      meta = require('fleetsmith-ee/package.json');
+    } catch {
+      /* metadata is best-effort; --version simply omits the ee line */
+    }
+  } catch (e) {
+    if (e?.code !== 'ERR_MODULE_NOT_FOUND') {
+      console.error(`warn: fleetsmith-ee failed to load: ${e.message}`);
+      return null;
+    }
+    const eePath = process.env.FLEETSMITH_EE_PATH;
+    if (!eePath) return null; // not installed and no dev override — the normal OSS state
+    const resolved = path.resolve(eePath);
+    try {
+      mod = await import(pathToFileURL(resolved).href);
+    } catch (e2) {
+      console.error(`warn: FLEETSMITH_EE_PATH failed to load: ${e2.message}`);
+      return null;
+    }
+    try {
+      // FLEETSMITH_EE_PATH points at src/index.js; package.json is one level up.
+      meta = JSON.parse(fs.readFileSync(path.join(path.dirname(resolved), '..', 'package.json'), 'utf8'));
+    } catch {
+      /* metadata is best-effort here too */
+    }
+  }
+  try {
+    await mod.register(registry);
+  } catch (e) {
+    console.error(`warn: fleetsmith-ee registration failed: ${e.message}`);
+    return null;
+  }
+  return { meta };
+}
+
 async function main() {
   const [, , cmd, ...rest] = process.argv;
+  const ee = await loadEnterprise();
   const { positional, flags } = parseArgs(rest);
   try {
     switch (cmd) {
@@ -95,14 +171,14 @@ async function main() {
       case 'version':
       case '--version':
       case '-v':
-        return cmdVersion();
+        return cmdVersion(ee);
       default: {
         // Enterprise commands (e.g. a future `fleetsmith grid`) register
-        // through src/lib/registry.js — see the fail-soft loader landing in
-        // G0.3 for who actually populates it. This dispatcher only needs to
-        // consult it: an unrecognized verb the registry also does not know is
-        // either a typo or an enterprise command that is not installed, and
-        // the one-line hint below covers both without guessing which.
+        // through src/lib/registry.js via the fail-soft loader above. This
+        // dispatcher only needs to consult it: an unrecognized verb the
+        // registry also does not know is either a typo or an enterprise
+        // command that is not installed, and the one-line hint below covers
+        // both without guessing which.
         const handler = getCliCommand(cmd);
         if (handler) {
           process.exitCode = (await handler(rest)) ?? 0;
@@ -715,11 +791,18 @@ function cmdPatterns() {
   }
 }
 
-function cmdVersion() {
+function cmdVersion(ee) {
   // __FLEETSMITH_VERSION__ is injected by the bundler for standalone binaries;
   // when running from source it is undefined, so fall back to package.json.
   const injected = typeof __FLEETSMITH_VERSION__ !== 'undefined' ? __FLEETSMITH_VERSION__ : undefined;
   console.log(injected ?? readPkg().version ?? 'unknown');
+  // Output is byte-identical to core-only whenever ee did not load: this
+  // block only ever adds lines, never changes the line above.
+  if (ee?.meta) {
+    console.log(`${ee.meta.name} ${ee.meta.version} (${ee.meta.license})`);
+    const { commands } = listRegistered();
+    if (commands.length) console.log(`registered commands: ${commands.join(', ')}`);
+  }
 }
 
 /** Shared: load + validate a spec and compile it to a FileSet. */

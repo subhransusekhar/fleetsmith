@@ -1,0 +1,7 @@
+{
+  "name": "fleetsmith-ee-test-fixture-broken",
+  "version": "0.0.0-fixture",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "main": "./src/index.js"
+}
