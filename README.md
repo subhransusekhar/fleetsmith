@@ -463,6 +463,14 @@ Everything a fleet remembers now sits behind a five-verb port — `remember`, `r
 
 An optional [RelataDB](https://relatadb.dev) adapter is planned for deployments that need semantic recall, provenance queries, bi-temporal history, or multi-tenant isolation — BYOL, customer-supplied instance, no vendored code, and always degrading to the file backend. A stated non-goal: **no capability may be backend-only.** See [`docs/milestones/v0.6.0-enterprise-memory.md`](docs/milestones/v0.6.0-enterprise-memory.md).
 
+## Enterprise: the Intelligence Grid (v0.7.0, planned)
+
+The enterprise tier answers what git-mediated sharing cannot: **multiple developers running fleets in the same repo, in sync before any commit exists.** A `fleetsmith grid` daemon projects each developer's ledger rows, handoff pointers, and presence into a customer-run RelataDB cortex and materializes every peer's projection back down as plain files under `_fleet/local/grid/` — so agents see, in `GRID.md`, who is working on which task, which files and symbols they've declared, and where overlaps or merge risks are forming. Team memory recalls semantically across developers; client meeting notes and product discussions import as governed, provenance-tracked knowledge; and a cortex console adds per-developer tokens, purpose-audited recall, and an org-approval channel.
+
+The governing rule extends the handover protocol verbatim: **the grid is a doorbell network; local files remain the payload and the authority.** Grid state is advisory, staleness-marked, may never gate an agent, and every capability degrades to the file backend + git with one warning. Everything ships under [`ee/`](ee/) (AGPL-3.0-only, separate `fleetsmith-ee` package) behind a plugin registry — core stays MIT and `rm -rf ee/` restores OSS behavior exactly.
+
+Read: [`docs/architecture/intelligence-grid.md`](docs/architecture/intelligence-grid.md) (architecture + load-bearing decisions) · [`docs/milestones/v0.7.0-intelligence-grid.md`](docs/milestones/v0.7.0-intelligence-grid.md) (milestone) · [`docs/milestones/v0.7.0-tasks.md`](docs/milestones/v0.7.0-tasks.md) (task breakdown).
+
 ## Design notes
 
 - **Validation is graph-aware:** unknown handoff targets, orphaned agents, cycles (allowed for supervisor patterns, flagged otherwise), skills nobody uses, missing artifact contracts, Agent Skills spec limits (name ≤ 64 chars, description ≤ 1024).
@@ -488,11 +496,14 @@ src/
 ├── evolve/              # typed patch API, protected paths, the loop, promotion
 ├── opencode-plugin.js   # opencode plugin core (tools) — no peer dep, testable
 └── opencode.js          # opencode plugin entry (imports @opencode-ai/plugin)
+ee/                      # Enterprise Edition (AGPL-3.0-only, fleetsmith-ee):
+                         #   Intelligence Grid — RelataDB adapter, grid daemon,
+                         #   org-knowledge import, cortex console (v0.7.0, planned)
 .claude/                 # the meta-fleet (agents + skills + harness-builder)
 _fleet/shared/           # committed team knowledge (changelog, playbooks, decisions)
 docs/spec.md             # full fleet.yaml reference
 docs/evolution.md        # the self-evolution loop, invariants, rollback
-docs/architecture/       # multi-developer workspace design
+docs/architecture/       # multi-developer workspace + intelligence-grid design
 docs/research/           # cited research (formats, harness practice, self-evolution)
 fleet.example.yaml       # full-featured example spec
 test/eval-fleets/        # held-out specs used as a regression corpus
@@ -526,4 +537,8 @@ The `release` workflow (`.github/workflows/release.yml`) triggers on the `v*` ta
 
 ## License
 
-MIT
+MIT — with one exception: everything under `ee/` (the Enterprise Edition:
+Intelligence Grid, RelataDB adapter, cortex console) is **AGPL-3.0-only**
+under its own `ee/LICENSE`, and ships as the separate `fleetsmith-ee`
+package. The MIT core is complete on its own; deleting `ee/` changes
+nothing. See `ee/README.md` and `docs/milestones/v0.7.0-intelligence-grid.md`.
