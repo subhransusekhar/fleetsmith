@@ -21,6 +21,13 @@ import { parsePlaybook, renderPlaybook, addBullet, bump, dedupe } from './playbo
 import { ADAPTERS, buildAll, DEFAULT_TARGETS } from './adapters/index.js';
 import { ARCHETYPES, archetype } from './patterns/index.js';
 import { planInstall, detectTools } from './install.js';
+import { getCliCommand } from './lib/registry.js';
+// Side-effect import: registers the file memory backend through the registry
+// (src/lib/registry.js). Nothing else in the CLI calls a memory backend
+// today, so without this the registry would sit empty on every OSS
+// invocation and the plugin seam would go completely unexercised outside
+// tests.
+import './memory/file.js';
 
 const USAGE = `fleetsmith — meta agent-fleet builder
 
@@ -89,9 +96,28 @@ async function main() {
       case '--version':
       case '-v':
         return cmdVersion();
-      default:
+      default: {
+        // Enterprise commands (e.g. a future `fleetsmith grid`) register
+        // through src/lib/registry.js — see the fail-soft loader landing in
+        // G0.3 for who actually populates it. This dispatcher only needs to
+        // consult it: an unrecognized verb the registry also does not know is
+        // either a typo or an enterprise command that is not installed, and
+        // the one-line hint below covers both without guessing which.
+        const handler = getCliCommand(cmd);
+        if (handler) {
+          process.exitCode = (await handler(rest)) ?? 0;
+          return;
+        }
+        if (cmd && cmd !== 'help' && cmd !== '--help' && cmd !== '-h') {
+          console.error(
+            `error: unknown command "${cmd}". If this is an enterprise verb, install fleetsmith-ee ` +
+              '(npm install -g fleetsmith-ee); otherwise run "fleetsmith --help".'
+          );
+          process.exitCode = 1;
+          return;
+        }
         process.stdout.write(USAGE);
-        process.exitCode = cmd && cmd !== 'help' && cmd !== '--help' && cmd !== '-h' ? 1 : 0;
+      }
     }
   } catch (e) {
     console.error(`error: ${e.message}`);

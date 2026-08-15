@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { assertValidItem, assertValidRecall, MemoryError } from './port.js';
 import { parsePlaybook, renderPlaybook, addBullet, bump, dedupe } from '../playbook/index.js';
+import { registerMemoryBackend } from '../lib/registry.js';
 
 /**
  * The file backend — the default, and the only bundled, memory implementation.
@@ -250,3 +251,10 @@ function hash(text) {
   for (const ch of String(text)) h = (h * 31 + ch.charCodeAt(0)) | 0;
   return Math.abs(h).toString(36).slice(0, 8);
 }
+
+// Self-register through the plugin seam (src/lib/registry.js) so an OSS run
+// exercises the exact path an ee memory backend would use, rather than that
+// seam only ever being touched by an enterprise install. Runs once per
+// process: ESM caches this module, so importing file.js from many call sites
+// re-registers nothing.
+registerMemoryBackend('file', (config) => fileBackend(config));
