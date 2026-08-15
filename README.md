@@ -541,4 +541,7 @@ MIT — with one exception: everything under `ee/` (the Enterprise Edition:
 Intelligence Grid, RelataDB adapter, cortex console) is **AGPL-3.0-only**
 under its own `ee/LICENSE`, and ships as the separate `fleetsmith-ee`
 package. The MIT core is complete on its own; deleting `ee/` changes
-nothing. See `ee/README.md` and `docs/milestones/v0.7.0-intelligence-grid.md`.
+nothing. See [`docs/licensing.md`](docs/licensing.md) for the full boundary —
+what each license permits, the standing BYOL rules for RelataDB, and how a
+future commercial license on `ee/` could work without touching core — plus
+`ee/README.md` and `docs/milestones/v0.7.0-intelligence-grid.md`.
