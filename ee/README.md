@@ -2,7 +2,9 @@
 
 Everything under `ee/` is licensed **AGPL-3.0-only** (see `ee/LICENSE`).
 Everything outside `ee/` remains **MIT** and is complete on its own — the
-file backend and git are the supported OSS answer, forever.
+file backend and git are the supported OSS answer, forever. See
+[`docs/licensing.md`](../docs/licensing.md) for what each license permits and
+the standing BYOL rules for RelataDB.
 
 ## What lives here
 
