@@ -31,6 +31,16 @@ import { rankProposals, rejectionRates, decisionDigest, readDecisions, recordDec
 import { parseOps, buildPrompt } from '../src/evolve/proposer.js';
 import { buildFleetsmithTools, opValidate, opBuild, opInit, opPatterns } from '../src/opencode-plugin.js';
 import { validatorScript } from '../src/adapters/claude-settings.js';
+import {
+  registerMemoryBackend,
+  getMemoryBackend,
+  registerCliCommand,
+  getCliCommand,
+  registerDaemonHook,
+  runDaemonHooks,
+  listRegistered,
+  _resetForTests as resetRegistry,
+} from '../src/lib/registry.js';
 import YAML from 'yaml';
 
 function demoSpec() {
@@ -3629,4 +3639,134 @@ test('justify returns provenance, not just the text', async () => {
   assert.equal(why.origin, 'evolved');
   assert.deepEqual(why.counters, { helpful: 1, harmful: 0 });
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// --- v0.7.0 G0.2: plugin registry --------------------------------------------
+
+/**
+ * `_resetForTests()` clears the WHOLE registry, but 'file' only ever
+ * registers itself once — as a side effect of importing memory/file.js at the
+ * top of this file, which ESM caches, so nothing can re-trigger it. Any test
+ * that resets must restore that invariant or it strands every later test
+ * (including the real CLI, conceptually) without a default memory backend.
+ */
+function resetRegistryForTest() {
+  resetRegistry();
+  registerMemoryBackend('file', fileBackend);
+}
+
+test('registerMemoryBackend registers a factory, resolved by name only', () => {
+  resetRegistryForTest();
+  const factory = (config) => ({ config });
+  registerMemoryBackend('fixture', factory);
+  assert.equal(getMemoryBackend('fixture'), factory);
+  assert.equal(getMemoryBackend('nonexistent'), undefined);
+  // Registering does not select — nothing here designates 'fixture' the
+  // active backend, it only becomes reachable by that name.
+  resetRegistryForTest();
+});
+
+test('duplicate registration under one name throws, for every registrable kind', () => {
+  resetRegistryForTest();
+  registerMemoryBackend('dup', () => ({}));
+  assert.throws(() => registerMemoryBackend('dup', () => ({})), /already registered/);
+
+  registerCliCommand('dup', async () => 0);
+  assert.throws(() => registerCliCommand('dup', async () => 0), /already registered/);
+  resetRegistryForTest();
+});
+
+test('registerCliCommand is resolved by name, and unknown names resolve to undefined', () => {
+  resetRegistryForTest();
+  const handler = async () => 0;
+  registerCliCommand('widget', handler);
+  assert.equal(getCliCommand('widget'), handler);
+  assert.equal(getCliCommand('nope'), undefined);
+  resetRegistryForTest();
+});
+
+test('daemon hooks only accept the reserved event names', () => {
+  resetRegistryForTest();
+  assert.throws(() => registerDaemonHook('not_a_real_event', () => {}), /unknown daemon hook event/);
+  registerDaemonHook('run_start', () => {});
+  registerDaemonHook('run_end', () => {});
+  resetRegistryForTest();
+});
+
+test('daemon hooks are fire-and-forget: a throwing hook is logged, not propagated', async () => {
+  resetRegistryForTest();
+  const calls = [];
+  registerDaemonHook('run_start', () => calls.push('a'));
+  registerDaemonHook('run_start', () => {
+    throw new Error('boom');
+  });
+  registerDaemonHook('run_start', () => calls.push('b'));
+
+  const originalError = console.error;
+  const logged = [];
+  console.error = (msg) => logged.push(msg);
+  try {
+    await runDaemonHooks('run_start');
+  } finally {
+    console.error = originalError;
+  }
+  // The throwing hook must not stop its siblings from running.
+  assert.deepEqual(calls, ['a', 'b']);
+  assert.match(logged.join('\n'), /run_start.*boom/s);
+  resetRegistryForTest();
+});
+
+test('listRegistered reports names only — never factories or handlers', () => {
+  resetRegistryForTest();
+  registerMemoryBackend('fixture-backend', () => ({}));
+  registerCliCommand('fixture-command', async () => 0);
+  registerDaemonHook('run_end', () => {});
+  const listed = listRegistered();
+  // 'file' is present because resetRegistryForTest() re-seeds it — that is the
+  // one always-on registration a real CLI invocation would have too.
+  assert.deepEqual(listed.backends.sort(), ['file', 'fixture-backend'].sort());
+  assert.deepEqual(listed.commands, ['fixture-command']);
+  assert.equal(listed.hooks.run_end, 1);
+  assert.equal(listed.hooks.run_start, 0);
+  // Every value must be a plain string or number, never a function.
+  for (const v of [...listed.backends, ...listed.commands]) assert.equal(typeof v, 'string');
+  resetRegistryForTest();
+});
+
+test('the file backend registers itself through the registry on import', async () => {
+  // memory/file.js is imported at the top of this test file (for `fileBackend`
+  // directly), so its top-level `registerMemoryBackend('file', …)` call has
+  // already fired exactly once by the time any test runs — ESM caches modules,
+  // so a fresh `import()` here would not re-run that side effect and is not
+  // what this is meant to prove. No reset: resetting would erase the
+  // registration for the rest of this file's tests with no way back, since
+  // re-importing cannot re-trigger it.
+  assert.ok(getMemoryBackend('file'), 'file backend did not register itself on import');
+  const spec = normalizeSpec({ fleet: { name: 'reg' }, agents: [{ name: 'a', role: 'r' }] });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-reg-'));
+  const backend = getMemoryBackend('file')({ spec, cwd: dir });
+  const { id } = await backend.remember({ kind: 'note', text: 'resolved through the registry', origin: 'human' });
+  assert.ok(id);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('an unknown command not covered by any registration gets the install hint and a non-zero exit', () => {
+  // Nothing is registered in this subprocess (no ee package is installed and
+  // no FLEETSMITH_EE_PATH is set), so this exercises the genuinely-unknown
+  // path: the dispatcher consults the registry, finds nothing, and gives a
+  // one-line hint rather than dumping the full usage block.
+  const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
+  const res = spawnSync('node', [cli, 'totally-not-a-real-command'], { encoding: 'utf8' });
+  assert.equal(res.status, 1);
+  assert.match(res.stderr, /unknown command "totally-not-a-real-command"/);
+  assert.match(res.stderr, /install fleetsmith-ee/);
+});
+
+test('help and --help still print full usage with a zero exit', () => {
+  const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
+  for (const flag of ['help', '--help', '-h']) {
+    const res = spawnSync('node', [cli, flag], { encoding: 'utf8' });
+    assert.equal(res.status, 0, `"${flag}" must exit 0`);
+    assert.match(res.stdout, /fleetsmith — meta agent-fleet builder/);
+  }
 });
