@@ -3770,3 +3770,80 @@ test('help and --help still print full usage with a zero exit', () => {
     assert.match(res.stdout, /fleetsmith — meta agent-fleet builder/);
   }
 });
+
+// --- v0.7.0 G0.3: fail-soft enterprise loader --------------------------------
+
+function cliRun(args, env = {}) {
+  const cli = fileURLToPath(new URL('../src/cli.js', import.meta.url));
+  return spawnSync('node', [cli, ...args], { encoding: 'utf8', env: { ...process.env, ...env } });
+}
+
+const FIXTURE_GOOD = fileURLToPath(new URL('./fixtures/ee-loader/good/src/index.js', import.meta.url));
+const FIXTURE_BROKEN = fileURLToPath(new URL('./fixtures/ee-loader/broken/src/index.js', import.meta.url));
+
+test('CLI output is byte-identical to core-only when no enterprise package is present', () => {
+  // No FLEETSMITH_EE_PATH, and fleetsmith-ee is not an installed dependency of
+  // this repo — this is the default OSS state, and it must produce no warning
+  // and no extra output at all.
+  const version = cliRun(['version']);
+  assert.equal(version.status, 0);
+  assert.equal(version.stderr, '');
+  assert.equal(version.stdout.trim().split('\n').length, 1, 'no ee line should appear when nothing is installed');
+
+  const help = cliRun(['--help']);
+  assert.equal(help.stderr, '');
+});
+
+test('FLEETSMITH_EE_PATH loads a real module and augments --version', () => {
+  const res = cliRun(['version'], { FLEETSMITH_EE_PATH: FIXTURE_GOOD });
+  assert.equal(res.status, 0);
+  assert.equal(res.stderr, '', 'a working ee module must load silently, with no warning');
+  const lines = res.stdout.trim().split('\n');
+  // Line 1 (core version) is untouched; line 2 names the loaded package; line 3
+  // (checked separately below) only appears because this fixture registers a
+  // command — a fixture that registered nothing would stop at line 2.
+  assert.equal(lines.length, 3);
+  assert.match(lines[0], /^\d+\.\d+\.\d+/);
+  assert.match(lines[1], /^fleetsmith-ee-test-fixture 9\.9\.9-fixture \(AGPL-3\.0-only\)$/);
+});
+
+test('a registered command becomes runnable through the CLI dispatcher', () => {
+  // This is the positive path G0.2 could not exercise on its own: nothing
+  // populated the registry in a live process until this loader existed.
+  const res = cliRun(['grid-fixture', 'foo', 'bar'], { FLEETSMITH_EE_PATH: FIXTURE_GOOD });
+  assert.equal(res.status, 0);
+  assert.match(res.stdout, /grid-fixture ran with: foo bar/);
+});
+
+test('--version lists the registered command names when ee is loaded', () => {
+  const res = cliRun(['version'], { FLEETSMITH_EE_PATH: FIXTURE_GOOD });
+  assert.match(res.stdout, /registered commands: grid-fixture/);
+});
+
+test('a broken enterprise module logs exactly one warning and the CLI keeps working', () => {
+  const res = cliRun(['version'], { FLEETSMITH_EE_PATH: FIXTURE_BROKEN });
+  assert.equal(res.status, 0, 'a broken optional package must not brick the OSS CLI');
+  const warnLines = res.stderr.trim().split('\n').filter(Boolean);
+  assert.equal(warnLines.length, 1, 'exactly one warning line, not a stack trace dump');
+  assert.match(warnLines[0], /fleetsmith-ee registration failed.*deliberately broken fixture/);
+  assert.match(res.stdout, /^\d+\.\d+\.\d+/, 'core --version still printed a version');
+});
+
+test('a nonexistent FLEETSMITH_EE_PATH warns once and does not crash the CLI', () => {
+  const res = cliRun(['version'], { FLEETSMITH_EE_PATH: '/no/such/path/index.js' });
+  assert.equal(res.status, 0);
+  const warnLines = res.stderr.trim().split('\n').filter(Boolean);
+  assert.equal(warnLines.length, 1);
+  assert.match(warnLines[0], /FLEETSMITH_EE_PATH failed to load/);
+});
+
+test('the real ee/ scaffold loads cleanly via FLEETSMITH_EE_PATH (dogfood check)', () => {
+  // ee/src/index.js's register() is intentionally empty until G1/G3, so this
+  // only proves the scaffold itself — license header, package.json shape,
+  // entrypoint — is loadable by the same mechanism a real install would use.
+  const eeIndex = fileURLToPath(new URL('../ee/src/index.js', import.meta.url));
+  const res = cliRun(['version'], { FLEETSMITH_EE_PATH: eeIndex });
+  assert.equal(res.status, 0);
+  assert.equal(res.stderr, '');
+  assert.match(res.stdout, /fleetsmith-ee \d+\.\d+\.\d+-dev\.\d+ \(AGPL-3\.0-only\)/);
+});
