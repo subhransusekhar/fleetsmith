@@ -35,7 +35,7 @@ node ee/console/server/index.js
 |---|---|---|---|
 | GET | `/api/health` | public | G8.7 |
 | GET | `/api/board?remote=` | member | G8.2 |
-| GET | `/api/audit?remote=&actor=&since=&until=&purpose=&limit=` | member | G8.3 |
+| GET | `/api/audit?actor=&since=&until=&purpose=&limit=` | member (self-only, forced) / admin (any actor) | G8.3 |
 | GET | `/api/audit/why?id=` | member | G8.3 |
 | GET | `/api/knowledge?remote=&q=&purpose=&asOf=&asRecorded=&limit=` | member | G8.4 |
 | GET | `/api/procedures?q=&purpose=&limit=` | member | G8.4 (read-only — see `routes/knowledge.js`) |
@@ -49,8 +49,13 @@ node ee/console/server/index.js
 | DELETE | `/api/tokens/:id` | **admin** | G8.6 |
 
 `role: 'admin'` routes are exactly what G8.8's curl-bypass suite targets: a member token (or no token at all)
-must get a 403/401 from every one of them, server-side, regardless of what the (not-yet-built) web UI would
-have rendered.
+must get a 403/401 from every one of them, server-side, regardless of what the web UI would have rendered.
+
+`/api/audit` has a THIRD access shape, distinct from the plain member/admin split: a member token's `actor`
+filter is overwritten server-side with their own discovered principal (`routes/audit.js`'s
+`requireSelfOnlyActor`) regardless of what `?actor=` the request carries — a member sees only their own audit
+history, never another actor's, even with a tampered query param. Admin sees any actor. A member with no
+discoverable principal at all is refused (403), not silently shown zero rows or every row.
 
 ## Real engine constraints this design accounts for (verified, not assumed)
 

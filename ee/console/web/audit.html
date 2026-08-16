@@ -1,0 +1,179 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>fleetsmith grid — audit</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 0; padding: 1.5rem; max-width: 960px; margin-inline: auto; line-height: 1.4; }
+  h1 { font-size: 1.1rem; margin: 0 0 1rem; }
+  h2 { font-size: 0.95rem; margin: 1.75rem 0 0.5rem; }
+  code { font-size: 0.85em; }
+  nav { font-size: 0.85rem; margin-bottom: 0.75rem; }
+  nav a { margin-right: 1rem; }
+  nav a.current { font-weight: 600; text-decoration: none; }
+  form { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; align-items: center; }
+  form input, form select { padding: 0.35rem 0.5rem; }
+  form input#connect-token { flex: 1 1 220px; }
+  button { padding: 0.35rem 0.75rem; }
+  #status { font-size: 0.85rem; color: #666; margin-bottom: 1rem; }
+  #self-only-note { font-size: 0.8rem; color: #a15c00; margin-bottom: 0.5rem; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  th, td { border: 1px solid #ccc; padding: 0.35rem 0.5rem; text-align: left; vertical-align: top; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: rgba(0, 0, 0, 0.04); }
+  .empty { color: #888; font-style: italic; }
+  #why-panel { border: 1px solid #ccc; border-radius: 6px; padding: 0.75rem 1rem; margin-top: 0.75rem; }
+  #why-panel.hidden { display: none; }
+  pre { white-space: pre-wrap; word-break: break-word; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<nav><a href="/">Board</a><a class="current" href="/audit.html">Audit</a></nav>
+<h1>fleetsmith grid — audit</h1>
+
+<form id="connect">
+  <input id="token" placeholder="bearer token" type="password" required />
+  <button type="submit">Connect</button>
+</form>
+
+<div id="content" hidden>
+  <div id="status"></div>
+  <div id="self-only-note" hidden>Showing only your own entries — a member token cannot see other actors' audit history, regardless of the actor filter below.</div>
+
+  <!--
+    This filter form is a convenience only. "actor" is NOT trusted client-side: a member token gets its own
+    principal forced server-side (routes/audit.js's requireSelfOnlyActor) no matter what this field holds —
+    the server, not this page, is what G8.3's own acceptance criterion depends on.
+  -->
+  <form id="filters">
+    <input id="filter-actor" placeholder="actor" />
+    <input id="filter-purpose" placeholder="purpose" />
+    <input id="filter-since" placeholder="since (ISO)" />
+    <input id="filter-until" placeholder="until (ISO)" />
+    <input id="filter-limit" placeholder="limit" type="number" min="1" />
+    <button type="submit">Filter</button>
+    <button type="button" id="export">Export CSV</button>
+  </form>
+
+  <table>
+    <thead><tr><th>Timestamp</th><th>Actor</th><th>Action</th><th>Purpose</th><th>Object</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <p id="empty" class="empty" hidden>no audit entries found matching this query.</p>
+
+  <div id="why-panel" class="hidden">
+    <h2>Why: <span id="why-id"></span></h2>
+    <div id="why-body"></div>
+  </div>
+</div>
+
+<script>
+  let token = null;
+  let currentEntries = [];
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function buildQuery() {
+    const params = new URLSearchParams();
+    const actor = document.getElementById('filter-actor').value.trim();
+    const purpose = document.getElementById('filter-purpose').value.trim();
+    const since = document.getElementById('filter-since').value.trim();
+    const until = document.getElementById('filter-until').value.trim();
+    const limit = document.getElementById('filter-limit').value.trim();
+    if (actor) params.set('actor', actor);
+    if (purpose) params.set('purpose', purpose);
+    if (since) params.set('since', since);
+    if (until) params.set('until', until);
+    if (limit) params.set('limit', limit);
+    return params.toString();
+  }
+
+  function renderRows(entries) {
+    const el = document.getElementById('rows');
+    document.getElementById('empty').hidden = entries.length !== 0;
+    el.innerHTML = entries
+      .map(
+        (e, i) =>
+          `<tr data-index="${i}"><td>${escapeHtml(e.timestamp)}</td><td>${escapeHtml(e.actor)}</td><td>${escapeHtml(e.action)}</td><td>${escapeHtml(e.purpose)}</td><td>${escapeHtml(e.object)}</td></tr>`
+      )
+      .join('');
+    el.querySelectorAll('tr').forEach((tr) => {
+      tr.addEventListener('click', () => showWhy(entries[Number(tr.dataset.index)].object));
+    });
+  }
+
+  async function showWhy(id) {
+    const panel = document.getElementById('why-panel');
+    const body = document.getElementById('why-body');
+    document.getElementById('why-id').textContent = id;
+    panel.classList.remove('hidden');
+    body.innerHTML = '<p class="empty">loading…</p>';
+    try {
+      const res = await fetch(`/api/audit/why?id=${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${token}` } });
+      const explanation = await res.json();
+      if (!res.ok) {
+        body.innerHTML = `<p class="empty">${escapeHtml(explanation.error ?? res.status)}</p>`;
+        return;
+      }
+      body.innerHTML = `<pre>${escapeHtml(JSON.stringify(explanation, null, 2))}</pre>`;
+    } catch (e) {
+      body.innerHTML = `<p class="empty">${escapeHtml(e.message)}</p>`;
+    }
+  }
+
+  function toCsv(entries) {
+    const header = ['timestamp', 'actor', 'action', 'purpose', 'object'];
+    const escapeCsv = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = [header.join(',')];
+    for (const e of entries) lines.push(header.map((k) => escapeCsv(e[k])).join(','));
+    return lines.join('\r\n');
+  }
+
+  document.getElementById('export').addEventListener('click', () => {
+    // Client-side only, from the currently-fetched JSON — the BFF stays thin (no /api/audit/export route),
+    // and the export always matches whatever filter produced `currentEntries`, by construction.
+    const blob = new Blob([toCsv(currentEntries)], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'audit.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  async function loadAudit() {
+    const statusEl = document.getElementById('status');
+    try {
+      const res = await fetch(`/api/audit?${buildQuery()}`, { headers: { Authorization: `Bearer ${token}` } });
+      const body = await res.json();
+      if (!res.ok) {
+        statusEl.textContent = `error: ${body.error ?? res.status}`;
+        return;
+      }
+      currentEntries = body.entries;
+      document.getElementById('self-only-note').hidden = !body.selfOnly;
+      statusEl.textContent = `${body.entries.length} entr${body.entries.length === 1 ? 'y' : 'ies'}`;
+      renderRows(body.entries);
+    } catch (e) {
+      statusEl.textContent = `error: ${e.message}`;
+    }
+  }
+
+  document.getElementById('connect').addEventListener('submit', (e) => {
+    e.preventDefault();
+    token = document.getElementById('token').value.trim();
+    if (!token) return;
+    document.getElementById('content').hidden = false;
+    loadAudit();
+  });
+
+  document.getElementById('filters').addEventListener('submit', (e) => {
+    e.preventDefault();
+    loadAudit();
+  });
+</script>
+</body>
+</html>
