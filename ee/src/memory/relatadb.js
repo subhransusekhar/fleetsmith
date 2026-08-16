@@ -253,6 +253,82 @@ function decodeRow(row) {
   return { id: row.id, ...decodeContent(row.content) };
 }
 
+// --- org knowledge union (G6.3) -----------------------------------------------------
+
+/**
+ * Purposes that pull org knowledge (G6.1's imported `OrgDocument` rows) into `recall()`, alongside this
+ * fleet's own team memory. Deliberately a fixed, small allowlist, not "any purpose" — purpose scoping here is
+ * a real filter, not cosmetic: a `regression_check` (G5.4) or `cross_dev_reuse` (G4.2) recall has no business
+ * surfacing a client meeting note just because a query term happens to overlap.
+ */
+const ORG_RECALL_PURPOSES = ['product_context', 'client_commitment', 'decision_rationale'];
+
+/** `OrgDocument.kind` (meeting/discussion/decision/spec — G6.1's own vocabulary) has no 1:1 mapping onto `ITEM_KINDS` (`src/memory/port.js`) — `decision` lines up directly; everything else is closest to `note`, an imported reference rather than a learned `lesson` or run `event`. */
+const ORG_KIND_TO_ITEM_KIND = { decision: 'decision', meeting: 'note', discussion: 'note', spec: 'note' };
+
+function escapeSqlString(value) {
+  return String(value).replace(/'/g, "''");
+}
+
+/**
+ * The same unpack shape `ee/src/grid/pull.js`'s `reconcile()` already verified for a plain `SELECT *`
+ * against this engine — each `/query` response record's `rows` pseudo-column holds a JSON-encoded array of
+ * the actual rows. Assumed, not independently re-verified against a live instance for `HYBRID_SEARCH`
+ * specifically (no live credential was available this session) — both statement forms go through the
+ * identical `/query` endpoint, so the same envelope is the reasonable expectation, not a confirmed one. A
+ * malformed record is skipped, never fatal to the rest.
+ */
+function unpackQueryRows(queryResult) {
+  const out = [];
+  for (const record of queryResult?.data ?? []) {
+    try {
+      out.push(...JSON.parse(record.rows ?? '[]'));
+    } catch {
+      /* skip this one record, not the whole result */
+    }
+  }
+  return out;
+}
+
+/** `"<source_file> (<kind>[, <client>], <valid_from date>)"` — literally what an agent pastes into a handoff's Context digest or Failed approaches section as a citation. `client` is omitted from the parenthetical when the document was imported without one, rather than leaving a bare double comma. */
+function orgDocumentProvenance(row) {
+  const parts = [row.kind];
+  if (row.client) parts.push(row.client);
+  parts.push(row.valid_from);
+  return `${row.source_file} (${parts.join(', ')})`;
+}
+
+function orgDocumentToItem(row) {
+  return {
+    id: `org:${row.content_hash}`,
+    kind: ORG_KIND_TO_ITEM_KIND[row.kind] ?? 'note',
+    text: row.chunk_text,
+    subject: row.title,
+    origin: 'human',
+    evidence: [orgDocumentProvenance(row)],
+    _score: typeof row.score === 'number' ? row.score : 0,
+  };
+}
+
+/**
+ * `HYBRID_SEARCH FROM OrgDocument QUERY '<q>' LIMIT <n>` — the engine's BM25⊕vector RRF search surface over
+ * imported org documents (G6.1), fused automatically whether or not a customer-run embedder sidecar (G6.2)
+ * is configured; this module never checks `config.accelEndpoint` itself, since the engine decides BM25-only
+ * vs. hybrid based on whether `_emb_text` was populated at import time, not at query time. Follows this
+ * task's own specification literally, per the module doc comment's standing convention: stated as the
+ * expected behavior, not independently re-confirmed against a live instance this session.
+ */
+async function recallOrgDocuments(config, query, limit) {
+  const sql = `HYBRID_SEARCH FROM OrgDocument QUERY '${escapeSqlString(query)}' LIMIT ${limit}`;
+  const result = await request(config, { method: 'POST', path: '/query', body: { sql, purpose: config.purposes?.[0] ?? DEFAULT_WRITE_PURPOSE } });
+  return unpackQueryRows(result).map(orgDocumentToItem);
+}
+
+function stripScore({ _score, ...item }) {
+  void _score;
+  return item;
+}
+
 /**
  * `recall` -> `GET /memory/recall`. Real, verified params: `query`,
  * `session_id`, `class_filter`, `top_k`, `purpose` (`as_of` and
@@ -265,10 +341,18 @@ function decodeRow(row) {
  * `opts.kind` are enforced client-side after decoding (see `overfetchLimit`),
  * since RelataDB's `recall` has no `subject` parameter and only the coarser
  * `class_filter` for kind.
+ *
+ * G6.3: for `ORG_RECALL_PURPOSES`, this UNIONS the above with `recallOrgDocuments()` — team memory and
+ * imported org knowledge answer through the exact same call, merged and ranked by whatever score each source
+ * exposes (missing/non-numeric scores sort last, not first — an unscored hit is not assumed irrelevant, but a
+ * genuinely-ranked one takes priority when both are present). The `_score` used to merge never appears on the
+ * final returned items — `MemoryItem`'s documented shape has no such field, so `stripScore` removes it after
+ * sorting. Every other purpose is completely unchanged — no `recallOrgDocuments` call is even made.
  */
 export async function recall(config, query, opts = {}) {
   assertValidRecall(opts);
   const hasClientSideFilter = Boolean(opts.kind || opts.subject);
+  const limit = opts.limit ?? 10;
   const result = await request(config, {
     method: 'GET',
     path: '/memory/recall',
@@ -277,14 +361,26 @@ export async function recall(config, query, opts = {}) {
       purpose: opts.purpose,
       session_id: deriveSessionId(config.fleetName),
       class_filter: classFilterFor(opts.kind),
-      top_k: overfetchLimit(opts.limit ?? 10, hasClientSideFilter),
+      top_k: overfetchLimit(limit, hasClientSideFilter),
     },
   });
-  return (result.rows ?? [])
-    .map(decodeRow)
+  const memoryItems = (result.rows ?? [])
+    .map((row) => ({ ...decodeRow(row), _score: typeof row.score === 'number' ? row.score : 0 }))
     .filter((item) => (opts.kind ? item.kind === opts.kind : true))
-    .filter((item) => (opts.subject ? item.subject === opts.subject : true))
-    .slice(0, opts.limit ?? 10);
+    .filter((item) => (opts.subject ? item.subject === opts.subject : true));
+
+  if (!ORG_RECALL_PURPOSES.includes(opts.purpose)) {
+    return memoryItems.slice(0, limit).map(stripScore);
+  }
+
+  const orgItems = (await recallOrgDocuments(config, query, overfetchLimit(limit, hasClientSideFilter)))
+    .filter((item) => (opts.kind ? item.kind === opts.kind : true))
+    .filter((item) => (opts.subject ? item.subject === opts.subject : true));
+
+  return [...memoryItems, ...orgItems]
+    .sort((a, b) => b._score - a._score)
+    .slice(0, limit)
+    .map(stripScore);
 }
 
 /**
