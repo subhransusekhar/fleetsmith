@@ -100,9 +100,15 @@ proposed by an automated evolution cycle.
 
 /**
  * The protocol block injected into every generated agent prompt.
- * `incoming` / `outgoing` are agent names for context wiring.
+ * `incoming` / `outgoing` are agent names for context wiring. `gridPath`
+ * (G4.1) is set only when the spec has a `grid:` block — compiled
+ * conditionally so a grid-disabled fleet's output is byte-identical to a
+ * build with no grid awareness at all. Like `ledgerPath`, only ever a path:
+ * the cache-stability invariant (`src/compile/agent-prompt.js`'s own doc
+ * comment) forbids anything run-varying — never GRID.md's actual content —
+ * from entering a compiled prompt.
  */
-export function protocolBlock({ agent, dir, ledgerPath, incoming, outgoing, artifact, criteria, schema }) {
+export function protocolBlock({ agent, dir, ledgerPath, gridPath, incoming, outgoing, artifact, criteria, schema }) {
   const lines = [];
   lines.push('## Handover protocol');
   lines.push('');
@@ -146,6 +152,13 @@ export function protocolBlock({ agent, dir, ledgerPath, incoming, outgoing, arti
     for (const [field, desc] of Object.entries(schema)) {
       lines.push(`- \`${sectionHeading(field)}\` — ${desc}`);
     }
+  }
+  if (gridPath) {
+    lines.push('');
+    lines.push('**Grid awareness** (multi-developer sync is enabled for this fleet):');
+    lines.push(
+      `Before claiming a task, read \`${gridPath}\`. If another actor's in-progress task declares files or symbols overlapping yours: say so in your handoff's Context digest, and prefer declaring a dependency on their artifact (\`depends on: @<actor>#<task-seq>\` in your ledger row) over re-implementing. Grid state is advisory and may be stale — the files in this checkout are the truth. If \`${gridPath}\` is missing or marked unreachable, proceed exactly as if the grid did not exist.`
+    );
   }
   lines.push('');
   lines.push('**What you return to the orchestrator:**');

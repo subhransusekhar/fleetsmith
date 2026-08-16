@@ -53,6 +53,7 @@ export function compileAgentBody(agent, spec, { team = false, playbook = [] } = 
       agent: agent.name,
       dir: spec.handover.dir,
       ledgerPath: spec.handover.ledger ? `${spec.fleet.local}/LEDGER.md` : null,
+      gridPath: spec.fleet.grid ? `${spec.fleet.local}/grid/GRID.md` : null,
       incoming,
       outgoing: agent.handoff.to,
       artifact: agent.handoff.artifact,
