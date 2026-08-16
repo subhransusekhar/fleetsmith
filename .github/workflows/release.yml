@@ -37,6 +37,18 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build:binary
+
+      # RUN the thing we are about to publish.
+      #
+      # v0.7.0 shipped a binary that threw before executing any command, and
+      # this job attached it to a release with every check green: `npm test`
+      # exercises the ESM sources, where `import.meta.url` is defined, while the
+      # binary is an esbuild CJS bundle where it is not. The suite cannot reach
+      # that failure by construction, so the artifact has to be executed
+      # directly or a dead binary looks exactly like a good one.
+      - name: Smoke-test the binary
+        run: npm run smoke:binary
+
       - name: Stage asset (unix)
         if: runner.os != 'Windows'
         run: cp dist/bin/fleetsmith "${{ matrix.asset }}"
@@ -49,6 +61,11 @@ jobs:
       - name: Build macOS x64
         if: matrix.os == 'macos-latest'
         run: npm run build:binary:macos-x64
+      # The Intel slice cannot be smoke-tested here — the runner is arm64 and
+      # Rosetta is not guaranteed on it — so its guarantee is narrower on
+      # purpose: the architecture is verified, and the CODE inside it is the
+      # same bundle the arm64 slice just executed successfully, since both are
+      # injected from one dist/fleetsmith.cjs.
       - name: Verify it really is x86_64
         if: matrix.os == 'macos-latest'
         run: |

@@ -1,6 +1,6 @@
 {
   "name": "fleetsmith-ee",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Fleetsmith Enterprise Edition — the Intelligence Grid: RelataDB-backed multi-developer memory sync, live task awareness, org-knowledge ingestion, and cortex governance.",
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -15,7 +15,7 @@
     "yaml": "^2.9.0"
   },
   "peerDependencies": {
-    "fleetsmith": ">=0.7.0"
+    "fleetsmith": ">=0.7.1"
   },
   "engines": {
     "node": ">=18"

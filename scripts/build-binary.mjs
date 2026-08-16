@@ -58,9 +58,15 @@ function run(cmd, args, opts = {}) {
 }
 
 // 1. Bundle to a single CJS file.
-if (!existsSync('dist/fleetsmith.cjs')) {
-  run(process.execPath, ['scripts/bundle.mjs']);
-}
+//
+// Always re-bundle. This used to be skipped when `dist/fleetsmith.cjs` already
+// existed, which quietly injects a STALE bundle whenever this script is run on
+// its own — `node scripts/build-binary.mjs` after a source edit produced a
+// binary built from the previous edit, with no output saying so. `npm run
+// build:binary` masked it by running the bundler first, so the footgun only
+// fired outside the npm script, which is exactly where a release engineer
+// debugging a bad binary would be. Bundling costs well under a second.
+run(process.execPath, ['scripts/bundle.mjs']);
 
 // 2. Generate the SEA blob.
 writeFileSync(

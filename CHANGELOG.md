@@ -1,3 +1,42 @@
+## 0.7.1 — the standalone binary actually runs
+
+A patch release for one defect: **every published v0.7.0 standalone binary threw before executing any
+command.** The npm package was never affected — download a v0.7.0 binary and `fleetsmith version` exits 1 with
+`ERR_INVALID_ARG_VALUE`; install from npm and it works. Anyone on the npm path can ignore this release.
+
+**The bug.** `loadEnterprise()` opened with `createRequire(import.meta.url)`, and it runs on the way into every
+command. The binary is an esbuild CJS bundle, and esbuild cannot fill `import.meta` in for that output format —
+it substitutes an empty object, so the argument was `undefined` and `createRequire` threw immediately. esbuild
+reported this at build time as an `empty-import-meta` warning on three separate call sites, and the warnings
+were not being read.
+
+- `loadEnterprise()` — fatal on every command
+- `defaultFleetsDir()` — `new URL(..., undefined)` throws, so `eval` was broken in the binary
+- `readPkg()` — already wrapped in a try/catch, so it only degraded
+
+All three now route through a single `MODULE_URL`, which is `null` inside the binary, and each caller degrades
+to what is actually true in a self-contained file: no sibling `package.json`, no sibling eval corpus, no
+`node_modules` to resolve `fleetsmith-ee` from.
+
+**Why CI did not catch it, and what now does.** `npm test` exercises the ESM sources, where `import.meta.url`
+is defined — the bundled artifact is a different program with a failure mode the suite cannot reach. Release CI
+built the binary, ran the tests, and attached the result without ever executing it.
+
+- `scripts/smoke-binary.mjs` runs the built binary: `version` (asserted against `package.json`), `patterns`,
+  a real `init` → `validate` → `build --target all`, and a non-zero exit on an unknown command. The release
+  workflow runs it before anything is attached. Verified by reintroducing the v0.7.0 defect and confirming the
+  gate fails.
+- `scripts/bundle.mjs` now defines `import.meta.url` explicitly and promotes `empty-import-meta` to an
+  **error**, so a new unrouted `import.meta` fails the build instead of shipping.
+- `scripts/build-binary.mjs` always re-bundles. It used to skip bundling when `dist/fleetsmith.cjs` existed,
+  which silently injects a stale bundle when the script is run on its own — found while testing the above.
+
+**Also in this release**
+
+- The public documentation site at <https://infinia-harness.adid.dev>, and the one-command installer served
+  from it (`curl -fsSL https://infinia-harness.adid.dev/install.sh | sh`), covering both editions. Source in
+  `website/`.
+
 ## 0.7.0 — Intelligence Grid
 
 Multiple developers running fleets against the same repo now stay in sync *before any git commit*, via an
