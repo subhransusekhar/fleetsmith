@@ -93,6 +93,9 @@ export function validateRow(typeName, row) {
   if (typeName === 'FleetTask' && row.status !== undefined && !type.statuses.includes(row.status)) {
     throw new OntologyError(`FleetTask.status "${row.status}" is not one of ${type.statuses.join(', ')}`);
   }
+  if (typeName === 'OrgDocument' && row.kind !== undefined && !type.kinds.includes(row.kind)) {
+    throw new OntologyError(`OrgDocument.kind "${row.kind}" is not one of ${type.kinds.join(', ')}`);
+  }
   return row;
 }
 

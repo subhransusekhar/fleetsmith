@@ -15,6 +15,7 @@ import { findOverlaps } from './overlaps.js';
 import { mergeRisks } from './merge-risk.js';
 import { renderOverlaps } from './overlaps-render.js';
 import { tasksFromGitOnly, listCandidateBranches } from './git-only.js';
+import { planImport, applyImport } from './import.js';
 
 /**
  * The `fleetsmith grid` CLI verb (G3.5): `init` (G3.1), `sync`, and `sync --watch` — the daemon that ties
@@ -503,13 +504,26 @@ export async function onRunEnd(ctx = {}) {
 
 // --- CLI dispatch ------------------------------------------------------------------
 
+/**
+ * A `--flag` immediately followed by a non-`--` token consumes it as a value (`--kind meeting` -> `{kind:
+ * 'meeting'}`); a `--flag` with no such next token (end of argv, or the next token is itself another `--flag`)
+ * stays a boolean `true` (`--watch`, `--git-only`, `--apply`). Safe because every real call site in this
+ * codebase places value-flags after every positional argument — never `--kind meeting fleet.yaml`.
+ */
 function parseGridArgs(argv) {
   const positional = [];
   const flags = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith('--')) {
-      flags[a.slice(2)] = true;
+      const key = a.slice(2);
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith('--')) {
+        flags[key] = next;
+        i++;
+      } else {
+        flags[key] = true;
+      }
     } else {
       positional.push(a);
     }
@@ -526,11 +540,13 @@ export async function gridCliHandler(argv) {
   const { positional, flags } = parseGridArgs(argv);
   const [subcommand, fleetYamlPath = 'fleet.yaml'] = positional;
 
-  if (!subcommand || !['init', 'sync', 'overlaps'].includes(subcommand)) {
+  if (!subcommand || !['init', 'sync', 'overlaps', 'import'].includes(subcommand)) {
     console.error(
-      `error: unknown grid subcommand "${subcommand ?? ''}" — expected "init", "sync [--watch]", or "overlaps [--git-only]" ` +
+      `error: unknown grid subcommand "${subcommand ?? ''}" — expected "init", "sync [--watch]", "overlaps [--git-only]", or ` +
+        '"import <path|dir> --kind meeting|discussion|decision|spec [--client <name>] [--date <YYYY-MM-DD>] [--apply]" ' +
         '("overlaps --git-only" needs no cortex, no grid config, and no network access at all — the OSS answer, ' +
-        'file-level overlaps synthesized straight from local git branches)'
+        'file-level overlaps synthesized straight from local git branches; "import" without --apply is a dry-run that ' +
+        'touches no network either)'
     );
     return 1;
   }
@@ -547,6 +563,43 @@ export async function gridCliHandler(argv) {
     if (subcommand === 'init') {
       const { summary } = await runInit(spec);
       console.log(summary);
+      return 0;
+    }
+
+    if (subcommand === 'import') {
+      const importPath = positional[2];
+      if (!importPath) {
+        console.error('error: `grid import` requires a <path|dir> argument');
+        return 1;
+      }
+      const validKinds = ['meeting', 'discussion', 'decision', 'spec'];
+      if (!validKinds.includes(flags.kind)) {
+        console.error(`error: \`grid import\` requires --kind (one of ${validKinds.join(', ')}), got "${flags.kind ?? ''}"`);
+        return 1;
+      }
+
+      const actor = resolveActor();
+      const repoId = resolveRepoId();
+      const localDir = localDirFor(spec, process.cwd());
+      const { plan, warnings: planWarnings } = planImport(importPath, {
+        kind: flags.kind,
+        client: flags.client ?? '',
+        date: flags.date ?? null,
+        actor,
+        repoDir: process.cwd(),
+      });
+
+      const totalRows = plan.reduce((n, f) => n + f.rows.length, 0);
+      console.log(`grid import: ${plan.length} file(s), ${totalRows} chunk(s) planned${flags.apply ? '' : ' (dry-run — pass --apply to actually ingest)'}`);
+      for (const f of plan) console.log(`  ${f.sourceFile}: ${f.rows.length} chunk(s), title="${f.title}", kind=${flags.kind}, valid_from=${f.validFrom}`);
+      for (const w of planWarnings) console.error(`warning: ${w}`);
+
+      if (!flags.apply) return 0;
+
+      const config = resolveConfigOrThrow(spec);
+      const { ingested, skipped, warnings: applyWarnings } = await applyImport(config, plan, { localDir, repoId });
+      console.log(`grid import --apply: ${ingested} row(s) ingested, ${skipped} already known (skipped, idempotent)`);
+      for (const w of applyWarnings) console.error(`warning: ${w}`);
       return 0;
     }
 
