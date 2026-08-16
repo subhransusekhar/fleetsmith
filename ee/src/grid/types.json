@@ -19,7 +19,7 @@
     }
   },
   "ActorPresence": {
-    "description": "One row per developer per repo — is their fleet running right now, on which branch, since when.",
+    "description": "One row per developer per repo — is their fleet running right now, on which branch, since when. `ended_at` (G3.5, additive) is set on a run_end supersession — the row is never deleted, only re-ingested with `ended_at` populated; a bare SELECT * still returns every version ever ingested (verified — RelataDB has no server-side dedup), so materialize()'s last-write-wins resolution (G3.4) sees the ended state without any row ever being removed.",
     "key": ["repo_id", "actor"],
     "fields": {
       "repo_id": "string",
@@ -28,6 +28,7 @@
       "branch": "string",
       "started_at": "string",
       "heartbeat_at": "string",
+      "ended_at": "string",
       "purpose": "string",
       "origin": "string"
     }
