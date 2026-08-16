@@ -1,0 +1,1653 @@
+/* Design system for the Infinia Office site.
+ *
+ * Follows the canonical Infinia brand spec: BRAND.md and brand.json beside this
+ * file, whose source of truth is atlas.xailon.ai. The palette below is
+ * brand.json's `design.colors` verbatim — change it there and here together, and
+ * re-run `node deploy/site/contrast.mjs`.
+ *
+ * Typography deliberately diverges from Atlas's Cairo: headings and the logo
+ * lockup are Space Grotesk, body copy is Inter. Brand decision, not an
+ * oversight — do not "fix" it.
+ *
+ * Some surfaces stay dark ON PURPOSE — the command box and the numbered step
+ * markers. A terminal reads as a terminal because it is dark, and every site in
+ * the family keeps the same islands. Do not "finish" the inversion.
+ */
+
+:root {
+  /* brand */
+  --ink: #110b35; /* headings, dark islands.        18.7:1 on white */
+  --ink-2: #2b1c8b; /* gradient start.                12.8:1 on white */
+  --blue: #2563eb; /* links, gradient end.            5.2:1 on white */
+  --blue-deep: #134678; /* inline code.                    8.6:1 on --tint-2 */
+  --violet: #613bb3; /* decorative only — Atlas's nav gradient, not the
+                        retired #8b5cf6 */
+  /* Infinia primary. 2.5:1 — DECORATIVE ONLY. Glow blobs and 3px gradient bars,
+     which carry no information and are outside WCAG 1.4.11. Never text, never an
+     icon that means something, never a control boundary. */
+  --cyan: #00b4d8;
+  --cyan-pale: #a9edff;
+  --glow-lilac: #eaddff;
+  --glow-warm: #f6e7ce;
+
+  /* ground */
+  --bg: #ffffff;
+  --tint: #f6faff; /* section wash */
+  --tint-2: #edf2ff; /* callout / inline-code wash */
+  --card-a: #e4f1ff; /* soft card fill, top */
+  --card-b: #f3f9ff; /* soft card fill, bottom */
+  --rule: #d3dff2;
+  --rule-2: #e6eefb; /* the softer edge on soft-fill cards */
+
+  /* text */
+  --text: #0d0d0d; /* 19.4:1 — strong body copy */
+  --body: #3a3a3a; /* 11.4:1 — ordinary body copy */
+  --muted: #5b5b5b; /* 6.8:1 — captions, roles */
+  --faint: #6e6a85; /* 5.2:1 — section eyebrows */
+
+  /* status. Deliberately NOT the dark theme's values: #34d399 / #a0ffa0 /
+     #fbbf24 all fail AA on white, and #a0ffa0 was ~1.3:1 — effectively
+     invisible — while being used for inline code. */
+  --ok: #0b7a44; /* success TEXT.                   5.4:1 */
+  --ok-bright: #0f9d58; /* graphical marks only.           3.5:1 */
+  --warn: #a06100; /* 5.0:1. The family's old #b26b00 was 4.2:1 and failed. */
+  --red: #c5221f; /* 5.8:1 */
+
+  /* type */
+  --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --display: 'Space Grotesk', var(--sans);
+  --mono: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, 'Fira Code', monospace;
+
+  --grad: linear-gradient(90deg, #2b1c8b 0%, #2563eb 100%);
+  --card-soft: linear-gradient(180deg, var(--card-a) 0%, var(--card-b) 100%);
+  --shadow: 0 1px 2px rgba(17, 11, 53, 0.04), 0 12px 32px -14px rgba(17, 11, 53, 0.16);
+  --shadow-card: 0 20px 45px -20px rgba(43, 28, 139, 0.4);
+  --shadow-btn: 0 10px 24px -10px rgba(43, 28, 139, 0.5);
+  --shadow-island: 0 24px 55px -26px rgba(17, 11, 53, 0.55);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 6rem;
+}
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--body);
+  line-height: 1.7;
+  font-size: 16px;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--display);
+  color: var(--ink);
+  letter-spacing: -0.022em;
+}
+strong,
+b {
+  color: var(--ink);
+  font-weight: 600;
+}
+a {
+  color: var(--blue);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+a:hover {
+  color: var(--blue-deep);
+  text-decoration: underline;
+}
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+/* Inline code carries unbreakable strings (`irm … | iex`, URLs) that pushed the
+   page 13px wider than a 375px viewport, where overflow-x:hidden clips them
+   silently rather than scrolling. Block code keeps its own scroller below. */
+code {
+  background: var(--tint-2);
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 0.88em;
+  color: var(--blue-deep);
+  overflow-wrap: anywhere;
+}
+/* Prose code blocks stay light — they are prose, not a terminal. The real
+   terminal, .install-box, is a dark island below. */
+pre {
+  background: var(--tint);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 1.1rem 1.3rem;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+pre code {
+  background: none;
+  padding: 0;
+  color: var(--text);
+  overflow-wrap: normal;
+}
+
+.wrap {
+  max-width: 1013px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+.wrap-narrow {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+/* ── section washes ──
+   Atlas scatters soft blobs behind a section rather than recolouring it. */
+.gradient-bg {
+  position: relative;
+  isolation: isolate;
+}
+.gradient-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(circle 260px at 30% 18%, rgba(169, 237, 255, 0.42), transparent 70%),
+    radial-gradient(circle 240px at 78% 62%, rgba(234, 221, 255, 0.4), transparent 70%);
+}
+.gradient-bg2 {
+  background: var(--tint);
+}
+
+/* ── Signature 1: floating pill nav, transparent until scrolled ── */
+nav {
+  position: fixed;
+  inset: 1rem 0 auto;
+  z-index: 100;
+  padding: 0 1rem;
+  pointer-events: none;
+}
+@media (min-width: 768px) {
+  nav {
+    inset: 1.25rem 0 auto;
+    padding: 0 1.5rem;
+  }
+}
+nav .wrap {
+  max-width: 1340px;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  height: 60px;
+  padding: 0 1.5rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  transition:
+    background-color 0.3s ease-out,
+    border-color 0.3s ease-out,
+    box-shadow 0.3s ease-out;
+}
+@media (min-width: 768px) {
+  nav .wrap {
+    padding: 0 2rem;
+  }
+}
+nav.scrolled .wrap {
+  background: rgba(255, 255, 255, 0.82);
+  border-color: var(--rule-2);
+  box-shadow: 0 16px 48px -18px rgba(17, 11, 53, 0.22);
+}
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  text-decoration: none;
+}
+.nav-logo:hover {
+  text-decoration: none;
+}
+.nav-logo svg {
+  height: 30px;
+  flex-shrink: 0;
+}
+.nav-logo-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.05;
+}
+.nav-logo-text .l1 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+  text-transform: uppercase;
+}
+.nav-logo-text .l2 {
+  font-family: var(--sans);
+  font-weight: 400;
+  font-size: 0.72rem;
+  color: var(--muted);
+  letter-spacing: 0.12em;
+}
+.nav-links {
+  display: flex;
+  gap: 1.4rem;
+  list-style: none;
+}
+.nav-links a {
+  color: var(--body);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+.nav-links a:hover {
+  color: var(--ink-2);
+  text-decoration: none;
+}
+/* Signature 4: 4px, gradient fill. Pills stay 999px; buttons never do. */
+.nav-cta {
+  background: var(--ink);
+  color: #fff;
+  padding: 8px 20px;
+  border-radius: 4px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(17, 11, 53, 0.18);
+  transition:
+    transform 0.2s,
+    background-color 0.2s,
+    box-shadow 0.2s;
+}
+.nav-cta:hover {
+  background: #000;
+  color: #fff;
+  text-decoration: none;
+  transform: translateY(-2px);
+  box-shadow: 0 10px 22px -10px rgba(17, 11, 53, 0.5);
+}
+.nav-cta:active {
+  transform: none;
+  scale: 0.97;
+}
+@media (max-width: 900px) {
+  .nav-links {
+    display: none;
+  }
+}
+
+/* ── Signature 2: the hero horizon ──
+   A centered hero over white -> #288ef4, overlaid with the 39px grid and two
+   glow blobs, with a white bloom on the horizon line.
+   The band is 780px and fades out well before that: the hero clips its own
+   overflow, so blue still painted at the clip line shows as a hard seam. */
+.hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  text-align: center;
+  padding: 9.5rem 0 4rem;
+}
+@media (min-width: 768px) {
+  .hero {
+    padding: 11.5rem 0 5rem;
+  }
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 780px;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(42, 131, 221, 0.17) 1px, transparent 1px) 0 0 / 39px 39px,
+    linear-gradient(180deg, rgba(42, 131, 221, 0.17) 1px, transparent 1px) 0 0 / 39px 39px,
+    radial-gradient(circle 250px at 26% 42%, rgba(169, 237, 255, 0.7), transparent 70%),
+    radial-gradient(circle 250px at 80% 52%, rgba(246, 231, 206, 0.62), transparent 70%),
+    linear-gradient(
+      180deg,
+      #fff 0%,
+      #e3efff 24%,
+      #a8cdf7 52%,
+      #57a3f2 74%,
+      #288ef4 90%,
+      #288ef4 100%
+    );
+  -webkit-mask-image: linear-gradient(
+    180deg,
+    #000 0%,
+    #000 40%,
+    rgba(0, 0, 0, 0.72) 59%,
+    rgba(0, 0, 0, 0.26) 76%,
+    rgba(0, 0, 0, 0.04) 88%,
+    transparent 95%
+  );
+  mask-image: linear-gradient(
+    180deg,
+    #000 0%,
+    #000 40%,
+    rgba(0, 0, 0, 0.72) 59%,
+    rgba(0, 0, 0, 0.26) 76%,
+    rgba(0, 0, 0, 0.04) 88%,
+    transparent 95%
+  );
+}
+/* White clipped against white is invisible, so this one may run past the edge. */
+.hero::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 520px;
+  width: 1700px;
+  height: 400px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: #fff;
+  filter: blur(70px);
+  z-index: -1;
+  pointer-events: none;
+}
+.hero > * {
+  position: relative;
+  z-index: 1;
+}
+.hero .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--tint-2);
+  border-radius: 999px;
+  padding: 0.35rem 1.05rem;
+  font-family: var(--display);
+  font-size: 0.82rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 1.4rem;
+}
+.hero .pill .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok-bright);
+  box-shadow: 0 0 0 3px rgba(15, 157, 88, 0.16);
+}
+.hero h1 {
+  font-family: var(--display);
+  font-size: 2.5rem;
+  color: var(--ink);
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  margin-bottom: 1rem;
+  font-weight: 700;
+}
+@media (min-width: 768px) {
+  .hero h1 {
+    font-size: 3.15rem;
+  }
+}
+/* ink -> blue. The old ramp ended on #8b5cf6; there is no purple of that kind
+   anywhere in this palette. */
+.hero h1 .grad {
+  background: var(--grad);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.hero .sub {
+  font-size: 1.12rem;
+  color: var(--text);
+  max-width: 620px;
+  margin: 0 auto 2.5rem;
+}
+.hero .sub code {
+  background: rgba(255, 255, 255, 0.7);
+}
+/* The all-caps supporting line the family puts under its hero CTAs. */
+.hero .support {
+  max-width: 600px;
+  margin: 2.5rem auto 0;
+  font-family: var(--display);
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.5;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+/* DARK ISLAND: a command you paste into a terminal reads as a terminal. */
+.install-box {
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 8px;
+  padding: 1rem 1.3rem;
+  max-width: 640px;
+  margin: 0 auto;
+  text-align: left;
+  position: relative;
+  box-shadow: var(--shadow-island);
+}
+.install-box pre {
+  border: none;
+  padding: 0;
+  background: none;
+  color: #dde4ff;
+  box-shadow: none;
+}
+.install-box pre code {
+  color: #dde4ff;
+}
+.install-box .copy-btn {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  font-weight: 600;
+  font-family: var(--sans);
+}
+.install-box .copy-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+/* On a phone the button would sit on the first line of the command. */
+@media (max-width: 560px) {
+  .install-box {
+    padding-top: 2.7rem;
+  }
+}
+.hero-badges {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 2rem;
+}
+.hbadge {
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 0.25rem 0.9rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* ── sections ── */
+section {
+  padding: 5.5rem 0;
+}
+@media (min-width: 768px) {
+  section {
+    padding: 7rem 0;
+  }
+}
+section h2 {
+  font-family: var(--display);
+  font-size: 1.95rem;
+  color: var(--text);
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  margin-bottom: 0.7rem;
+  font-weight: 700;
+}
+@media (min-width: 768px) {
+  section h2 {
+    font-size: 2.4rem;
+  }
+}
+section .lead {
+  color: var(--body);
+  font-size: 1.05rem;
+  max-width: 660px;
+  margin-bottom: 2.5rem;
+}
+/* Signature 5: grey sentence-case eyebrow. The old uppercase micro-label in
+   --blue is not the brand spec. */
+.section-tag {
+  font-family: var(--sans);
+  display: block;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--faint);
+  margin-bottom: 0.35rem;
+}
+
+/* ── Signature 3: sharp cards on the soft fill ──
+   One shape, reused. Square corners on a soft blue fill is the most imitable
+   Atlas signature; rounding them undoes the alignment on its own. */
+.feature-card,
+.app-card {
+  background: var(--card-soft);
+  border: 1px solid var(--rule-2);
+  border-radius: 0;
+  transition:
+    box-shadow 0.3s ease-out,
+    transform 0.3s ease-out;
+}
+.feature-card:hover,
+.app-card:hover {
+  box-shadow: var(--shadow-card);
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.4rem;
+  margin: 2rem 0;
+}
+.feature-card {
+  padding: 1.7rem 1.5rem;
+}
+.feature-card .icon {
+  font-size: 1.8rem;
+  margin-bottom: 0.6rem;
+  line-height: 1;
+}
+.feature-card h4 {
+  color: var(--ink);
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+  line-height: 1.25;
+}
+.feature-card p {
+  color: var(--ink);
+  font-size: 0.9rem;
+  margin: 0;
+  line-height: 1.55;
+}
+
+/* ── quickstart ── */
+.steps-list {
+  margin: 2rem 0;
+  counter-reset: step;
+}
+.step-item {
+  position: relative;
+  padding-left: 3.2rem;
+  margin-bottom: 2.2rem;
+  min-height: 2.5rem;
+}
+/* DARK ISLAND: solid ink markers, as every site in the family does. */
+.step-item::before {
+  counter-increment: step;
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 0.1rem;
+  width: 2.2rem;
+  height: 2.2rem;
+  background: var(--ink);
+  color: #fff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.step-item h4 {
+  color: var(--ink);
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+.step-item p {
+  color: var(--body);
+  margin-bottom: 0.6rem;
+}
+
+/* ── screenshots ──
+   The captures are of a LIGHT application UI (measured mean luminance 177-251
+   of 255), so they do not punch holes in the page the way dark ones would. The
+   frame is there for the opposite reason: a light capture on a light ground has
+   no edge of its own and bleeds into the section wash. Applied to all or none. */
+.screenshot-wrap {
+  margin: 2rem 0;
+  text-align: center;
+}
+.screenshot-wrap img {
+  max-width: 100%;
+  display: block;
+  margin: 0 auto;
+  border-radius: 6px;
+  border: 1px solid var(--rule);
+}
+.screenshot-frame {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  padding: 1.25rem;
+  box-shadow: var(--shadow);
+}
+@media (max-width: 640px) {
+  .screenshot-frame {
+    padding: 0.75rem;
+  }
+}
+.screenshot-caption {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin-top: 0.75rem;
+}
+
+/* ── Signature 6: the closing CTA mirrors the hero horizon ──
+   Same clip-before-the-edge constraint, upside down. */
+.cta-section {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  text-align: center;
+  padding: 8rem 0 8.5rem;
+}
+.cta-section::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 420px;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(42, 131, 221, 0.15) 1px, transparent 1px) 0 0 / 39px 39px,
+    linear-gradient(180deg, rgba(42, 131, 221, 0.15) 1px, transparent 1px) 0 0 / 39px 39px,
+    radial-gradient(circle 240px at 22% 55%, rgba(234, 221, 255, 0.5), transparent 70%),
+    radial-gradient(circle 240px at 80% 40%, rgba(169, 237, 255, 0.45), transparent 70%),
+    linear-gradient(0deg, #5aa5f2 0%, #a8cdf7 34%, #e3efff 68%, #fff 100%);
+  -webkit-mask-image: linear-gradient(
+    0deg,
+    transparent 0%,
+    rgba(0, 0, 0, 0.5) 9%,
+    #000 26%,
+    #000 44%,
+    rgba(0, 0, 0, 0.62) 62%,
+    rgba(0, 0, 0, 0.22) 78%,
+    rgba(0, 0, 0, 0.04) 88%,
+    transparent 95%
+  );
+  mask-image: linear-gradient(
+    0deg,
+    transparent 0%,
+    rgba(0, 0, 0, 0.5) 9%,
+    #000 26%,
+    #000 44%,
+    rgba(0, 0, 0, 0.62) 62%,
+    rgba(0, 0, 0, 0.22) 78%,
+    rgba(0, 0, 0, 0.04) 88%,
+    transparent 95%
+  );
+}
+.cta-section > * {
+  position: relative;
+  z-index: 1;
+}
+.cta-section h2 {
+  font-family: var(--display);
+  font-size: 1.95rem;
+  color: var(--ink);
+  margin-bottom: 0.6rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+@media (min-width: 768px) {
+  .cta-section h2 {
+    font-size: 2.4rem;
+  }
+}
+.cta-section p {
+  color: var(--body);
+  margin: 0 auto 2rem;
+  max-width: 560px;
+}
+.cta-buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* ── Signature 4: buttons ── */
+.btn-primary {
+  background: var(--grad);
+  color: #fff;
+  padding: 13px 30px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 1rem;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-btn);
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
+}
+.btn-primary:hover {
+  color: #fff;
+  text-decoration: none;
+  transform: translateY(-2px);
+  box-shadow: 0 16px 32px -12px rgba(37, 99, 235, 0.6);
+}
+.btn-primary:active {
+  transform: none;
+  scale: 0.97;
+}
+/* Gradient hairline around white — the family's secondary action. */
+.btn-secondary {
+  color: var(--ink-2);
+  padding: 12px 29px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background-image: linear-gradient(#fff, #fff), var(--grad);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  box-shadow: 0 1px 2px rgba(17, 11, 53, 0.06);
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
+}
+.btn-secondary:hover {
+  color: var(--ink-2);
+  text-decoration: none;
+  transform: translateY(-2px);
+  box-shadow: 0 12px 26px -14px rgba(43, 28, 139, 0.5);
+}
+.btn-secondary:active {
+  transform: none;
+  scale: 0.97;
+}
+
+/* ── footer ── */
+footer {
+  background: var(--bg);
+  border-top: 1px solid var(--rule-2);
+  padding: 2.5rem 0 3.5rem;
+}
+footer .wrap {
+  max-width: 1212px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem 2rem;
+}
+footer .footer-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+footer .footer-logo svg {
+  height: 28px;
+  flex-shrink: 0;
+}
+.footer-logo-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.05;
+}
+.footer-logo-text .l1 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+  text-transform: uppercase;
+}
+.footer-logo-text .l2 {
+  font-family: var(--sans);
+  font-weight: 400;
+  font-size: 0.68rem;
+  color: var(--muted);
+  letter-spacing: 0.12em;
+}
+.footer-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.15rem;
+  text-align: right;
+  margin-left: auto;
+}
+.footer-meta p {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0;
+}
+.footer-meta p.strong {
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+footer .footer-links {
+  display: flex;
+  gap: 1.2rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+footer .footer-links a {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+footer .footer-links a:hover {
+  color: var(--ink-2);
+}
+@media (max-width: 700px) {
+  footer .wrap {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .footer-meta {
+    align-items: flex-start;
+    text-align: left;
+    margin-left: 0;
+  }
+  footer .footer-links {
+    justify-content: flex-start;
+  }
+}
+
+/* ── misc ── */
+.divider {
+  height: 1px;
+  background: var(--rule);
+  margin: 0;
+}
+.highlight-box {
+  background: var(--tint-2);
+  border: 1px solid var(--rule-2);
+  border-left: 3px solid var(--blue);
+  border-radius: 0;
+  padding: 1.1rem 1.3rem;
+  margin: 1.5rem 0;
+}
+.highlight-box p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.93rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   INFINIA HARNESS — additions to the family design system.
+
+   Everything above this line is the canonical Infinia site.css, unchanged.
+   Everything below is what a DOCUMENTATION site needs and a product landing
+   page does not: a two-line logo lockup whose lines share an edge, a sticky
+   section rail, prose tables, an architecture diagram, and an OS/edition
+   switcher. The palette, the type ramp, the six signatures and the dark
+   islands are inherited — nothing below introduces a new colour.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── The lockup: INFINIA / Harness, both lines flush at both edges ──
+   "INFINIA" sets the width; "Harness" is a flex row of single letters that
+   stretches to meet it, so the two lines start and end on the same vertical.
+   Tracking cannot do this — it is glyph-width dependent and drifts at every
+   font size. space-between is exact at every size, which is why the letters
+   are individually wrapped rather than letter-spaced. */
+.nav-logo-text .l2,
+.footer-logo-text .l2 {
+  display: flex;
+  justify-content: space-between;
+  letter-spacing: 0;
+  font-feature-settings: 'kern' 0;
+}
+.nav-logo-text .l2 i,
+.footer-logo-text .l2 i {
+  font-style: normal;
+}
+/* Below ~360px the nav has no room for the wordmark beside the links. */
+@media (max-width: 360px) {
+  .nav-logo-text {
+    display: none;
+  }
+}
+
+/* ── docs shell: sticky section rail beside the prose ──
+   One column on phones, rail + prose from 1000px. The rail is navigation,
+   not a table of contents widget: it never collapses, never animates. */
+/* minmax(0, 1fr), never a bare 1fr: a grid track's automatic minimum is its
+   content's min-content width, so one wide table or code block stretches the
+   track and the whole PAGE scrolls sideways — instead of the table scrolling
+   inside its own .table-scroll, which is the entire point of that wrapper.
+   The same reason .docs-body carries min-width: 0. */
+.docs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.6rem; /* the mobile rail is a thin strip, not a column */
+  /* Keep .wrap's 1.5rem horizontal inset: this element carries both classes,
+     and a `padding` shorthand here would silently zero it out. */
+  padding: 7rem 1.5rem 4rem;
+}
+.docs-body {
+  min-width: 0;
+}
+@media (min-width: 1000px) {
+  .docs {
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 4rem;
+    padding-top: 10rem;
+  }
+}
+/* Below 1000px the rail cannot sit beside the prose — but hiding it outright
+   leaves a phone with NO in-page navigation at all, since the nav links are
+   also gone below 900px. So it becomes a horizontally scrolling strip pinned
+   under the nav instead: same links, same active state, a tenth of the height. */
+.docs-rail {
+  position: sticky;
+  top: 5.2rem;
+  z-index: 50;
+  /* A grid item's automatic minimum is its content's max-content width, so the
+     max-content <ul> inside would stretch the rail past the viewport and take
+     the page's horizontal scrollbar with it — the scroller has to be the rail,
+     not the document. */
+  min-width: 0;
+  margin: -1.5rem -1.5rem 0;
+  padding: 0.5rem 1.5rem;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--rule-2);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.docs-rail .rail-title {
+  display: none;
+}
+.docs-rail ul {
+  display: flex;
+  gap: 0.2rem;
+  width: max-content;
+  border-left: none;
+}
+.docs-rail li a {
+  white-space: nowrap;
+  border-left: none;
+  border-bottom: 2px solid transparent;
+  padding: 0.3rem 0.6rem;
+  margin-left: 0;
+}
+.docs-rail li a:hover {
+  border-left-color: transparent;
+}
+.docs-rail li a.active {
+  border-left-color: transparent;
+  border-bottom-color: var(--blue);
+}
+.docs-rail li.sub a {
+  padding-left: 0.6rem;
+  font-size: 0.82rem;
+}
+
+@media (min-width: 1000px) {
+  /* Back to the vertical rail, and every strip override reverts with it. */
+  .docs-rail {
+    position: sticky;
+    top: 7rem;
+    z-index: auto;
+    align-self: start;
+    max-height: calc(100vh - 9rem);
+    overflow-x: visible;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0;
+    background: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-bottom: none;
+  }
+  .docs-rail .rail-title {
+    display: block;
+  }
+  .docs-rail ul {
+    display: block;
+    width: auto;
+    border-left: 1px solid var(--rule);
+  }
+  .docs-rail li a {
+    white-space: normal;
+    border-left: 2px solid transparent;
+    border-bottom: none;
+    padding: 0.32rem 0 0.32rem 0.9rem;
+    margin-left: -1px;
+  }
+  .docs-rail li a:hover {
+    border-left-color: var(--rule);
+  }
+  .docs-rail li a.active {
+    border-left-color: var(--blue);
+    border-bottom-color: transparent;
+  }
+  .docs-rail li.sub a {
+    padding-left: 1.7rem;
+  }
+}
+.docs-rail .rail-title {
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 0.8rem;
+}
+.docs-rail ul {
+  list-style: none;
+  border-left: 1px solid var(--rule);
+}
+.docs-rail li a {
+  display: block;
+  padding: 0.32rem 0 0.32rem 0.9rem;
+  margin-left: -1px;
+  border-left: 2px solid transparent;
+  color: var(--muted);
+  font-size: 0.87rem;
+  line-height: 1.4;
+}
+.docs-rail li a:hover {
+  color: var(--ink-2);
+  text-decoration: none;
+  border-left-color: var(--rule);
+}
+.docs-rail li a.active {
+  color: var(--ink-2);
+  font-weight: 600;
+  border-left-color: var(--blue);
+}
+.docs-rail li.sub a {
+  padding-left: 1.7rem;
+  font-size: 0.82rem;
+}
+
+/* ── docs prose ──
+   The landing page is sections; a docs page is one long article. It gets its
+   own rhythm rather than section{padding:7rem} between every heading. */
+/* scroll-margin has to clear the fixed nav AND, on mobile, the sticky rail
+   strip below it — otherwise an anchor lands with its heading behind them. */
+.docs-body > section {
+  padding: 0 0 3.5rem;
+  scroll-margin-top: 9.5rem;
+}
+@media (min-width: 1000px) {
+  .docs-body > section {
+    scroll-margin-top: 7rem;
+  }
+}
+.docs-body h3[id],
+.docs-body h2[id] {
+  scroll-margin-top: 9.5rem;
+}
+@media (min-width: 1000px) {
+  .docs-body h3[id],
+  .docs-body h2[id] {
+    scroll-margin-top: 7rem;
+  }
+}
+.docs-body h1 {
+  font-family: var(--display);
+  font-size: 2.1rem;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.03em;
+  line-height: 1.12;
+  margin-bottom: 0.6rem;
+}
+@media (min-width: 768px) {
+  .docs-body h1 {
+    font-size: 2.7rem;
+  }
+}
+.docs-body .page-lead {
+  font-size: 1.1rem;
+  color: var(--text);
+  max-width: 660px;
+  margin-bottom: 1rem;
+}
+.docs-body h2 {
+  font-family: var(--display);
+  font-size: 1.55rem;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.022em;
+  line-height: 1.2;
+  margin: 2.6rem 0 0.8rem;
+  padding-top: 0.4rem;
+}
+.docs-body h3 {
+  font-family: var(--display);
+  font-size: 1.14rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 1.9rem 0 0.5rem;
+}
+.docs-body h4 {
+  font-family: var(--sans);
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 1.4rem 0 0.4rem;
+}
+.docs-body p {
+  margin-bottom: 1rem;
+  max-width: 72ch;
+}
+.docs-body ul,
+.docs-body ol {
+  margin: 0 0 1.15rem 1.3rem;
+  max-width: 72ch;
+}
+.docs-body li {
+  margin-bottom: 0.4rem;
+}
+.docs-body li > ul,
+.docs-body li > ol {
+  margin-top: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+.docs-body pre {
+  margin-bottom: 1.15rem;
+}
+/* An anchor you can actually link someone to. Hidden until the heading is
+   hovered so it never competes with the heading itself. */
+.anchor {
+  color: var(--rule);
+  font-weight: 400;
+  margin-left: 0.45rem;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+h2:hover .anchor,
+h3:hover .anchor {
+  opacity: 1;
+}
+.anchor:hover {
+  color: var(--blue);
+  text-decoration: none;
+}
+
+/* ── prose tables ── */
+.docs-body table,
+table.doc-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.3rem 0 1.6rem;
+  font-size: 0.89rem;
+}
+.table-scroll {
+  overflow-x: auto;
+  margin: 1.3rem 0 1.6rem;
+  border: 1px solid var(--rule);
+}
+.table-scroll table {
+  margin: 0;
+  border: none;
+  min-width: 560px;
+}
+.docs-body th,
+table.doc-table th {
+  text-align: left;
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  background: var(--tint);
+  padding: 0.65rem 0.9rem;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.docs-body td,
+table.doc-table td {
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--rule-2);
+  color: var(--body);
+  vertical-align: top;
+}
+.docs-body tbody tr:last-child td,
+table.doc-table tbody tr:last-child td {
+  border-bottom: none;
+}
+/* Command tables hold long invocations. nowrap here makes the first column
+   claim whatever width the longest command needs and squeezes the description
+   into a four-word ribbon — so let a command wrap at its spaces, and only
+   break mid-token when there is genuinely nowhere else to break. */
+.docs-body td code,
+table.doc-table td code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* Two-column reference tables read better when the prose gets the room. */
+.table-scroll table th:first-child {
+  width: 38%;
+}
+.table-scroll table th:only-of-type,
+.table-scroll table th:nth-child(3) ~ th,
+.table-scroll table th:first-child:nth-last-child(n + 4) {
+  width: auto;
+}
+.docs-body td strong {
+  color: var(--ink);
+}
+
+/* ── callouts ── */
+.note,
+.warn-box,
+.ok-box {
+  border: 1px solid var(--rule-2);
+  border-left: 3px solid var(--blue);
+  background: var(--tint-2);
+  border-radius: 0;
+  padding: 0.95rem 1.2rem;
+  margin: 1.3rem 0;
+  font-size: 0.92rem;
+  max-width: 72ch;
+}
+.note p:last-child,
+.warn-box p:last-child,
+.ok-box p:last-child {
+  margin-bottom: 0;
+}
+/* All three callouts share the family's callout ground (--tint-2, the same one
+   .highlight-box uses) and differ ONLY in the left border and label colour,
+   both of which are existing tokens. An amber or green wash here would be two
+   new colours the palette does not have, and BRAND.md is explicit that a forked
+   token is how a family stops looking like one. */
+/* --tint, not --tint-2: the warn label is --warn on its own ground, and --warn
+   measures 4.46:1 on --tint-2 — under the 4.5 floor, and the exact failure that
+   retired #b26b00. On --tint it is 4.77:1. The ok box follows it so the two
+   statused callouts stay a matched pair; .note keeps the family's --tint-2. */
+.warn-box,
+.ok-box {
+  background: var(--tint);
+}
+.warn-box {
+  border-left-color: var(--warn);
+}
+.ok-box {
+  border-left-color: var(--ok-bright);
+}
+.note .label,
+.warn-box .label,
+.ok-box .label {
+  display: block;
+  font-family: var(--sans);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin-bottom: 0.3rem;
+  color: var(--blue-deep);
+}
+.warn-box .label {
+  color: var(--warn);
+}
+.ok-box .label {
+  color: var(--ok);
+}
+
+/* ── DARK ISLAND: the architecture diagram and any ASCII figure ──
+   Same reasoning as .install-box. A box-drawing figure is a terminal artefact;
+   rendering it on white makes it read as a table it is not. */
+.figure-dark {
+  background: var(--ink);
+  border-radius: 8px;
+  padding: 1.4rem 1.5rem;
+  margin: 1.6rem 0;
+  overflow-x: auto;
+  box-shadow: var(--shadow-island);
+}
+.figure-dark pre {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: #dde4ff;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre;
+}
+.figure-dark pre code {
+  color: #dde4ff;
+}
+@media (max-width: 640px) {
+  .figure-dark pre {
+    font-size: 0.66rem;
+  }
+}
+.figure-caption {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin: -0.9rem 0 1.6rem;
+}
+
+/* ── tabs (OS / edition switchers) ──
+   .os-tab is the family's control, lifted from the Office page so the two
+   sites present a switcher identically. */
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1.4rem 0 0.8rem;
+  flex-wrap: wrap;
+}
+.tab {
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 6px 15px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  color: var(--muted);
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+.tab:hover {
+  border-color: var(--blue);
+  color: var(--ink-2);
+}
+.tab.active {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+  font-weight: 600;
+}
+.tab-panel[hidden] {
+  display: none;
+}
+
+/* ── edition comparison: two sharp cards on the soft fill ── */
+.edition-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.4rem;
+  margin: 2rem 0;
+}
+.edition-card {
+  background: var(--card-soft);
+  border: 1px solid var(--rule-2);
+  border-radius: 0;
+  padding: 1.8rem 1.6rem;
+  transition:
+    box-shadow 0.3s ease-out,
+    transform 0.3s ease-out;
+}
+.edition-card:hover {
+  box-shadow: var(--shadow-card);
+}
+.edition-card .kicker {
+  font-family: var(--sans);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.edition-card h3 {
+  font-family: var(--display);
+  color: var(--ink);
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin: 0.3rem 0 0.15rem;
+}
+.edition-card .lic {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--blue-deep);
+  margin-bottom: 0.9rem;
+}
+.edition-card ul {
+  list-style: none;
+  margin: 0 0 1.2rem;
+  font-size: 0.89rem;
+  color: var(--ink);
+}
+.edition-card li {
+  padding: 0.26rem 0 0.26rem 1.3rem;
+  position: relative;
+  line-height: 1.5;
+}
+.edition-card li::before {
+  content: '→';
+  position: absolute;
+  left: 0;
+  color: var(--blue);
+}
+
+/* ── the agent roster / capability chips ── */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.5rem 0 0;
+}
+.chip {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 2px 10px;
+  color: var(--muted);
+}
+
+/* ── the three-target strip on the landing page ── */
+.targets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin: 2rem 0;
+}
+.target {
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.72);
+  padding: 1.2rem 1.3rem;
+}
+.target .name {
+  font-family: var(--display);
+  font-weight: 700;
+  color: var(--ink);
+  font-size: 1.02rem;
+  margin-bottom: 0.15rem;
+}
+.target .what {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* ── env-var reference rows ── */
+.env-row {
+  border-bottom: 1px solid var(--rule-2);
+  padding: 0.85rem 0;
+}
+.env-row:last-child {
+  border-bottom: none;
+}
+.env-row .k {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--blue-deep);
+  font-weight: 600;
+}
+.env-row .d {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--muted);
+  margin-left: 0.5rem;
+}
+.env-row p {
+  margin: 0.2rem 0 0;
+  font-size: 0.88rem;
+  color: var(--body);
+  max-width: 72ch;
+}
+
+/* ── a copyable command outside the hero ── */
+.cmd {
+  position: relative;
+  background: var(--ink);
+  border-radius: 8px;
+  padding: 1rem 1.3rem;
+  margin: 1.2rem 0;
+  box-shadow: var(--shadow-island);
+}
+.cmd pre {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: #dde4ff;
+  font-size: 0.84rem;
+}
+.cmd pre code {
+  color: #dde4ff;
+}
+.cmd .copy-btn {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.76rem;
+  cursor: pointer;
+  font-weight: 600;
+  font-family: var(--sans);
+}
+.cmd .copy-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+@media (max-width: 560px) {
+  .cmd {
+    padding-top: 2.7rem;
+  }
+}
+
+/* ── prev/next pager at the foot of a docs page ── */
+.pager {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  border-top: 1px solid var(--rule-2);
+  padding-top: 1.6rem;
+  margin-top: 1rem;
+}
+.pager a {
+  display: block;
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  padding: 0.9rem 1.2rem;
+  min-width: 220px;
+  flex: 1;
+  background: rgba(255, 255, 255, 0.72);
+}
+.pager a:hover {
+  text-decoration: none;
+  box-shadow: var(--shadow);
+}
+.pager .dir {
+  display: block;
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 0.15rem;
+}
+.pager .to {
+  font-family: var(--display);
+  font-weight: 700;
+  color: var(--ink);
+  font-size: 1rem;
+}
+.pager a.next {
+  text-align: right;
+}
+
+/* ── skip link: the docs rail puts a lot of nav before the prose ── */
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--ink);
+  color: #fff;
+  padding: 0.6rem 1rem;
+  border-radius: 0 0 4px 0;
+  z-index: 200;
+}
+.skip:focus {
+  left: 0;
+}
+
+/* Respect a reduced-motion preference — the family's transforms are decorative. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+  .btn-primary:hover,
+  .btn-secondary:hover,
+  .nav-cta:hover {
+    transform: none;
+  }
+}

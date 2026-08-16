@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Infinia Harness — one fleet spec, three agent harnesses</title>
+    <meta
+      name="description"
+      content="Infinia Harness (fleetsmith) compiles one fleet.yaml into coordinated agents, skills and a file-based handover protocol for Claude Code, opencode and goose. Architecture, quick start and user guide."
+    />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <link rel="canonical" href="https://infinia-harness.adid.dev/" />
+    <meta property="og:title" content="Infinia Harness — one fleet spec, three agent harnesses" />
+    <meta
+      property="og:description"
+      content="Describe a fleet of AI agents once. Compile it into native harnesses for Claude Code, opencode and goose."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://infinia-harness.adid.dev/" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/site.css" />
+    <style>
+      /* Page-only: the compile figure sits tighter than a docs figure, and the
+         hero's command needs to survive a 320px viewport without wrapping into
+         nonsense. */
+      .hero .install-box pre {
+        font-size: 0.82rem;
+      }
+      /* On a narrow phone this command overflows its own scroller. It SCROLLS —
+         it must never wrap. BRAND.md: "a wrapped command is a lie — someone
+         will paste it." Shrinking the type buys back most of the width, and the
+         copy button is the real affordance either way. */
+      @media (max-width: 560px) {
+        .hero .install-box pre {
+          font-size: 0.72rem;
+        }
+      }
+      .lead-fig {
+        margin-top: 2.5rem;
+      }
+      .stat-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 1.4rem;
+        margin: 2.5rem 0 0;
+      }
+      .stat .n {
+        font-family: var(--display);
+        font-size: 1.9rem;
+        font-weight: 700;
+        color: var(--ink);
+        line-height: 1;
+      }
+      .stat .l {
+        font-size: 0.85rem;
+        color: var(--muted);
+        margin-top: 0.3rem;
+      }
+    </style>
+  </head>
+  <body>
+    <a href="#main" class="skip">Skip to content</a>
+
+    <nav>
+      <div class="wrap nav-inner">
+        <a href="/" class="nav-logo">
+          <svg viewBox="0 0 46 43" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path
+              d="M46.003 21.496L24.5224 43H8.76562L30.2462 21.496H34.4507L12.9621 0H24.5224L46.003 21.496Z"
+              fill="#110b35"
+            />
+            <path
+              d="M24.7284 21.4969L13.4495 32.7829H5.18525L16.4561 21.4969H11.2789L0 10.2109H13.4495L24.7284 21.4969Z"
+              fill="#2563eb"
+            />
+          </svg>
+          <span class="nav-logo-text">
+            <span class="l1">INFINIA</span>
+            <span class="l2" aria-label="Harness"
+              ><i>H</i><i>a</i><i>r</i><i>n</i><i>e</i><i>s</i><i>s</i></span
+            >
+          </span>
+        </a>
+        <ul class="nav-links">
+          <li><a href="#what">What it is</a></li>
+          <li><a href="/architecture">Architecture</a></li>
+          <li><a href="/quickstart">Quick start</a></li>
+          <li><a href="/guide">User guide</a></li>
+          <li><a href="#editions">Editions</a></li>
+        </ul>
+        <a href="#install" class="nav-cta">Install</a>
+      </div>
+    </nav>
+
+    <main id="main">
+      <!-- ── hero ───────────────────────────────────────────────────────── -->
+      <header class="hero">
+        <div class="wrap">
+          <span class="pill"><span class="dot"></span> v0.7.0 · The Intelligence Grid</span>
+          <h1>One spec.<br /><span class="grad">Three agent harnesses.</span></h1>
+          <p class="sub">
+            Describe a fleet of AI agents once — roles, skills, handoff graph — and compile it into
+            native harnesses for <strong>Claude Code</strong>, <strong>opencode</strong> and
+            <strong>goose</strong>. No hand-porting agents between tools.
+          </p>
+
+          <div class="install-box">
+            <button class="copy-btn" data-copy="#cmd-hero" type="button">Copy</button>
+            <pre><code id="cmd-hero">curl -fsSL https://infinia-harness.adid.dev/install.sh | sh</code></pre>
+          </div>
+
+          <div class="hero-badges">
+            <span class="hbadge">macOS · Linux · Windows</span>
+            <span class="hbadge">Node ≥ 18, or no Node at all</span>
+            <span class="hbadge">MIT core · AGPL enterprise</span>
+            <span class="hbadge">One runtime dependency</span>
+          </div>
+
+          <p class="support">
+            Capabilities, not tool names. Handover as a contract, not a convention.
+          </p>
+        </div>
+      </header>
+
+      <!-- ── what it is ─────────────────────────────────────────────────── -->
+      <section id="what" class="gradient-bg">
+        <div class="wrap">
+          <span class="section-tag">What it is</span>
+          <h2>A compiler for agent teams</h2>
+          <p class="lead">
+            Every agentic CLI grew its own harness format. Claude Code has subagents, Agent Skills
+            and teams; opencode has primary/subagent markdown and commands; goose has recipes and
+            sub-recipes. The concepts are isomorphic — a named specialist with a prompt, scoped
+            permissions, a methodology, and a way to pass work on. Infinia Harness treats that
+            shared shape as a compile target.
+          </p>
+
+          <div class="figure-dark lead-fig">
+            <pre><code>fleet.yaml ──► fleetsmith ──┬──► .claude/agents/*.md + .claude/skills/*/SKILL.md + CLAUDE.md
+                            ├──► .opencode/agents/*.md + commands/ + skills/ + AGENTS.md
+                            ├──► .goose/recipes/*.yaml (+ AGENTS.md, read first-class by goose)
+                            └──► _fleet/ (portable handover protocol: handoffs + ledger)</code></pre>
+          </div>
+
+          <div class="targets">
+            <div class="target">
+              <div class="name">Claude Code</div>
+              <div class="what">
+                subagents · Agent Skills · CLAUDE.md<br />SubagentStop handover gate
+              </div>
+            </div>
+            <div class="target">
+              <div class="name">opencode</div>
+              <div class="what">
+                primary + subagents · commands · skills<br />permission.task handoff graph
+              </div>
+            </div>
+            <div class="target">
+              <div class="name">goose</div>
+              <div class="what">
+                recipes + sub-recipes · AGENTS.md<br />response.json_schema validation
+              </div>
+            </div>
+          </div>
+
+          <div class="stat-row">
+            <div class="stat">
+              <div class="n">5</div>
+              <div class="l">fleet patterns, from pipeline to expert-pool</div>
+            </div>
+            <div class="stat">
+              <div class="n">3</div>
+              <div class="l">compile targets from one source spec</div>
+            </div>
+            <div class="stat">
+              <div class="n">1</div>
+              <div class="l">model call in the whole self-evolution loop</div>
+            </div>
+            <div class="stat">
+              <div class="n">0</div>
+              <div class="l">features gated behind the enterprise tier</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="divider"></div>
+
+      <!-- ── why ────────────────────────────────────────────────────────── -->
+      <section id="why">
+        <div class="wrap">
+          <span class="section-tag">Why it exists</span>
+          <h2>The parts a hand-written harness keeps getting wrong</h2>
+          <p class="lead">
+            Each of these is a defect people hit repeatedly when they wire an agent team by hand.
+            The compiler emits the fix rather than an instruction to remember it.
+          </p>
+
+          <div class="features-grid">
+            <div class="feature-card">
+              <div class="icon">🧭</div>
+              <h4>Capabilities, not tool names</h4>
+              <p>
+                Agents declare <code>read</code>/<code>edit</code>/<code>run</code>/<code>web</code
+                >/<code>spawn</code>. Each adapter maps that onto its own permission model — a
+                Claude Code <code>tools:</code> allowlist, opencode allow/deny maps, goose
+                extensions. Least privilege survives the port.
+              </p>
+            </div>
+            <div class="feature-card">
+              <div class="icon">🤝</div>
+              <h4>Handover as a contract</h4>
+              <p>
+                Every edge in the fleet carries an artifact plus acceptance criteria. The protocol
+                is file-based — the only channel all three tools share — so behaviour is portable,
+                auditable and resumable. The message is the doorbell; the file is the payload.
+              </p>
+            </div>
+            <div class="feature-card">
+              <div class="icon">🚧</div>
+              <h4>Enforced gates, not advice</h4>
+              <p>
+                Where a target can check something deterministically, the compiler emits the check.
+                A Claude Code <code>SubagentStop</code> hook blocks an agent until its handoff file
+                is complete. A denied opencode agent disappears from the task tool entirely.
+              </p>
+            </div>
+            <div class="feature-card">
+              <div class="icon">🔁</div>
+              <h4>Loops that stop three ways</h4>
+              <p>
+                Declare <code>loop: { until, max, check }</code> on a phase or a
+                <code>schedule:</code> on the fleet. Each compiles to a bounded loop on every
+                target — ending on success, on no progress, or at the cap, rather than only burning
+                the budget.
+              </p>
+            </div>
+            <div class="feature-card">
+              <div class="icon">📈</div>
+              <h4>A harness that grades itself</h4>
+              <p>
+                <code>qa</code> is a deterministic verification battery; <code>eval</code> measures
+                whether skills actually trigger, against a held-out corpus with a real noise floor;
+                <code>evolve</code> proposes its own improvements on a branch, for review.
+              </p>
+            </div>
+            <div class="feature-card">
+              <div class="icon">🗄️</div>
+              <h4>Prompts built for caching</h4>
+              <p>
+                Agent bodies are invariant for a given spec — no dates, no run counters — so a
+                repeatedly-run fleet keeps its prompt cache instead of rebuilding it. Per-run state
+                lives in handoff files.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="divider"></div>
+
+      <!-- ── editions ───────────────────────────────────────────────────── -->
+      <section id="editions" class="gradient-bg2">
+        <div class="wrap">
+          <span class="section-tag">Editions</span>
+          <h2>OSS is complete on its own</h2>
+          <p class="lead">
+            The file backend and git are the supported open-source answer, forever. Enterprise adds
+            a shared cortex on top — and every enterprise capability names the core answer it
+            degrades to. Nothing is enterprise-only.
+          </p>
+
+          <div class="edition-grid">
+            <div class="edition-card">
+              <span class="kicker">Open source</span>
+              <h3>fleetsmith</h3>
+              <div class="lic">MIT · one runtime dependency</div>
+              <ul>
+                <li>Compile to Claude Code, opencode and goose</li>
+                <li>Five fleet patterns and the handoff graph</li>
+                <li>File-based handover protocol under <code>_fleet/</code></li>
+                <li>Enforced handover gate, capability mapping, loop bounds</li>
+                <li><code>qa</code>, <code>eval</code> and <code>evolve</code> self-improvement</li>
+                <li>Team knowledge shared through git, PR-gated</li>
+              </ul>
+              <a href="/quickstart" class="btn-secondary">Quick start</a>
+            </div>
+
+            <div class="edition-card">
+              <span class="kicker">Enterprise</span>
+              <h3>fleetsmith-ee</h3>
+              <div class="lic">AGPL-3.0-only · needs a RelataDB cortex</div>
+              <ul>
+                <li>See teammates' in-flight work before a commit exists</li>
+                <li>Team-wide semantic recall, mid-task</li>
+                <li>Org knowledge import — meetings, calls, decisions</li>
+                <li>Cross-developer file and task overlap detection</li>
+                <li>Purpose-scoped audit and an approval channel</li>
+                <li>A cortex admin console over the whole grid</li>
+              </ul>
+              <a href="/architecture#grid" class="btn-secondary">How the grid works</a>
+            </div>
+          </div>
+
+          <div class="note">
+            <span class="label">Degradation is the design</span>
+            <p>
+              No configuration means exactly OSS behaviour. An unreachable or unlicensed cortex
+              means one warning, stale-marked grid files, and runs that still complete. Grid state
+              is advisory: it may never gate an agent or alter a QA verdict.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <div class="divider"></div>
+
+      <!-- ── install ────────────────────────────────────────────────────── -->
+      <section id="install">
+        <div class="wrap">
+          <span class="section-tag">Install</span>
+          <h2>One command, both editions</h2>
+          <p class="lead">
+            The installer asks what it needs and defaults safely to everything else. Piped into a
+            shell with no terminal attached, every question takes its default and the run is fully
+            non-interactive — so the same command works in CI.
+          </p>
+
+          <div class="tabs" data-group="install" role="tablist">
+            <button class="tab active" data-tab="oneline" role="tab" aria-selected="true" type="button">
+              One command
+            </button>
+            <button class="tab" data-tab="ee" role="tab" aria-selected="false" type="button">
+              Enterprise
+            </button>
+            <button class="tab" data-tab="npm" role="tab" aria-selected="false" type="button">
+              npm
+            </button>
+            <button class="tab" data-tab="binary" role="tab" aria-selected="false" type="button">
+              No Node.js
+            </button>
+          </div>
+
+          <div data-panel-group="install" data-panel="oneline">
+            <div class="cmd">
+              <button class="copy-btn" data-copy="#cmd-oss" type="button">Copy</button>
+              <pre><code id="cmd-oss">curl -fsSL https://infinia-harness.adid.dev/install.sh | sh</code></pre>
+            </div>
+            <p>
+              Installs the OSS edition. Detects Node, picks npm or the standalone binary, writes
+              <code>~/.fleetsmith/env.sh</code>, and touches nothing outside your home directory.
+            </p>
+          </div>
+
+          <div data-panel-group="install" data-panel="ee" hidden>
+            <div class="cmd">
+              <button class="copy-btn" data-copy="#cmd-ee" type="button">Copy</button>
+              <pre><code id="cmd-ee">curl -fsSL https://infinia-harness.adid.dev/install.sh | sh -s -- --edition ee --yes</code></pre>
+            </div>
+            <p>
+              Installs <code>fleetsmith</code> and <code>fleetsmith-ee</code>, and — if Docker is
+              running — starts a RelataDB v2.0.0 cortex on port 9090 with a freshly generated bearer
+              token. Without Docker it installs the enterprise package anyway and runs on the file
+              backend until you point <code>RELATA_URL</code> at a cortex.
+            </p>
+          </div>
+
+          <div data-panel-group="install" data-panel="npm" hidden>
+            <div class="cmd">
+              <button class="copy-btn" data-copy="#cmd-npm" type="button">Copy</button>
+              <pre><code id="cmd-npm">npm install -g fleetsmith
+npm install -g fleetsmith-ee   # enterprise, optional</code></pre>
+            </div>
+            <p>
+              Needs Node.js ≥ 18. Core discovers the enterprise package by ordinary module
+              resolution, so a global install of both is all the wiring required.
+            </p>
+          </div>
+
+          <div data-panel-group="install" data-panel="binary" hidden>
+            <div class="cmd">
+              <button class="copy-btn" data-copy="#cmd-bin" type="button">Copy</button>
+              <pre><code id="cmd-bin">curl -fsSL https://infinia-harness.adid.dev/install.sh | sh -s -- --method binary</code></pre>
+            </div>
+            <p>
+              A single self-contained executable — Node runtime, code and the one dependency baked
+              in. Copy it onto any machine, no install step. The enterprise edition is not available
+              this way: it is a normal package that core loads by module resolution, which a
+              single-file binary has no way to do.
+            </p>
+          </div>
+
+          <div class="steps-list">
+            <div class="step-item">
+              <h4>Install</h4>
+              <p>Run the command above, then load the environment it wrote.</p>
+              <pre><code>. ~/.fleetsmith/env.sh</code></pre>
+            </div>
+            <div class="step-item">
+              <h4>Describe your fleet</h4>
+              <p>Pick a pattern from the shape of your work, then edit the generated spec.</p>
+              <pre><code>fleetsmith init my-fleet --pattern pipeline --domain "what your team does"</code></pre>
+            </div>
+            <div class="step-item">
+              <h4>Compile it</h4>
+              <p>Validate first — the validator catches design smells, not just schema errors.</p>
+              <pre><code>fleetsmith validate fleet.yaml
+fleetsmith build fleet.yaml --target all</code></pre>
+            </div>
+            <div class="step-item">
+              <h4>Run it</h4>
+              <p>
+                Restart your agent CLI in the project. The fleet's agents and skills are now native
+                to it — in Claude Code, say <em>"build a harness for this project"</em> and the
+                bundled meta-fleet takes over.
+              </p>
+            </div>
+          </div>
+
+          <div class="highlight-box">
+            <p>
+              Prefer to read before you run? The installer is plain POSIX shell and is served from
+              this site — <a href="/install.sh">read install.sh</a> first, or run it with
+              <code>--dry-run</code> to see every action it would take without taking any.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── cta ────────────────────────────────────────────────────────── -->
+      <section class="cta-section">
+        <div class="wrap">
+          <h2>Build the harness, not the plumbing</h2>
+          <p>
+            Start with the quick start if you want a fleet running in ten minutes, or the
+            architecture if you want to know what it emits and why before you install anything.
+          </p>
+          <div class="cta-buttons">
+            <a href="/quickstart" class="btn-primary">Quick start</a>
+            <a href="/architecture" class="btn-secondary">Read the architecture</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">
+        <div class="footer-logo">
+          <svg viewBox="0 0 46 43" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path
+              d="M46.003 21.496L24.5224 43H8.76562L30.2462 21.496H34.4507L12.9621 0H24.5224L46.003 21.496Z"
+              fill="#110b35"
+            />
+            <path
+              d="M24.7284 21.4969L13.4495 32.7829H5.18525L16.4561 21.4969H11.2789L0 10.2109H13.4495L24.7284 21.4969Z"
+              fill="#2563eb"
+            />
+          </svg>
+          <span class="footer-logo-text">
+            <span class="l1">INFINIA</span>
+            <span class="l2" aria-label="Harness"
+              ><i>H</i><i>a</i><i>r</i><i>n</i><i>e</i><i>s</i><i>s</i></span
+            >
+          </span>
+        </div>
+        <div class="footer-meta">
+          <p class="strong">© 2026 Infinia Technologies</p>
+          <p>fleetsmith is MIT · fleetsmith-ee is AGPL-3.0-only</p>
+          <div class="footer-links">
+            <a href="/architecture">Architecture</a>
+            <a href="/quickstart">Quick start</a>
+            <a href="/guide">User guide</a>
+            <a href="/install.sh">install.sh</a>
+            <a href="https://github.com/subhransusekhar/fleetsmith">GitHub</a>
+          </div>
+        </div>
+      </div>
+    </footer>
+
+    <script src="/site.js"></script>
+  </body>
+</html>

@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>User guide — Infinia Harness</title>
+    <meta
+      name="description"
+      content="The Infinia Harness user guide: the full fleetsmith command reference, how to author a fleet.yaml, loop engineering, skills, the self-improvement loop, and the enterprise grid commands."
+    />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <link rel="canonical" href="https://infinia-harness.adid.dev/guide" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/site.css" />
+  </head>
+  <body>
+    <a href="#main" class="skip">Skip to content</a>
+
+    <nav>
+      <div class="wrap nav-inner">
+        <a href="/" class="nav-logo">
+          <svg viewBox="0 0 46 43" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M46.003 21.496L24.5224 43H8.76562L30.2462 21.496H34.4507L12.9621 0H24.5224L46.003 21.496Z" fill="#110b35"/>
+            <path d="M24.7284 21.4969L13.4495 32.7829H5.18525L16.4561 21.4969H11.2789L0 10.2109H13.4495L24.7284 21.4969Z" fill="#2563eb"/>
+          </svg>
+          <span class="nav-logo-text">
+            <span class="l1">INFINIA</span>
+            <span class="l2" aria-label="Harness"><i>H</i><i>a</i><i>r</i><i>n</i><i>e</i><i>s</i><i>s</i></span>
+          </span>
+        </a>
+        <ul class="nav-links">
+          <li><a href="/">Overview</a></li>
+          <li><a href="/architecture">Architecture</a></li>
+          <li><a href="/quickstart">Quick start</a></li>
+          <li><a href="/guide">User guide</a></li>
+        </ul>
+        <a href="/#install" class="nav-cta">Install</a>
+      </div>
+    </nav>
+
+    <div class="wrap docs" id="main">
+      <aside class="docs-rail">
+        <div class="rail-title">User guide</div>
+        <ul>
+          <li><a href="#vocabulary">Vocabulary</a></li>
+          <li><a href="#cli">Command reference</a></li>
+          <li><a href="#authoring">Authoring a fleet</a></li>
+          <li class="sub"><a href="#agents">Agents</a></li>
+          <li class="sub"><a href="#handoffs">Handoffs</a></li>
+          <li class="sub"><a href="#skills">Skills</a></li>
+          <li class="sub"><a href="#loops">Loops</a></li>
+          <li><a href="#build-install">Build vs install</a></li>
+          <li><a href="#improve">Keeping it good</a></li>
+          <li class="sub"><a href="#qa">qa</a></li>
+          <li class="sub"><a href="#eval">eval</a></li>
+          <li class="sub"><a href="#evolve">evolve</a></li>
+          <li class="sub"><a href="#playbook">playbook &amp; health</a></li>
+          <li><a href="#daily">Day to day</a></li>
+          <li><a href="#grid">Grid commands</a></li>
+          <li><a href="#ci">In CI</a></li>
+        </ul>
+      </aside>
+
+      <article class="docs-body">
+        <h1>User guide</h1>
+        <p class="page-lead">
+          Everything <code>fleetsmith</code> does, and how to use it well. If you have not installed
+          it yet, start with the <a href="/quickstart">quick start</a>.
+        </p>
+
+        <section id="vocabulary">
+          <h2>Vocabulary <a class="anchor" href="#vocabulary" aria-label="Link to this section">#</a></h2>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Term</th><th>Means</th></tr></thead>
+              <tbody>
+                <tr><td><strong>Fleet</strong></td><td>The whole team of agents, described by one <code>fleet.yaml</code></td></tr>
+                <tr><td><strong>Agent</strong></td><td>A named specialist: role, goal, capabilities, skills, outgoing edges</td></tr>
+                <tr><td><strong>Skill</strong></td><td>A methodology an agent loads on demand — the <em>how</em>, separate from the <em>who</em></td></tr>
+                <tr><td><strong>Handoff</strong></td><td>An edge carrying an artifact and acceptance criteria from one agent to the next</td></tr>
+                <tr><td><strong>Pattern</strong></td><td>The fleet's topology: pipeline, fanout, generate-verify, supervisor, expert-pool</td></tr>
+                <tr><td><strong>Target</strong></td><td>A CLI the spec compiles to: Claude Code, opencode, goose</td></tr>
+                <tr><td><strong>Cortex</strong></td><td>The RelataDB instance backing the enterprise grid</td></tr>
+                <tr><td><strong>Actor</strong></td><td>You, on the grid — derived from your git email</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="cli">
+          <h2>Command reference <a class="anchor" href="#cli" aria-label="Link to this section">#</a></h2>
+          <p>Run <code>fleetsmith</code> with no arguments for this list at any time.</p>
+
+          <h3>Core</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+              <tbody>
+                <tr><td><code>init [name] --pattern &lt;p&gt; [--domain "…"] [--out fleet.yaml]</code></td><td>Scaffold a spec from a pattern and a domain description</td></tr>
+                <tr><td><code>validate &lt;fleet.yaml&gt;</code></td><td>Schema plus design-smell lint. Blocks parallel writers and truncating skill descriptions</td></tr>
+                <tr><td><code>build &lt;fleet.yaml&gt; [--target …] [--out DIR] [--dry-run] [--force]</code></td><td>Compile into a directory. <code>--target all</code> emits all three</td></tr>
+                <tr><td><code>install &lt;fleet.yaml&gt; [--target …] [--scope project|user] [--into DIR]</code></td><td>Compile <em>and</em> place the output where the tools discover it</td></tr>
+                <tr><td><code>patterns</code></td><td>The five patterns with one-line descriptions</td></tr>
+                <tr><td><code>version</code></td><td>Version of core, and of the enterprise package if loaded</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Quality</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+              <tbody>
+                <tr><td><code>qa &lt;fleet.yaml&gt; [--built DIR] [--target …] [--installed]</code></td><td>The verification battery, against compiled output</td></tr>
+                <tr><td><code>eval &lt;fleet.yaml&gt; [--stage 1|2|3] [--baseline FILE] [--calibrate]</code></td><td>Trigger discrimination against a held-out corpus</td></tr>
+                <tr><td><code>eval … --judge</code></td><td>Model-scored quality. Advisory — gates nothing</td></tr>
+                <tr><td><code>eval … --exec [--target T] [--repeat N]</code></td><td>Live sessions. Also advisory</td></tr>
+                <tr><td><code>health &lt;fleet.yaml&gt; [--json FILE]</code></td><td>A read of the fleet's own run telemetry</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Change</h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+              <tbody>
+                <tr><td><code>evolve &lt;fleet.yaml&gt; [--budget N] [--apply] [--model M]</code></td><td>Propose improvements on a branch</td></tr>
+                <tr><td><code>evolve … --review [--accept BRANCH | --reject BRANCH --reason R]</code></td><td>The human gate. Nothing promotes without it</td></tr>
+                <tr><td><code>patch &lt;fleet.yaml&gt; --ops ops.json [--dry-run]</code></td><td>Typed, reviewable mutations instead of hand-editing YAML</td></tr>
+                <tr><td><code>protected &lt;fleet.yaml&gt; [--check-diff BASE]</code></td><td>What evolution may not touch — and whether a diff touched it</td></tr>
+                <tr><td><code>playbook &lt;fleet.yaml&gt; add|helpful|harmful|dedupe|show &lt;agent&gt;</code></td><td>Curate an agent's accumulated working notes</td></tr>
+                <tr><td><code>migrate-workspace &lt;fleet.yaml&gt; [--dry-run]</code></td><td>Move an older single-tier <code>_fleet/</code> to shared + local</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Enterprise <span class="chip">needs fleetsmith-ee</span></h3>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+              <tbody>
+                <tr><td><code>grid init</code></td><td>Once per checkout. The one grid verb that fails loudly rather than degrading</td></tr>
+                <tr><td><code>grid sync [--watch]</code></td><td>Push your projection, pull everyone else's</td></tr>
+                <tr><td><code>grid overlaps [--git-only]</code></td><td>Cross-developer file and task collisions</td></tr>
+                <tr><td><code>grid import &lt;path&gt; --kind meeting|discussion|decision|spec</code></td><td>Ingest org context. Without <code>--apply</code> it is a dry run that touches no network</td></tr>
+                <tr><td><code>grid knowledge &lt;query&gt; [--as-of DATE] [--purpose p]</code></td><td>Bi-temporal recall across the team</td></tr>
+                <tr><td><code>grid propose|approve|publish &lt;hash&gt;</code></td><td>The org-approval state machine</td></tr>
+                <tr><td><code>grid audit [--actor a] [--since t] [--why &lt;id&gt;]</code></td><td>Who read what, for which purpose</td></tr>
+                <tr><td><code>grid token rotate</code></td><td>Rotate your own bearer token</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="authoring">
+          <h2>Authoring a fleet <a class="anchor" href="#authoring" aria-label="Link to this section">#</a></h2>
+
+          <h3 id="agents">Agents <a class="anchor" href="#agents" aria-label="Link to this section">#</a></h3>
+          <p>
+            Write the <code>role</code> as one sentence answering <em>who am I</em>, and the
+            <code>goal</code> as a measurable outcome — it feeds both the agent's description and
+            the orchestrator's delegation decision. A goal like "help with testing" cannot be
+            checked; "a failing test that reproduces the reported bug" can.
+          </p>
+          <pre><code>- name: risk-reviewer
+  role: "Adversarially checks a change brief against the actual diff"
+  goal: "A ranked risk list where every entry cites file:line evidence"
+  capabilities: { read: true, run: true }
+  skills: [adversarial-review]
+  effort: high
+  turns: 40
+  principles:
+    - "Default to refuted when the evidence is ambiguous"
+  handoff:
+    to: []</code></pre>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Key</th><th>Default</th><th>Note</th></tr></thead>
+              <tbody>
+                <tr><td><code>capabilities</code></td><td><code>{read: true}</code></td><td>Grant the least that works. Adding <code>edit</code> to a reviewer is how reviewers start rewriting</td></tr>
+                <tr><td><code>model</code></td><td><code>inherit</code></td><td>An intent, not a name — see below</td></tr>
+                <tr><td><code>effort</code></td><td><code>null</code></td><td><code>minimal</code>…<code>max</code>. Works on an inherited model</td></tr>
+                <tr><td><code>turns</code></td><td><code>null</code></td><td>Hard cap. The validator warns above 200</td></tr>
+                <tr><td><code>hidden</code></td><td><code>false</code></td><td>Keep internal agents out of <code>@</code>-mention autocomplete (opencode)</td></tr>
+                <tr><td><code>memory</code></td><td><code>false</code></td><td>Durable cross-session notes</td></tr>
+                <tr><td><code>origin</code></td><td><code>human</code></td><td>Provenance. <code>protected</code> defaults to true for human-authored artifacts</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="note">
+            <span class="label">Model tiers bind to nothing by default</span>
+            <p>
+              <code>smart</code>/<code>fast</code>/<code>cheap</code> say how much judgment a role
+              needs. They emit <code>inherit</code> on every target unless you supply
+              <code>defaults.claudeModels</code> and friends. That is deliberate: a pinned model
+              spawns that model even when the user deliberately started a cheaper session, and fails
+              outright where it is not on their plan. Reach for <code>effort</code> and
+              <code>turns</code> when you want cost control without pinning.
+            </p>
+          </div>
+
+          <h3 id="handoffs">Handoffs <a class="anchor" href="#handoffs" aria-label="Link to this section">#</a></h3>
+          <p>
+            An edge without an artifact is a hope. Name the file and state what makes it acceptable —
+            the criteria compile into the <em>producer's</em> prompt as hard requirements, and into
+            the gate that stops the producer finishing without them.
+          </p>
+          <pre><code>handoff:
+  to: [risk-reviewer]
+  artifact: change-brief.md
+  criteria:
+    - "Every changed file is accounted for"
+    - "Behavioural changes are separated from pure refactors"
+  schema: true   # the default four-field brief:
+                 # objective, output_format, sources_and_tools, boundaries</code></pre>
+          <p>
+            Setting <code>schema</code> compiles to a goose <code>response.json_schema</code>, and
+            on Claude Code and opencode it shapes both the handoff template and the validator gate.
+            An empty <code>to:</code> marks a terminal agent.
+          </p>
+
+          <h3 id="skills">Skills <a class="anchor" href="#skills" aria-label="Link to this section">#</a></h3>
+          <p>
+            An agent is <em>who</em>; a skill is <em>how</em>. Skills load on demand, so a long
+            methodology costs nothing until it is needed. Two properties are independent and both
+            matter: whether a skill <strong>fires</strong>, and whether its output is
+            <strong>good</strong>. A skill that never fires looks exactly like one that was never
+            written — which is why each generated skill ships an
+            <code>evals/evals.json</code> trigger corpus of should-fire and should-not-fire prompts.
+          </p>
+          <ul>
+            <li>Write the description to be pushy and trigger-rich — it is the only thing the model sees when deciding.</li>
+            <li>Keep the body lean and imperative; push depth into reference files.</li>
+            <li>Bundle a script for any step that should be deterministic rather than re-reasoned.</li>
+          </ul>
+
+          <h3 id="loops">Loops <a class="anchor" href="#loops" aria-label="Link to this section">#</a></h3>
+          <p>Two orthogonal constructs, both declared in the spec.</p>
+
+          <h4>Iteration — repeat until good enough</h4>
+          <pre><code>orchestrator:
+  phases:
+    - name: review
+      agents: [change-analyst, risk-reviewer]
+      loop:
+        until: "no unresolved high risks remain"
+        max: 5
+        check: "npm test"      # exit 0 = satisfied
+        noProgress: 2</code></pre>
+          <p>The loop ends three ways, and all three are rendered on every target:</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Exit</th><th>When</th></tr></thead>
+              <tbody>
+                <tr><td><strong>Success</strong></td><td>The <code>until</code> condition, with <code>check</code> as the objective signal — its command and actual output go in the ledger, not the agent's opinion of them</td></tr>
+                <tr><td><strong>No progress</strong></td><td><code>noProgress</code> consecutive passes with no material change. A pass that fixes nothing will not start fixing things</td></tr>
+                <tr><td><strong>Cap</strong></td><td><code>max</code> passes, then proceed with a documented gap</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            A cap alone burns the entire budget on a loop that stopped improving after pass one,
+            which is why the other two exits exist. When <code>check</code> is set, goose
+            additionally gets a native recipe-level <code>retry:</code> block, so the loop is
+            enforced rather than described.
+          </p>
+
+          <h4>Recurring — run the whole fleet on a cadence</h4>
+          <pre><code>fleet:
+  schedule:
+    cron: "0 9 * * 1"
+    note: "Sweep last week's merged PRs for regressions"</code></pre>
+          <p>
+            Compiles to <code>/loop</code> or the schedule skill on Claude Code, a cron or
+            <code>while sleep</code> wrapper around <code>opencode run</code>, and
+            <code>goose schedule</code> or cron on goose. Neither <code>cron</code> nor
+            <code>interval</code> means self-paced; setting both warns and cron wins.
+          </p>
+        </section>
+
+        <section id="build-install">
+          <h2>Build vs install <a class="anchor" href="#build-install" aria-label="Link to this section">#</a></h2>
+          <p>
+            <code>build</code> writes the compiled harness to a directory you name.
+            <code>install</code> compiles and then places the files where the tools actually look.
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Scope</th><th>Goes to</th><th>Use for</th></tr></thead>
+              <tbody>
+                <tr><td><code>--scope project</code> (default)</td><td>The target app repo</td><td>A fleet that belongs to one codebase</td></tr>
+                <tr><td><code>--scope user</code></td><td>Your user-global tool config</td><td>Agents and skills you want on every project</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            <code>--dry-run</code> lists every file that would be written. Use it the first time you
+            point <code>install</code> at a repo that already has a <code>.claude/</code>.
+          </p>
+        </section>
+
+        <section id="improve">
+          <h2>Keeping it good <a class="anchor" href="#improve" aria-label="Link to this section">#</a></h2>
+          <p>
+            A harness degrades quietly: an agent stops being delegated to, a skill stops firing, the
+            spec drifts from what was compiled. These four commands are how you notice.
+          </p>
+
+          <h3 id="qa">qa <a class="anchor" href="#qa" aria-label="Link to this section">#</a></h3>
+          <pre><code>fleetsmith build fleet.yaml --target all --out ./dist
+fleetsmith qa fleet.yaml --built ./dist</code></pre>
+          <p>
+            Checks the <em>compiled output</em>, not the spec's intentions: spec gate, per-target
+            compile, handoff graph against the real generated files, capability leaks, loop bounds,
+            and drift between the spec and what was emitted. <code>--installed</code> runs it
+            against an installed harness instead of a build directory.
+          </p>
+
+          <h3 id="eval">eval <a class="anchor" href="#eval" aria-label="Link to this section">#</a></h3>
+          <pre><code>fleetsmith eval fleet.yaml --stage 1     # 3 fleets, fast
+fleetsmith eval fleet.yaml --stage 3     # the full corpus</code></pre>
+          <p>
+            Trigger discrimination: given a prompt that should invoke a skill, does it — and given
+            one that should not, does it stay quiet. The ladder is staged so the fast stage can run
+            on every commit. There is a measured noise floor and a paired baseline comparison, so a
+            two-point move is not read as a win.
+          </p>
+          <p>
+            <code>--judge</code> and <code>--exec</code> add model-scored quality and live sessions.
+            Both are explicitly <strong>advisory and gate nothing</strong> — every gate in this
+            system is deterministic.
+          </p>
+
+          <h3 id="evolve">evolve <a class="anchor" href="#evolve" aria-label="Link to this section">#</a></h3>
+          <pre><code>fleetsmith evolve fleet.yaml --budget 3
+fleetsmith evolve fleet.yaml --review
+fleetsmith evolve fleet.yaml --review --accept fleet-gen/4
+fleetsmith evolve fleet.yaml --review --reject fleet-gen/5 --reason "widens capability for no reason"</code></pre>
+          <p>
+            Observe, evaluate, mutate, validate, promote. Proposals land on a branch, must clear
+            both <code>qa</code> and <code>eval</code>, and then wait for a human. Rollback is
+            <code>git revert fleet-gen/&lt;n&gt;</code>.
+          </p>
+          <div class="warn-box">
+            <span class="label">What it may not touch</span>
+            <p>
+              Only artifacts evolution itself generated. The validator, the QA battery, the eval
+              corpus and the tests are hard-coded off limits — enforced in-process
+              <em>and</em> in CI, because a control living inside the agent's own runtime is
+              reachable by inputs that influence the agent. Check any diff with
+              <code>fleetsmith protected fleet.yaml --check-diff main</code>.
+            </p>
+          </div>
+
+          <h3 id="playbook">
+            playbook &amp; health <a class="anchor" href="#playbook" aria-label="Link to this section">#</a>
+          </h3>
+          <pre><code>fleetsmith playbook fleet.yaml add risk-reviewer "Check the migration file before the model code"
+fleetsmith playbook fleet.yaml helpful risk-reviewer &lt;id&gt;
+fleetsmith playbook fleet.yaml harmful risk-reviewer &lt;id&gt;
+fleetsmith playbook fleet.yaml dedupe  risk-reviewer
+fleetsmith health   fleet.yaml</code></pre>
+          <p>
+            A playbook is an agent's accumulated working notes, curated by marking entries helpful
+            or harmful rather than by rewriting prose. <code>health</code> reads the run telemetry
+            the handover gate is already producing — gate verdicts, retries, human corrections — and
+            tells you which agents are struggling.
+          </p>
+        </section>
+
+        <section id="daily">
+          <h2>Day to day <a class="anchor" href="#daily" aria-label="Link to this section">#</a></h2>
+          <p>Once a fleet is running, the loop is short:</p>
+          <ol>
+            <li>Work. Agents write handoffs into <code>_fleet/local/handoffs/</code> and rows into <code>LEDGER.md</code>.</li>
+            <li>When something is worth keeping, promote it into <code>_fleet/shared/knowledge/</code> by pull request. That review is the only path into team knowledge.</li>
+            <li>Periodically run <code>qa</code> and the fast <code>eval</code> stage — ideally in CI, on every pull request.</li>
+            <li>When the fleet's shape is wrong rather than its content, edit <code>fleet.yaml</code> and rebuild. Never hand-edit generated files: the next build overwrites them, and <code>qa</code> reports the drift in the meantime.</li>
+          </ol>
+          <div class="highlight-box">
+            <p>
+              <strong>Generated files are outputs.</strong> If you find yourself editing
+              <code>.claude/agents/*.md</code> directly, the change belongs in the spec — or in a
+              playbook entry, if it is a working note rather than a role change.
+            </p>
+          </div>
+        </section>
+
+        <section id="grid">
+          <h2>Grid commands <span class="chip">enterprise</span> <a class="anchor" href="#grid" aria-label="Link to this section">#</a></h2>
+          <p>
+            Every grid verb degrades. <code>grid init</code> is the single exception: it exits
+            non-zero when nothing is configured, because it is meant to be run once, deliberately,
+            not from automation that should degrade quietly.
+          </p>
+          <pre><code>fleetsmith grid sync --watch</code></pre>
+          <p>
+            Runs continuously — on an SSE doorbell if the engine emits one, a five-minute interval
+            fallback, local ledger and handoff file changes, and run start and end. Exits cleanly on
+            SIGINT and SIGTERM.
+          </p>
+          <pre><code>fleetsmith grid overlaps
+fleetsmith grid overlaps --git-only</code></pre>
+          <p>
+            Writes <code>OVERLAPS.md</code>. The <code>--git-only</code> form needs no cortex, no
+            grid configuration and no network access at all — file-level overlaps synthesised
+            straight from local git branches. That is the open-source answer to the same question.
+          </p>
+          <pre><code>fleetsmith grid import ./meetings --kind meeting            # dry run
+fleetsmith grid import ./meetings --kind meeting --apply
+fleetsmith grid knowledge "why did we drop the queue" --as-of 2026-06-01</code></pre>
+          <p>
+            Imports are provenance-tracked and bi-temporal — business time is the meeting date, not
+            the ingest date — so <code>--as-of</code> answers "what did we know then" and
+            <code>--as-recorded</code> answers "what did we believe we knew then". Without a cortex,
+            <code>knowledge</code> degrades to filtering committed
+            <code>_fleet/shared/knowledge/</code> frontmatter directly.
+          </p>
+          <pre><code>fleetsmith grid audit --actor alice --since 2026-08-01
+fleetsmith grid audit --why &lt;item-id&gt;</code></pre>
+          <p>
+            <code>--why</code> explains why a specific item was returned to someone. It has no
+            degraded counterpart — with no cortex, <code>audit</code> falls back to local run events
+            only.
+          </p>
+        </section>
+
+        <section id="ci">
+          <h2>In CI <a class="anchor" href="#ci" aria-label="Link to this section">#</a></h2>
+          <p>
+            The installer is non-interactive whenever no terminal is attached, so no flags are
+            strictly required — but pin the version in CI.
+          </p>
+          <pre><code>- name: Install Infinia Harness
+  run: |
+    curl -fsSL https://infinia-harness.adid.dev/install.sh \
+      | sh -s -- --version 0.7.0 --yes
+    . ~/.fleetsmith/env.sh
+
+- name: Gate the harness
+  run: |
+    . ~/.fleetsmith/env.sh
+    fleetsmith validate fleet.yaml
+    fleetsmith build fleet.yaml --target all --out ./dist
+    fleetsmith qa fleet.yaml --built ./dist
+    fleetsmith eval fleet.yaml --stage 1
+    fleetsmith protected fleet.yaml --check-diff origin/main</code></pre>
+          <p>
+            <code>--stage 1</code> is the fast rung of the eval ladder and is the right one for
+            every-commit CI; save the full corpus for a nightly job. Nothing here needs a cortex, so
+            the same workflow runs unchanged for both editions.
+          </p>
+        </section>
+
+        <div class="pager">
+          <a href="/quickstart" class="prev"><span class="dir">Back</span><span class="to">Quick start</span></a>
+          <a href="/architecture" class="next"><span class="dir">Next</span><span class="to">Architecture</span></a>
+        </div>
+      </article>
+    </div>
+
+    <footer>
+      <div class="wrap">
+        <div class="footer-logo">
+          <svg viewBox="0 0 46 43" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M46.003 21.496L24.5224 43H8.76562L30.2462 21.496H34.4507L12.9621 0H24.5224L46.003 21.496Z" fill="#110b35"/>
+            <path d="M24.7284 21.4969L13.4495 32.7829H5.18525L16.4561 21.4969H11.2789L0 10.2109H13.4495L24.7284 21.4969Z" fill="#2563eb"/>
+          </svg>
+          <span class="footer-logo-text">
+            <span class="l1">INFINIA</span>
+            <span class="l2" aria-label="Harness"><i>H</i><i>a</i><i>r</i><i>n</i><i>e</i><i>s</i><i>s</i></span>
+          </span>
+        </div>
+        <div class="footer-meta">
+          <p class="strong">© 2026 Infinia Technologies</p>
+          <p>fleetsmith is MIT · fleetsmith-ee is AGPL-3.0-only</p>
+          <div class="footer-links">
+            <a href="/architecture">Architecture</a>
+            <a href="/quickstart">Quick start</a>
+            <a href="/guide">User guide</a>
+            <a href="/install.sh">install.sh</a>
+            <a href="https://github.com/subhransusekhar/fleetsmith">GitHub</a>
+          </div>
+        </div>
+      </div>
+    </footer>
+
+    <script src="/site.js"></script>
+  </body>
+</html>

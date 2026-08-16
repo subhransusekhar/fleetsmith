@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Architecture — Infinia Harness</title>
+    <meta
+      name="description"
+      content="How Infinia Harness compiles one fleet.yaml into Claude Code, opencode and goose harnesses: the spec, capability mapping, the file-based handover protocol, enforced gates, self-evolution and the enterprise Intelligence Grid."
+    />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <link rel="canonical" href="https://infinia-harness.adid.dev/architecture" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/site.css" />
+  </head>
+  <body>
+    <a href="#main" class="skip">Skip to content</a>
+
+    <nav>
+      <div class="wrap nav-inner">
+        <a href="/" class="nav-logo">
+          <svg viewBox="0 0 46 43" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M46.003 21.496L24.5224 43H8.76562L30.2462 21.496H34.4507L12.9621 0H24.5224L46.003 21.496Z" fill="#110b35"/>
+            <path d="M24.7284 21.4969L13.4495 32.7829H5.18525L16.4561 21.4969H11.2789L0 10.2109H13.4495L24.7284 21.4969Z" fill="#2563eb"/>
+          </svg>
+          <span class="nav-logo-text">
+            <span class="l1">INFINIA</span>
+            <span class="l2" aria-label="Harness"><i>H</i><i>a</i><i>r</i><i>n</i><i>e</i><i>s</i><i>s</i></span>
+          </span>
+        </a>
+        <ul class="nav-links">
+          <li><a href="/">Overview</a></li>
+          <li><a href="/architecture">Architecture</a></li>
+          <li><a href="/quickstart">Quick start</a></li>
+          <li><a href="/guide">User guide</a></li>
+        </ul>
+        <a href="/#install" class="nav-cta">Install</a>
+      </div>
+    </nav>
+
+    <div class="wrap docs" id="main">
+      <!-- ── rail ─────────────────────────────────────────────────────── -->
+      <aside class="docs-rail">
+        <div class="rail-title">Architecture</div>
+        <ul>
+          <li><a href="#model">The compile model</a></li>
+          <li><a href="#spec">The spec</a></li>
+          <li class="sub"><a href="#patterns">Patterns</a></li>
+          <li class="sub"><a href="#capabilities">Capabilities</a></li>
+          <li><a href="#handover">Handover protocol</a></li>
+          <li class="sub"><a href="#gates">Enforced gates</a></li>
+          <li><a href="#workspace">Workspace tiers</a></li>
+          <li><a href="#evolution">Self-evolution</a></li>
+          <li><a href="#grid">The Intelligence Grid</a></li>
+          <li class="sub"><a href="#decisions">Load-bearing decisions</a></li>
+          <li class="sub"><a href="#degradation">Degradation</a></li>
+          <li><a href="#licensing">The ee boundary</a></li>
+        </ul>
+      </aside>
+
+      <!-- ── body ─────────────────────────────────────────────────────── -->
+      <article class="docs-body">
+        <h1>Architecture</h1>
+        <p class="page-lead">
+          What Infinia Harness emits, and why each piece is shaped the way it is. Everything here
+          describes v0.7.0.
+        </p>
+
+        <section id="model">
+          <h2>The compile model <a class="anchor" href="#model" aria-label="Link to this section">#</a></h2>
+          <p>
+            The input is one YAML file. The output is a native harness per target — not a runtime,
+            not a wrapper process. Nothing of Infinia Harness stays resident while your fleet runs;
+            the agents your CLI loads are ordinary files it already knows how to read.
+          </p>
+
+          <div class="figure-dark">
+            <pre><code>                        ┌──────────────────────────────────────────────┐
+                        │                 fleet.yaml                   │
+                        │  pattern · agents[] · skills[] · handoff graph│
+                        │  capabilities · loops · schedule · defaults   │
+                        └───────────────────────┬──────────────────────┘
+                                                │
+                                    ┌───────────▼───────────┐
+                                    │   validate (schema +  │
+                                    │   design-smell lint)  │
+                                    └───────────┬───────────┘
+                                                │
+              ┌─────────────────────┬───────────┴──────────┬─────────────────────┐
+              ▼                     ▼                      ▼                     ▼
+     ┌────────────────┐   ┌──────────────────┐   ┌──────────────────┐  ┌──────────────────┐
+     │  Claude Code   │   │     opencode     │   │      goose       │  │     _fleet/      │
+     │ agents/*.md    │   │ agents/*.md      │   │ recipes/*.yaml   │  │ handoffs/        │
+     │ skills/SKILL.md│   │ commands/ skills/│   │ AGENTS.md        │  │ LEDGER.md        │
+     │ CLAUDE.md      │   │ AGENTS.md        │   │ sub-recipes      │  │ runs/  knowledge/│
+     │ SubagentStop   │   │ permission.task  │   │ response.        │  │                  │
+     │ hook (gate)    │   │ maps (gate)      │   │ json_schema(gate)│  │ portable protocol│
+     └────────────────┘   └──────────────────┘   └──────────────────┘  └──────────────────┘
+              └─────────────────────┴──────────────────────┴─────────────────────┘
+                                    one fleet, three vocabularies,
+                                       one shared file protocol</code></pre>
+          </div>
+
+          <p>
+            The three CLIs differ in vocabulary, not in concept. Each has a named specialist with a
+            prompt, a scoped permission model, an attached methodology, and a way to pass work on.
+            The compiler targets that intersection and lets each adapter spend the differences.
+          </p>
+        </section>
+
+        <section id="spec">
+          <h2>The spec <a class="anchor" href="#spec" aria-label="Link to this section">#</a></h2>
+          <p>A minimal fleet is short. Every key below has a default:</p>
+          <pre><code>fleet:
+  name: review-fleet
+  domain: "reviewing pull requests in a Rust service"
+  pattern: generate-verify
+
+defaults:
+  capabilities: { read: true }
+
+agents:
+  - name: change-analyst
+    role: "Reads a diff and states what it actually changes"
+    goal: "A change brief with every touched subsystem named"
+    capabilities: { read: true }
+    handoff:
+      to: [risk-reviewer]
+      artifact: change-brief.md
+      criteria:
+        - "Every changed file is accounted for"
+        - "Behavioural changes are separated from refactors"
+
+  - name: risk-reviewer
+    role: "Adversarially checks the brief against the diff"
+    goal: "A ranked risk list with file:line evidence"
+    capabilities: { read: true, run: true }
+    handoff:
+      to: []</code></pre>
+
+          <h3 id="patterns">
+            Patterns <a class="anchor" href="#patterns" aria-label="Link to this section">#</a>
+          </h3>
+          <p>
+            The pattern is chosen from the shape of the data flow, not from taste. It sets the
+            default handoff topology and the orchestrator's prompt.
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr><th>Pattern</th><th>Shape</th><th>Reach for it when</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>pipeline</code></td>
+                  <td>Sequential stages, each consuming the previous handoff</td>
+                  <td>Work has a natural order — analyse, then build, then review</td>
+                </tr>
+                <tr>
+                  <td><code>fanout</code></td>
+                  <td>Independent parallel workers, then one merger</td>
+                  <td>Research sweeps and audits, where breadth beats depth</td>
+                </tr>
+                <tr>
+                  <td><code>generate-verify</code></td>
+                  <td>Producers paired with adversarial checkers</td>
+                  <td>Output correctness matters more than throughput</td>
+                </tr>
+                <tr>
+                  <td><code>supervisor</code></td>
+                  <td>A coordinating lead plus specialists; the lead owns state</td>
+                  <td>The work list is discovered as you go, not known upfront</td>
+                </tr>
+                <tr>
+                  <td><code>expert-pool</code></td>
+                  <td>A router plus on-demand specialists</td>
+                  <td>Requests are heterogeneous and only some experts apply</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3 id="capabilities">
+            Capabilities <a class="anchor" href="#capabilities" aria-label="Link to this section">#</a>
+          </h3>
+          <p>
+            Agents declare intent, not tool names. Each adapter maps the same five booleans onto its
+            own permission model, so least privilege survives the port instead of being re-derived
+            by hand for every tool.
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr><th>Declared</th><th>Claude Code</th><th>opencode</th><th>goose</th></tr>
+              </thead>
+              <tbody>
+                <tr><td><code>read</code></td><td rowspan="5"><code>tools:</code> allowlist</td><td rowspan="5"><code>tools:</code> booleans and <code>permission:</code> allow/deny maps</td><td rowspan="5">extensions, plus a stated read-only constraint</td></tr>
+                <tr><td><code>edit</code></td></tr>
+                <tr><td><code>run</code></td></tr>
+                <tr><td><code>web</code></td></tr>
+                <tr><td><code>spawn</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="warn-box">
+            <span class="label">goose has no tool-level sandbox</span>
+            <p>
+              There is no permission surface to compile a capability into, so the constraint is
+              emitted as an explicit statement in the recipe rather than an enforced boundary.
+              That difference is stated in the generated output rather than papered over — a
+              capability that is advisory on one target and enforced on two should not read
+              identically on all three.
+            </p>
+          </div>
+
+          <h3>Cost control</h3>
+          <p>
+            <code>model</code> tiers (<code>smart</code>/<code>fast</code>/<code>cheap</code>) are
+            <em>intents</em>. They bind to nothing unless you supply a
+            <code>defaults.claudeModels</code> / <code>opencodeModels</code> /
+            <code>gooseModels</code> map — because a pinned model spawns that model even when the
+            user deliberately started a cheaper session, and fails outright where it is not on their
+            plan. <code>effort</code> and <code>turns</code> give you cost control that works on an
+            inherited model: they compile to Claude Code <code>effort</code>/<code>maxTurns</code>,
+            opencode <code>variant</code>/<code>steps</code>, and goose
+            <code>settings.max_turns</code>.
+          </p>
+        </section>
+
+        <section id="handover">
+          <h2>The handover protocol <a class="anchor" href="#handover" aria-label="Link to this section">#</a></h2>
+          <p>
+            Every edge in the fleet graph carries an artifact and acceptance criteria. The protocol
+            is file-based because files are the only channel all three tools share — which also
+            makes fleet behaviour auditable after the fact and resumable after a crash.
+          </p>
+          <div class="highlight-box">
+            <p>
+              <strong>The message is the doorbell; the file is the payload.</strong> Where a target
+              has native agent-to-agent messaging, it is layered on top as a wake-up — never as the
+              transport. A protocol that depends on messaging cannot be replayed, and cannot be
+              read by a human deciding whether an agent actually did its job.
+            </p>
+          </div>
+
+          <div class="figure-dark">
+            <pre><code>_fleet/
+├── shared/                    committed — what the team has learned (PR-gated)
+│   ├── knowledge/             promoted, reviewed notes
+│   ├── evolution/             proposals + decisions.jsonl
+│   └── CHANGELOG.md
+└── local/                     gitignored — what my current run is doing
+    ├── LEDGER.md              my task rows: task, owner, depends-on, status, artifact
+    ├── handoffs/              one file per completed edge
+    ├── runs/                  telemetry: gate verdicts, retries, corrections
+    └── scripts/               the gate + event-log hooks</code></pre>
+          </div>
+
+          <p>
+            Each handoff file carries a real brief — objective, output format, sources and tools,
+            boundaries, and failed approaches — and consumers are told to <em>cite</em> it rather
+            than restate it. Every paraphrase between producer and consumer loses detail, and the
+            loss compounds down a chain.
+          </p>
+
+          <h3 id="gates">
+            Enforced gates <a class="anchor" href="#gates" aria-label="Link to this section">#</a>
+          </h3>
+          <p>
+            Where a target can check something deterministically, the compiler emits the check
+            instead of an instruction to remember it.
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr><th>Target</th><th>Mechanism</th><th>What it enforces</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Claude Code</td>
+                  <td><code>SubagentStop</code> hook running <code>validate-handoff.sh</code></td>
+                  <td>An agent cannot finish until its handoff file exists and carries every required section</td>
+                </tr>
+                <tr>
+                  <td>opencode</td>
+                  <td><code>permission.task</code> maps compiled from the handoff graph</td>
+                  <td>An agent with no edge to another simply cannot see it in the task tool</td>
+                </tr>
+                <tr>
+                  <td>goose</td>
+                  <td><code>response.json_schema</code></td>
+                  <td>The handoff summary is validated against its declared shape at runtime</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="warn-box">
+            <span class="label">Project hooks need a trusted workspace</span>
+            <p>
+              Claude Code does not run project-level hooks until you accept its "trust this folder"
+              dialog. Until you do, the handover gate is silently skipped and the fleet degrades to
+              advisory instructions. This is the single most common reason a generated harness
+              behaves less strictly than expected.
+            </p>
+          </div>
+        </section>
+
+        <section id="workspace">
+          <h2>Workspace tiers <a class="anchor" href="#workspace" aria-label="Link to this section">#</a></h2>
+          <p>
+            Splitting the workspace stops a fleet's accumulated learning from living on one laptop,
+            while stopping run logs from causing merge conflicts.
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr><th>Tier</th><th>Where</th><th>Holds</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>user-global</td><td><code>~/.claude/skills/</code></td><td>Methodology you reuse on every project</td></tr>
+                <tr><td>project-shared</td><td><code>_fleet/shared/</code> (committed)</td><td>What the team has learned — promoted by PR</td></tr>
+                <tr><td>project-local</td><td><code>_fleet/local/</code> (gitignored)</td><td>What your current run is doing</td></tr>
+                <tr><td>grid <span class="chip">enterprise</span></td><td>RelataDB cortex</td><td>What everyone is doing and knows right now</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            The promotion ladder is one-directional: nothing becomes reviewed team knowledge except
+            by landing in <code>_fleet/shared/</code> through a pull request. The grid tier does not
+            shortcut it.
+          </p>
+        </section>
+
+        <section id="evolution">
+          <h2>Self-evolution <a class="anchor" href="#evolution" aria-label="Link to this section">#</a></h2>
+          <p>
+            A generated harness records what its runs did, checks itself deterministically, and can
+            propose its own improvements for review — with <strong>one model call in the whole
+            system</strong>, and gates that never depend on it.
+          </p>
+          <div class="figure-dark">
+            <pre><code>observe ──► evaluate ──► mutate ──► validate ──► promote
+   │            │           │           │            │
+   │            │           │           │            └─ proposal lands on a branch;
+   │            │           │           │               waits for `evolve --review`
+   │            │           │           └─ qa + eval must both pass — deterministic
+   │            │           └─ THE ONE MODEL CALL, and it may only touch
+   │            │              artifacts that evolution itself generated
+   │            └─ trigger discrimination against a held-out corpus,
+   │               staged 3/10/full, measured noise floor, paired baseline
+   └─ run telemetry the handover gate was already computing and throwing away</code></pre>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+              <tbody>
+                <tr><td><code>fleetsmith qa</code></td><td>Spec gate, per-target compile, handoff graph checked against <em>compiled</em> output, capability leaks, loop bounds, drift</td></tr>
+                <tr><td><code>fleetsmith eval</code></td><td>Whether skills actually fire, on prompts that should and should not trigger them</td></tr>
+                <tr><td><code>fleetsmith evolve</code></td><td>Proposes changes on a branch; rollback is <code>git revert fleet-gen/&lt;n&gt;</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="note">
+            <span class="label">Why provenance is load-bearing</span>
+            <p>
+              Every agent and skill carries <code>origin: human|evolved</code>, and the loop may
+              only modify what it generated. The validator, QA battery, eval corpus and tests are
+              hard-coded off limits — enforced in-process <em>and</em> in CI, because a control
+              living inside the agent's own runtime is reachable by inputs that influence the agent.
+              The Darwin Gödel Machine, scored by a function counting marker tokens, deleted the
+              markers rather than fix the behaviour.
+            </p>
+          </div>
+        </section>
+
+        <section id="grid">
+          <h2>The Intelligence Grid <span class="chip">enterprise</span> <a class="anchor" href="#grid" aria-label="Link to this section">#</a></h2>
+          <p>
+            Git makes team knowledge shareable, but only as fast as the last merged PR. That leaves
+            four asks unanswered: agents cannot see each other's in-flight work, there is no
+            semantic recall across the team mid-task, organisational context has no ingestion path,
+            and there is no central governance. The grid is a fourth tier that answers them — and
+            it is a <em>projection, never an authority</em>.
+          </p>
+
+          <div class="figure-dark">
+            <pre><code>  developer A laptop                          developer B laptop
+┌─────────────────────────┐                 ┌─────────────────────────┐
+│ fleet agents            │                 │ fleet agents            │
+│   │ read/write (files)  │                 │                         │
+│ _fleet/local/           │                 │ _fleet/local/           │
+│   LEDGER.md  handoffs/  │                 │   LEDGER.md  handoffs/  │
+│   grid/peers/B/  ◄──────┼── of B's work   │   grid/peers/A/  ◄──────┼── read-only
+│         ▲               │                 │         ▲               │   projection
+│  fleetsmith grid sync   │                 │  fleetsmith grid sync   │
+└───┬─────┴───────────────┘                 └───┬─────┴───────────────┘
+    │ push: /ingest (typed rows)                │
+    │ pull: SSE /graph/changes + cursor         │
+    ▼                                           ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                RelataDB cortex (customer-run, BYOL)              │
+│  grid ontology: FleetTask · ActorPresence · HandoffPointer ·     │
+│                 RunEventSummary                                  │
+│  memory verbs:  MemoryItem · ProcedureMemory · DecisionRecord    │
+│  org knowledge: OrgDocument (meetings, calls, discussions)       │
+│  governance:    purpose registry · ACL · audit chain · AS OF     │
+└──────────────────────────────────────────────────────────────────┘
+        ▲                                   ▲
+  fleetsmith grid import              cortex console (board, audit,
+  (meeting notes, transcripts)        approvals, equip, tokens)</code></pre>
+          </div>
+
+          <p>
+            Agents never call the grid. They read files — the same files they would read with no
+            cortex at all, plus read-only peer projections under
+            <code>_fleet/local/grid/peers/&lt;actor&gt;/</code> and one <code>GRID.md</code> rollup.
+            That keeps the design identical across all three targets and makes degradation trivial:
+            an unreachable cortex just means stale files.
+          </p>
+
+          <h3 id="decisions">
+            Load-bearing decisions <a class="anchor" href="#decisions" aria-label="Link to this section">#</a>
+          </h3>
+          <p>Each was forced by evidence. Reversing one means re-checking its source.</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Decision</th><th>Why</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td>Task and presence state go through <code>/ingest</code> as our own ontology types, not the memory verbs</td>
+                  <td><code>/memory/*</code> writes bypass <code>governed_upsert</code>, so they never reach the changefeed. Only <code>/ingest</code> rows get WAL, ACL and fan-out</td>
+                </tr>
+                <tr>
+                  <td>Sync is an SSE wake-up plus cursor reconciliation, never <code>/watch/stream</code></td>
+                  <td><code>/watch/stream</code> is a stateless per-request poll whose registry is lost on restart. The SSE buffer is 1000 with gap notices — so SSE is only ever the doorbell and the cursor pull is the payload</td>
+                </tr>
+                <tr>
+                  <td>Single-writer rows: every row keyed by actor</td>
+                  <td>The engine has no CRDTs and no client-facing merge. Keying by actor makes concurrent-write conflicts impossible by construction</td>
+                </tr>
+                <tr>
+                  <td>Rows carry pointers and digests, never handoff bodies or file contents</td>
+                  <td>Server-side conditional-ACL enforcement is not yet wired into every call site; client-side redaction and minimal payloads are the defence until it is</td>
+                </tr>
+                <tr>
+                  <td>One org = one tenant</td>
+                  <td>Sub-tenant namespaces are stored but not enforced by the engine. Never build isolation on namespaces</td>
+                </tr>
+                <tr>
+                  <td>Deterministic overlap checks; model judgment only inside existing agent turns</td>
+                  <td>Project invariant since v0.5: deterministic checks carry every gate. The grid adds zero model calls</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3 id="degradation">
+            Degradation <a class="anchor" href="#degradation" aria-label="Link to this section">#</a>
+          </h3>
+          <p>
+            Every enterprise capability names the core answer it falls back to. Nothing is
+            enterprise-only.
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Capability</th><th>Degrades to</th></tr></thead>
+              <tbody>
+                <tr><td>Cross-developer overlaps</td><td>Git file-intersection across local branches — <code>grid overlaps --git-only</code> needs no cortex and no network at all</td></tr>
+                <tr><td>Org knowledge</td><td>Filtering committed <code>_fleet/shared/knowledge/</code> frontmatter directly</td></tr>
+                <tr><td>Semantic recall</td><td>Token overlap over the same committed notes</td></tr>
+                <tr><td>Audit</td><td>Local run events from <code>_fleet/local/runs/</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="ok-box">
+            <span class="label">Silent success, loud warning</span>
+            <p>
+              No configuration produces plain OSS behaviour with no output at all. An unreachable or
+              license-expired cortex produces exactly one warning, stale-marked grid files, and runs
+              that still complete. A cortex problem is never a run failure.
+            </p>
+          </div>
+        </section>
+
+        <section id="licensing">
+          <h2>The <code>ee/</code> boundary <a class="anchor" href="#licensing" aria-label="Link to this section">#</a></h2>
+          <p>
+            Core is <strong>MIT</strong> with one runtime dependency and is complete on its own —
+            the file backend and git are the supported open-source answer, forever. Everything
+            enterprise ships as <strong>AGPL-3.0-only</strong> in a separate package.
+          </p>
+          <p>Four rules, each enforced in CI rather than documented and hoped for:</p>
+          <ol>
+            <li>No core file may import from <code>ee/</code>.</li>
+            <li>Every enterprise source file carries its SPDX header.</li>
+            <li>No RelataDB binary or source is vendored anywhere.</li>
+            <li>Every enterprise capability names its degraded core answer.</li>
+          </ol>
+          <p>
+            Core loads the enterprise package fail-soft, by ordinary module resolution. Removing it
+            leaves core byte-identical to open-source behaviour — a property the test suite checks
+            rather than asserts.
+          </p>
+          <div class="note">
+            <span class="label">RelataDB is bring-your-own-license</span>
+            <p>
+              The cortex engine is never shipped, vendored or patched here. You run your own
+              instance; Infinia Harness speaks REST to it. The installer can start one for you in
+              Docker, but the image and its license remain the vendor's.
+            </p>
+          </div>
+        </section>
+
+        <div class="pager">
+          <a href="/" class="prev"><span class="dir">Back</span><span class="to">Overview</span></a>
+          <a href="/quickstart" class="next"><span class="dir">Next</span><span class="to">Quick start</span></a>
+        </div>
+      </article>
+    </div>
+
+    <footer>
+      <div class="wrap">
+        <div class="footer-logo">
+          <svg viewBox="0 0 46 43" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M46.003 21.496L24.5224 43H8.76562L30.2462 21.496H34.4507L12.9621 0H24.5224L46.003 21.496Z" fill="#110b35"/>
+            <path d="M24.7284 21.4969L13.4495 32.7829H5.18525L16.4561 21.4969H11.2789L0 10.2109H13.4495L24.7284 21.4969Z" fill="#2563eb"/>
+          </svg>
+          <span class="footer-logo-text">
+            <span class="l1">INFINIA</span>
+            <span class="l2" aria-label="Harness"><i>H</i><i>a</i><i>r</i><i>n</i><i>e</i><i>s</i><i>s</i></span>
+          </span>
+        </div>
+        <div class="footer-meta">
+          <p class="strong">© 2026 Infinia Technologies</p>
+          <p>fleetsmith is MIT · fleetsmith-ee is AGPL-3.0-only</p>
+          <div class="footer-links">
+            <a href="/architecture">Architecture</a>
+            <a href="/quickstart">Quick start</a>
+            <a href="/guide">User guide</a>
+            <a href="/install.sh">install.sh</a>
+            <a href="https://github.com/subhransusekhar/fleetsmith">GitHub</a>
+          </div>
+        </div>
+      </div>
+    </footer>
+
+    <script src="/site.js"></script>
+  </body>
+</html>
