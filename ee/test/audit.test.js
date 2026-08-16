@@ -139,6 +139,31 @@ test('explainItem for an "org:" id defaults approval to draft when the row was n
   await withFakeAuditServer({ orgDocs }, async (config) => {
     const explanation = await explainItem(config, 'org:hash1');
     assert.deepEqual(explanation.approval, { state: 'draft', approved_by: null, approved_at: null });
+    assert.equal(explanation.rejection, null, 'never rejected — no rejection block at all');
+  });
+});
+
+test('explainItem for an "org:" id surfaces a G8.4 rejection when the row\'s current version carries one', async () => {
+  const orgDocs = [
+    {
+      content_hash: 'hash1',
+      kind: 'spec',
+      title: 'X',
+      chunk_text: 't',
+      source_file: 'x.md',
+      imported_by: 'alice',
+      imported_at: 'i',
+      valid_from: 'v',
+      approval: 'draft',
+      rejected_by: 'bob',
+      rejected_at: '2026-02-01T00:00:00.000Z',
+      rejection_note: 'cite a primary source',
+    },
+  ];
+  await withFakeAuditServer({ orgDocs }, async (config) => {
+    const explanation = await explainItem(config, 'org:hash1');
+    assert.deepEqual(explanation.rejection, { rejected_by: 'bob', rejected_at: '2026-02-01T00:00:00.000Z', note: 'cite a primary source' });
+    assert.match(renderExplanation(explanation), /last rejected: by bob at 2026-02-01T00:00:00\.000Z — "cite a primary source"/);
   });
 });
 

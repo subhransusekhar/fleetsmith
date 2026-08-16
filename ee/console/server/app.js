@@ -3,7 +3,7 @@ import { createRouter } from './router.js';
 import { getDeploymentHealth } from './routes/health.js';
 import { getBoard } from './routes/board.js';
 import { getAudit, getAuditWhy } from './routes/audit.js';
-import { getKnowledge, getProcedures, postPropose, postApprove, postPublish } from './routes/knowledge.js';
+import { getKnowledge, getKnowledgeDocuments, getProcedures, postPropose, postApprove, postPublish, postReject } from './routes/knowledge.js';
 import { getEquipScope, putEquipScope } from './routes/equip.js';
 import { listTokens, createToken, revokeToken } from './routes/tokens.js';
 
@@ -23,10 +23,12 @@ export function buildApp() {
   router.route('GET', '/api/audit/why', 'member', getAuditWhy);
 
   router.route('GET', '/api/knowledge', 'member', getKnowledge);
+  router.route('GET', '/api/knowledge/documents', 'member', getKnowledgeDocuments);
   router.route('GET', '/api/procedures', 'member', getProcedures);
   router.route('POST', '/api/knowledge/:contentHash/propose', 'member', postPropose);
   router.route('POST', '/api/knowledge/:contentHash/approve', 'admin', postApprove);
   router.route('POST', '/api/knowledge/:contentHash/publish', 'member', postPublish);
+  router.route('POST', '/api/knowledge/:contentHash/reject', 'admin', postReject);
 
   router.route('GET', '/api/equip/:fleet/:agent', 'member', getEquipScope);
   router.route('PUT', '/api/equip/:fleet/:agent', 'admin', putEquipScope);

@@ -14,6 +14,7 @@ import {
   proposeOrgDocument,
   approveOrgDocument,
   publishOrgDocument,
+  rejectOrgDocument,
   ApprovalError,
 } from '../src/grid/approval.js';
 import { recall } from '../src/memory/relatadb.js';
@@ -209,6 +210,44 @@ test('publishOrgDocument does not require an approver, only a valid prior state'
     assert.equal(updated.approval, 'published');
     // Prior approval provenance is preserved, not overwritten by the publish actor.
     assert.equal(updated.approved_by, 'alice');
+  });
+});
+
+// --- G8.4: rejectOrgDocument — the one backward transition, and the one requiring a note --------------------
+
+test('rejectOrgDocument requires a non-empty note, checked before any network call', async () => {
+  await withFakeOrgDocCortex([orgDocRow({ approval: 'proposed' })], async (config, store, requests) => {
+    await assert.rejects(() => rejectOrgDocument(config, 'hash1', 'alice', ''), /non-empty note/);
+    await assert.rejects(() => rejectOrgDocument(config, 'hash1', 'alice', '   '), /non-empty note/);
+    await assert.rejects(() => rejectOrgDocument(config, 'hash1', 'alice', undefined), /non-empty note/);
+    assert.equal(requests.length, 0, 'a missing note must be refused before any network call at all');
+  });
+});
+
+test('rejectOrgDocument requires being a configured approver, same gate as approve', async () => {
+  await withFakeOrgDocCortex([orgDocRow({ approval: 'proposed' })], async (config, store) => {
+    await assert.rejects(() => rejectOrgDocument(config, 'hash1', 'mallory', 'not good enough'), ApprovalError);
+    assert.equal(store.filter((r) => r.content_hash === 'hash1').length, 1, 'a refused rejection must not re-ingest anything');
+  });
+});
+
+test('rejectOrgDocument only fires from "proposed" — rejecting a draft or an already-approved/published row is refused', async () => {
+  await withFakeOrgDocCortex([orgDocRow({})], async (config) => {
+    await assert.rejects(() => rejectOrgDocument(config, 'hash1', 'alice', 'no'), /cannot reject from "draft"/);
+  });
+  await withFakeOrgDocCortex([orgDocRow({ approval: 'approved' })], async (config) => {
+    await assert.rejects(() => rejectOrgDocument(config, 'hash1', 'alice', 'no'), /cannot reject from "approved"/);
+  });
+});
+
+test('rejectOrgDocument moves proposed back to draft, stamping rejected_by/rejected_at/rejection_note', async () => {
+  await withFakeOrgDocCortex([orgDocRow({ approval: 'proposed' })], async (config, store) => {
+    const updated = await rejectOrgDocument(config, 'hash1', 'alice', '  needs another source cited  ');
+    assert.equal(updated.approval, 'draft');
+    assert.equal(updated.rejected_by, 'alice');
+    assert.equal(updated.rejection_note, 'needs another source cited', 'the note is trimmed');
+    assert.match(updated.rejected_at, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(store.filter((r) => r.content_hash === 'hash1').length, 2, 'a new bi-temporal version, not a mutation');
   });
 });
 

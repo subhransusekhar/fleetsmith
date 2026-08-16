@@ -1,0 +1,190 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>fleetsmith grid — knowledge</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 0; padding: 1.5rem; max-width: 1000px; margin-inline: auto; line-height: 1.4; }
+  h1 { font-size: 1.1rem; margin: 0 0 1rem; }
+  h2 { font-size: 0.95rem; margin: 1.75rem 0 0.5rem; }
+  h3 { font-size: 0.85rem; margin: 1rem 0 0.4rem; }
+  nav { font-size: 0.85rem; margin-bottom: 0.75rem; }
+  nav a { margin-right: 1rem; }
+  nav a.current { font-weight: 600; text-decoration: none; }
+  form#connect { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+  form#connect input { flex: 1 1 220px; padding: 0.35rem 0.5rem; }
+  #status { font-size: 0.85rem; color: #666; margin-bottom: 1rem; }
+  .metrics { display: flex; gap: 1rem; margin-bottom: 1rem; font-size: 0.85rem; }
+  .metric { border: 1px solid #ccc; border-radius: 6px; padding: 0.4rem 0.75rem; }
+  .metric b { display: block; font-size: 1.1rem; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; margin-bottom: 0.75rem; }
+  th, td { border: 1px solid #ccc; padding: 0.35rem 0.5rem; text-align: left; vertical-align: top; }
+  .empty { color: #888; font-style: italic; }
+  .state { font-size: 0.75rem; padding: 0.05rem 0.4rem; border-radius: 999px; border: 1px solid; }
+  .state.draft { color: #666; border-color: #666; }
+  .state.proposed { color: #a15c00; border-color: #a15c00; }
+  .state.approved { color: #0a5c9c; border-color: #0a5c9c; }
+  .state.published { color: #0a7a2e; border-color: #0a7a2e; }
+  .queue-item { border: 1px solid #ccc; border-radius: 6px; padding: 0.6rem 0.9rem; margin-bottom: 0.6rem; }
+  .queue-item button { margin-right: 0.5rem; margin-top: 0.4rem; }
+  .diff { font-family: ui-monospace, monospace; font-size: 0.8rem; white-space: pre-wrap; border: 1px solid #ccc; border-radius: 6px; padding: 0.5rem 0.75rem; margin-top: 0.5rem; }
+  .diff .removed { background: rgba(200, 40, 40, 0.12); display: block; }
+  .diff .added { background: rgba(20, 140, 60, 0.12); display: block; }
+  .diff .same { display: block; opacity: 0.7; }
+  .note { font-size: 0.8rem; color: #888; }
+  .error { color: #a11; font-size: 0.85rem; }
+  textarea { width: 100%; font-family: inherit; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<nav><a href="/">Board</a><a href="/audit.html">Audit</a><a class="current" href="/knowledge.html">Knowledge</a><a href="/procedures.html">Procedures</a></nav>
+<h1>fleetsmith grid — knowledge</h1>
+
+<form id="connect">
+  <input id="token" placeholder="bearer token" type="password" required />
+  <button type="submit">Connect</button>
+</form>
+
+<div id="content" hidden>
+  <div id="status"></div>
+
+  <h2>Overview</h2>
+  <div class="metrics" id="metrics"></div>
+
+  <h2>Review queue <span class="note">(proposed, awaiting approve/reject)</span></h2>
+  <div id="queue"></div>
+
+  <h2>All documents</h2>
+  <table>
+    <thead><tr><th>Title</th><th>Kind</th><th>Client</th><th>Source</th><th>State</th><th></th></tr></thead>
+    <tbody id="documents"></tbody>
+  </table>
+</div>
+
+<script>
+  let token = null;
+  let documentsCache = [];
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  async function api(path, opts) {
+    const res = await fetch(path, { ...opts, headers: { ...(opts?.headers ?? {}), Authorization: `Bearer ${token}` } });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+    return body;
+  }
+
+  function renderMetrics(metrics) {
+    const states = ['draft', 'proposed', 'approved', 'published'];
+    document.getElementById('metrics').innerHTML =
+      `<div class="metric"><b>${metrics.total}</b>total</div>` + states.map((s) => `<div class="metric"><b>${metrics.byState[s] ?? 0}</b>${s}</div>`).join('');
+  }
+
+  function renderDiff(diff) {
+    if (!diff) return '<p class="note">first version — nothing published yet to diff against</p>';
+    return `<div class="diff">${diff.map((op) => `<span class="${op.type}">${op.type === 'removed' ? '- ' : op.type === 'added' ? '+ ' : '  '}${escapeHtml(op.line)}</span>`).join('')}</div>`;
+  }
+
+  function renderQueue(documents) {
+    const proposed = documents.filter((d) => d.approval === 'proposed');
+    const el = document.getElementById('queue');
+    if (proposed.length === 0) {
+      el.innerHTML = '<p class="empty">nothing awaiting review</p>';
+      return;
+    }
+    el.innerHTML = proposed
+      .map(
+        (d) => `
+        <div class="queue-item" data-hash="${escapeHtml(d.content_hash)}">
+          <div><b>${escapeHtml(d.title)}</b> — ${escapeHtml(d.kind)}${d.client ? `, ${escapeHtml(d.client)}` : ''} (chunk ${d.chunk_index})</div>
+          <div>${escapeHtml(d.chunk_text)}</div>
+          <button type="button" class="approve">Approve</button>
+          <button type="button" class="reject">Reject</button>
+          <div class="reject-form" hidden><textarea rows="2" placeholder="required: why is this being sent back?"></textarea><button type="button" class="reject-submit">Submit rejection</button></div>
+          <div class="result"></div>
+        </div>`
+      )
+      .join('');
+
+    el.querySelectorAll('.queue-item').forEach((card) => {
+      const hash = card.dataset.hash;
+      const resultEl = card.querySelector('.result');
+      card.querySelector('.approve').addEventListener('click', async () => {
+        try {
+          const body = await api(`/api/knowledge/${encodeURIComponent(hash)}/approve`, { method: 'POST' });
+          resultEl.innerHTML = `<p>approved.</p>${renderDiff(body.diff)}`;
+          load();
+        } catch (e) {
+          resultEl.innerHTML = `<p class="error">${escapeHtml(e.message)}</p>`;
+        }
+      });
+      card.querySelector('.reject').addEventListener('click', () => {
+        card.querySelector('.reject-form').hidden = false;
+      });
+      card.querySelector('.reject-submit').addEventListener('click', async () => {
+        const note = card.querySelector('textarea').value.trim();
+        if (!note) {
+          resultEl.innerHTML = '<p class="error">a note is required to reject.</p>';
+          return;
+        }
+        try {
+          await api(`/api/knowledge/${encodeURIComponent(hash)}/reject`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ note }) });
+          resultEl.innerHTML = '<p>sent back to draft.</p>';
+          load();
+        } catch (e) {
+          resultEl.innerHTML = `<p class="error">${escapeHtml(e.message)}</p>`;
+        }
+      });
+    });
+  }
+
+  function renderDocuments(documents) {
+    const el = document.getElementById('documents');
+    el.innerHTML = documents
+      .map((d) => {
+        const state = d.approval || 'draft';
+        const action = state === 'draft' ? 'propose' : state === 'approved' ? 'publish' : null;
+        const button = action ? `<button type="button" class="action" data-hash="${escapeHtml(d.content_hash)}" data-action="${action}">${action}</button>` : '';
+        return `<tr><td>${escapeHtml(d.title)}</td><td>${escapeHtml(d.kind)}</td><td>${escapeHtml(d.client)}</td><td>${escapeHtml(d.source_file)}</td><td><span class="state ${state}">${state}</span></td><td>${button}</td></tr>`;
+      })
+      .join('');
+    el.querySelectorAll('button.action').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        try {
+          await api(`/api/knowledge/${encodeURIComponent(btn.dataset.hash)}/${btn.dataset.action}`, { method: 'POST' });
+          load();
+        } catch (e) {
+          document.getElementById('status').textContent = `error: ${e.message}`;
+        }
+      });
+    });
+  }
+
+  async function load() {
+    const statusEl = document.getElementById('status');
+    try {
+      const body = await api('/api/knowledge/documents');
+      documentsCache = body.documents;
+      statusEl.textContent = `${body.documents.length} document(s)`;
+      renderMetrics(body.metrics);
+      renderQueue(body.documents);
+      renderDocuments(body.documents);
+    } catch (e) {
+      statusEl.textContent = `error: ${e.message}`;
+    }
+  }
+
+  document.getElementById('connect').addEventListener('submit', (e) => {
+    e.preventDefault();
+    token = document.getElementById('token').value.trim();
+    if (!token) return;
+    document.getElementById('content').hidden = false;
+    load();
+  });
+</script>
+</body>
+</html>

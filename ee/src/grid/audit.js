@@ -92,6 +92,10 @@ export async function explainItem(config, id) {
       imported_by: latest.imported_by,
       imported_at: latest.imported_at,
       approval: { state: latest.approval || 'draft', approved_by: latest.approved_by || null, approved_at: latest.approved_at || null },
+      // G8.4: the current version's rejection fields, if this row's most recent transition was a reject —
+      // real, queryable fields (ee/src/grid/types.json), not a side-channel comment; null/null/null when the
+      // row has never been rejected (or was re-approved since, re-ingesting fresh approval_* values).
+      rejection: latest.rejected_by ? { rejected_by: latest.rejected_by, rejected_at: latest.rejected_at || null, note: latest.rejection_note || null } : null,
     };
   }
 
@@ -130,6 +134,9 @@ export function renderExplanation(explanation, opts = {}) {
   if (explanation.imported_by) lines.push(`- imported_by: ${explanation.imported_by}`, `- imported_at: ${explanation.imported_at}`);
   if (explanation.approval) {
     lines.push(`- approval: ${explanation.approval.state}${explanation.approval.approved_by ? ` (by ${explanation.approval.approved_by} at ${explanation.approval.approved_at})` : ''}`);
+  }
+  if (explanation.rejection) {
+    lines.push(`- last rejected: by ${explanation.rejection.rejected_by} at ${explanation.rejection.rejected_at} — "${explanation.rejection.note}"`);
   }
   lines.push('');
   return lines.join('\n');
