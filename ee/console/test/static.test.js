@@ -134,3 +134,17 @@ test('GET /members.html serves the members/tokens screen, with every API call sc
     assert.ok(apiCallCount >= 4, 'expected members/create/rotate/revoke calls to all be present');
   });
 });
+
+// --- G8.7's health page --------------------------------------------------------------------------------------
+
+test('GET /health.html serves the deployment health screen, fetching only /api/health/detail', async () => {
+  await withServer(async (url) => {
+    const { status, text } = await fetchText(`${url}/health.html`);
+    assert.equal(status, 200);
+    assert.match(text, /fleetsmith grid — deployment health/);
+    // The page builds its target into a `url` variable (it has a conditional ?remote= suffix) rather than an
+    // inline literal at the fetch() call site — check the ONE place that string is actually built instead.
+    assert.match(text, /const url = `\/api\/health\/detail/);
+    assert.equal((text.match(/fetch\(/g) ?? []).length, 1, 'expected exactly one fetch() call in this page');
+  });
+});

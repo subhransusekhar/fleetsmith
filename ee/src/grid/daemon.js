@@ -271,10 +271,37 @@ export async function syncOnce(spec, cwd = process.cwd()) {
 
   const actorsSeen = new Set(pullResult.newRows.map((r) => r.row.actor));
   const warnings = [...identityWarnings, ...pushResult.warnings, ...pullResult.warnings, ...overlapWarnings];
+
+  // G8.7: stamps `last_sync` — distinct from `heartbeat_at` (a separate timer in runWatch that only proves
+  // the daemon PROCESS is alive). Reaching this line means a full push/pull/materialize round trip actually
+  // completed; failing to reach it (the cortex-unreachable early return above) leaves whatever `last_sync`
+  // this actor's presence row already held, so the console's health screen (G8.7) sees it stop advancing.
+  // Gated on `identityWarnings` being empty for the SAME reason `pushOnce` itself was skipped above: a real
+  // principal mismatch means this token must write NOTHING attributed to `actor`, and a presence row claiming
+  // to BE `actor` is exactly that kind of mis-attributed write, not a special case exempt from the check.
+  // Awaited (unlike the heartbeat timer's own fire-and-forget push) so a failure here lands in THIS cycle's
+  // own `warnings`/summary count, not silently lost after the function has already returned — but it still
+  // never throws: a presence-bookkeeping hiccup must not fail a sync that otherwise succeeded.
+  let lastSync = null;
+  if (identityWarnings.length === 0) {
+    lastSync = nowIso();
+    try {
+      await ingestRows(config, 'ActorPresence', [{ repo_id: repoId, actor, run_id: `${actor}-sync`, branch, started_at: lastSync, heartbeat_at: lastSync, last_sync: lastSync, purpose: config.purposes?.[0] ?? 'grid_sync', origin: 'human' }]);
+    } catch (e) {
+      warnings.push(`last_sync presence update failed: ${e.message}`);
+    }
+  }
+
   const summary = `grid sync: pushed ${pushResult.pushed.length} row(s), pulled ${pullResult.newRows.length} row(s) from ${actorsSeen.size} actor(s), wrote ${written.length} file(s), ${overlaps.length} overlap(s)${
     warnings.length ? `, ${warnings.length} warning(s)` : ''
   }`;
-  return { summary, warnings, pushResult, pullResult, written, overlaps, degraded: false };
+
+  // `lastSync` is exposed so `runWatch`'s heartbeat timer (a SEPARATE presence push on its own interval) can
+  // carry it forward — last-write-wins on ActorPresence operates on the WHOLE row, not a field-by-field
+  // merge, so a heartbeat-only push with no `last_sync` field would otherwise make the actor's CURRENT
+  // presence row silently lose the very value this task exists to surface, the next time heartbeat fires
+  // after a successful sync.
+  return { summary, warnings, pushResult, pullResult, written, overlaps, degraded: false, lastSync };
 }
 
 /**
@@ -445,6 +472,10 @@ export function runWatch(spec, cwd = process.cwd(), opts = {}) {
   let stopped = false;
   let syncChain = Promise.resolve();
   let debounceTimer = null;
+  // G8.7: the last `last_sync` timestamp a completed syncOnce() cycle actually stamped — carried forward into
+  // the heartbeat timer's own presence push below, so a heartbeat firing after a successful sync does not
+  // silently blank the field back out (last-write-wins operates on the whole row, not per-field).
+  let lastSyncAt = null;
 
   function scheduleSync(reason) {
     if (stopped) return;
@@ -452,7 +483,10 @@ export function runWatch(spec, cwd = process.cwd(), opts = {}) {
     debounceTimer = setTimeout(() => {
       syncChain = syncChain
         .then(() => syncOnce(spec, cwd))
-        .then((r) => log(`[${reason}] ${r.summary}`))
+        .then((r) => {
+          if (r.lastSync) lastSyncAt = r.lastSync;
+          log(`[${reason}] ${r.summary}`);
+        })
         .catch((e) => log(`[${reason}] sync failed: ${e.message}`));
     }, debounceMs);
   }
@@ -503,8 +537,11 @@ export function runWatch(spec, cwd = process.cwd(), opts = {}) {
     } else if (!nowRunning && running) {
       running = false;
       const endedAt = nowIso();
+      // Carries `lastSyncAt` forward — see the module doc note above `lastSyncAt`'s declaration: last-write-
+      // wins replaces the WHOLE row, so omitting it here would blank out the real value of the last
+      // successful sync just because a run happened to end in between.
       ingestRows(config, 'ActorPresence', [
-        { repo_id: repoId, actor, run_id: lastKnownRunId ?? `${actor}-ended`, branch: opts.branch ?? 'unknown', started_at: endedAt, heartbeat_at: endedAt, ended_at: endedAt, purpose: 'grid_sync', origin: 'human' },
+        { repo_id: repoId, actor, run_id: lastKnownRunId ?? `${actor}-ended`, branch: opts.branch ?? 'unknown', started_at: endedAt, heartbeat_at: endedAt, ended_at: endedAt, ...(lastSyncAt ? { last_sync: lastSyncAt } : {}), purpose: 'grid_sync', origin: 'human' },
       ]).catch((e) => log(`run-end presence supersession failed: ${e.message}`));
       scheduleSync('run-end');
     }
@@ -512,8 +549,9 @@ export function runWatch(spec, cwd = process.cwd(), opts = {}) {
 
   const heartbeatTimer = setInterval(() => {
     const ts = nowIso();
+    // Same reason as run-end above: this push must carry `lastSyncAt` forward, not silently blank it.
     ingestRows(config, 'ActorPresence', [
-      { repo_id: repoId, actor, run_id: lastKnownRunId ?? `${actor}-daemon`, branch: opts.branch ?? 'unknown', started_at: opts.daemonStartedAt ?? ts, heartbeat_at: ts, purpose: 'grid_sync', origin: 'human' },
+      { repo_id: repoId, actor, run_id: lastKnownRunId ?? `${actor}-daemon`, branch: opts.branch ?? 'unknown', started_at: opts.daemonStartedAt ?? ts, heartbeat_at: ts, ...(lastSyncAt ? { last_sync: lastSyncAt } : {}), purpose: 'grid_sync', origin: 'human' },
     ]).catch((e) => log(`heartbeat failed: ${e.message}`));
   }, heartbeatMs);
 

@@ -28,13 +28,18 @@ node ee/console/server/index.js
   `DELETE /api/tokens/:id`), which the engine itself gates behind this distinct credential, verified directly
   (`DELETE /tokens/:id` with an ordinary bearer token returns `403 admin token required`). Self-rotation
   (`POST /api/tokens/self/rotate`) needs no admin token — every other route works without one.
+- `RELATA_LICENSE_EXPIRES_AT` (optional, ISO 8601) — enables the license-expiry warning on the health screen
+  (G8.7). Nothing on this engine's HTTP surface reports license expiry (verified — see `routes/health.js`'s own
+  doc comment for the full probe trail), so this is an operator-supplied value mirroring what they already
+  know from their own node's local license file.
 - `PORT` (optional, default `4173`).
 
 ## Routes
 
 | Method | Path | Role | Screen |
 |---|---|---|---|
-| GET | `/api/health` | public | G8.7 |
+| GET | `/api/health` | public | G8.7 (unauthenticated reachability check, unchanged since G8.1) |
+| GET | `/api/health/detail?remote=` | member | G8.7 (engine status, storage vs. free-tier cap, license warning, per-actor harness degradation) |
 | GET | `/api/board?remote=` | member | G8.2 |
 | GET | `/api/audit?actor=&since=&until=&purpose=&limit=` | member (self-only, forced) / admin (any actor) | G8.3 |
 | GET | `/api/audit/why?id=` | member | G8.3 |
@@ -99,3 +104,16 @@ discoverable principal at all is refused (403), not silently shown zero rows or 
   load-bearing). Every request is logged once (`server/logging.js`) with only method/path/redacted-query/
   status/duration in scope — headers and response bodies are never even passed to the logger, so a token
   value has no code path into log output at all, not merely a scrub applied after capturing it.
+- **Deployment health (G8.7).** `GET /status` and `GET /metrics` both need a real (authenticated) token —
+  verified directly, both 401 unauthenticated — forwarded as the caller's own, same as every non-token-admin
+  route. `relata_store_total_stored_bytes`'s own `/metrics` HELP text ("free-tier cap is metered against
+  this") confirms the 10 GB free-tier cap this task names is metered against exactly that gauge. **License
+  expiry is not retrievable through any HTTP endpoint at all** — `/license`, `/admin/license`,
+  `/license/status`, `/admin/status` all 404; the expiry lives only in the node's local license file, which a
+  remote console cannot read — see `RELATA_LICENSE_EXPIRES_AT` above. The harness panel's per-actor
+  degradation reads a NEW `ActorPresence.last_sync` field (additive, `ee/src/grid/types.json`), stamped by
+  `daemon.js`'s `syncOnce()` only on a cycle that actually completes — distinct from `heartbeat_at`, which
+  only proves the daemon process is alive even while its actual sync attempts are failing. `last_sync` is
+  carried forward through the heartbeat timer's and run-end's OWN presence pushes (both fixed as part of this
+  task) so a heartbeat firing after a successful sync never silently blanks it back out — last-write-wins on
+  `ActorPresence` replaces the whole row, not a per-field merge.

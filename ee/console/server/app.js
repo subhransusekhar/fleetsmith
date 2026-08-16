@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { createRouter } from './router.js';
-import { getDeploymentHealth } from './routes/health.js';
+import { getDeploymentHealth, getDeploymentHealthDetail } from './routes/health.js';
 import { getBoard } from './routes/board.js';
 import { getAudit, getAuditWhy } from './routes/audit.js';
 import { getKnowledge, getKnowledgeDocuments, getProcedures, postPropose, postApprove, postPublish, postReject } from './routes/knowledge.js';
@@ -17,6 +17,7 @@ export function buildApp() {
   const router = createRouter();
 
   router.route('GET', '/api/health', 'public', getDeploymentHealth);
+  router.route('GET', '/api/health/detail', 'member', getDeploymentHealthDetail);
 
   router.route('GET', '/api/board', 'member', getBoard);
 
