@@ -288,16 +288,27 @@ function writeImportedHashes(filePath, hashes) {
  * server-side dedup (RelataDB has none). Re-running `applyImport` with an unchanged `plan` therefore ingests
  * zero rows the second time; a changed file produces new hashes only for its changed chunks, not the whole
  * file. Never throws for one file's ingest failure — collected into `warnings`, retried on the next apply.
+ *
+ * Embeddings (G6.2): when `config.accelEndpoint` is set (G1.1's config resolution — the engine's own
+ * `RELATA_ACCEL_ENDPOINT` convention, a customer-run sidecar), every ingested row carries `_emb_text` (the
+ * chunk's own text) so the engine embeds it on ingest and later recall can rank semantically. When absent,
+ * the field is omitted entirely — recall degrades to the engine's default BM25 full-text ranking, which is
+ * the fully-supported baseline, not a lesser mode. fleetsmith never calls the sidecar itself and never bundles
+ * an embedding model or client — this is one boolean-shaped field, nothing more.
  */
 export async function applyImport(config, plan, { localDir, repoId }) {
   const hashesPath = importedHashesPath(localDir);
   const known = readImportedHashes(hashesPath);
+  const semantic = Boolean(config.accelEndpoint);
+  const mode = semantic ? 'semantic (sidecar)' : 'text-only (BM25)';
   const warnings = [];
   let ingested = 0;
   let skipped = 0;
 
   for (const fileEntry of plan) {
-    const newRows = fileEntry.rows.filter((r) => !known[r.content_hash]).map((r) => ({ ...r, repo_id: repoId }));
+    const newRows = fileEntry.rows
+      .filter((r) => !known[r.content_hash])
+      .map((r) => (semantic ? { ...r, repo_id: repoId, _emb_text: r.chunk_text } : { ...r, repo_id: repoId }));
     skipped += fileEntry.rows.length - newRows.length;
     if (newRows.length === 0) continue;
 
@@ -311,5 +322,5 @@ export async function applyImport(config, plan, { localDir, repoId }) {
   }
 
   writeImportedHashes(hashesPath, known);
-  return { ingested, skipped, warnings };
+  return { ingested, skipped, warnings, mode };
 }

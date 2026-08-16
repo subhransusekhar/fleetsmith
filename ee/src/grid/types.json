@@ -63,7 +63,7 @@
     }
   },
   "OrgDocument": {
-    "description": "One row per chunk of an imported meeting note, discussion, decision record, or spec (G6.1) — provenance-tracked org knowledge, keyed by content hash so a re-import of unchanged content is a local no-op (RelataDB itself has no server-side dedup on /ingest — see FleetTask's own note — so idempotency here is a client-side digest-tracking concern, the same shape as G3.2's pushed.json). `valid_from` is the document's own business date (the meeting date, not the import date) — a plain data field, not an engine-level bi-temporal parameter; the engine's own system-time versioning is separate and not client-settable.",
+    "description": "One row per chunk of an imported meeting note, discussion, decision record, or spec (G6.1) — provenance-tracked org knowledge, keyed by content hash so a re-import of unchanged content is a local no-op (RelataDB itself has no server-side dedup on /ingest — see FleetTask's own note — so idempotency here is a client-side digest-tracking concern, the same shape as G3.2's pushed.json). `valid_from` is the document's own business date (the meeting date, not the import date) — a plain data field, not an engine-level bi-temporal parameter; the engine's own system-time versioning is separate and not client-settable. `_emb_text` (G6.2, optional) carries the chunk's own text again for the engine/customer-run embedder sidecar to embed on ingest — present only when the sidecar is configured (`RELATA_ACCEL_ENDPOINT`/`accelEndpoint`); recall degrades to BM25 full-text ranking when it is absent.",
     "key": ["repo_id", "content_hash"],
     "kinds": ["meeting", "discussion", "decision", "spec"],
     "fields": {
@@ -78,7 +78,8 @@
       "imported_by": "string",
       "valid_from": "string",
       "purpose": "string",
-      "origin": "string"
+      "origin": "string",
+      "_emb_text": "string"
     }
   }
 }

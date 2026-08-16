@@ -597,8 +597,8 @@ export async function gridCliHandler(argv) {
       if (!flags.apply) return 0;
 
       const config = resolveConfigOrThrow(spec);
-      const { ingested, skipped, warnings: applyWarnings } = await applyImport(config, plan, { localDir, repoId });
-      console.log(`grid import --apply: ${ingested} row(s) ingested, ${skipped} already known (skipped, idempotent)`);
+      const { ingested, skipped, warnings: applyWarnings, mode } = await applyImport(config, plan, { localDir, repoId });
+      console.log(`grid import --apply [${mode}]: ${ingested} row(s) ingested, ${skipped} already known (skipped, idempotent)`);
       for (const w of applyWarnings) console.error(`warning: ${w}`);
       return 0;
     }
