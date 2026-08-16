@@ -489,13 +489,15 @@ test('gridCliHandler: "import --apply" ingests against a fake server, and a re-r
   await withFakeRelata({}, async (config, requests) => {
     const first = await runCliInDir(repoDir, ['import', 'fleet.yaml', 'notes.md', '--kind', 'meeting', '--date', '2026-01-10', '--apply']);
     assert.equal(first.exitCode, 0);
-    assert.ok(first.logs.some((l) => /grid import --apply: 1 row\(s\) ingested, 0 already known/.test(l)));
+    assert.ok(first.logs.some((l) => /grid import --apply \[text-only \(BM25\)\]: 1 row\(s\) ingested, 0 already known/.test(l)));
     assert.ok(requests.some((r) => r.pathname === '/ingest' && r.query.object_type === 'OrgDocument'));
+    const ingestReq = requests.find((r) => r.pathname === '/ingest');
+    assert.ok(ingestReq.body.rows.every((r) => !('_emb_text' in r)), 'no accelEndpoint configured — _emb_text must be entirely absent, not just empty');
 
     requests.length = 0;
     const second = await runCliInDir(repoDir, ['import', 'fleet.yaml', 'notes.md', '--kind', 'meeting', '--date', '2026-01-10', '--apply']);
     assert.equal(second.exitCode, 0);
-    assert.ok(second.logs.some((l) => /grid import --apply: 0 row\(s\) ingested, 1 already known/.test(l)));
+    assert.ok(second.logs.some((l) => /grid import --apply \[text-only \(BM25\)\]: 0 row\(s\) ingested, 1 already known/.test(l)));
     assert.deepEqual(requests, [], 're-apply must not call /ingest at all once every row is already known');
     void config;
   });

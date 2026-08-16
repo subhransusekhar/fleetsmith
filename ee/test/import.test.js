@@ -309,6 +309,63 @@ test('applyImport records repo_id on every ingested row', async () => {
   });
 });
 
+// --- optional embeddings via the customer-run sidecar (G6.2) ------------------------
+
+test('applyImport omits _emb_text entirely, and reports text-only (BM25) mode, when no accelEndpoint is configured', async () => {
+  await withFakeIngestServer(async (config, requests) => {
+    const dir = tmpDir();
+    writeFile(dir, 'notes.md', '# Meeting\n\nDiscussed the roadmap.\n');
+    const { plan } = planImport(dir, { kind: 'meeting', actor: 'alice', repoDir: dir, date: '2026-01-01' });
+    const localDir = path.join(dir, '_fleet', 'local');
+
+    assert.equal(config.accelEndpoint, undefined, 'fixture precondition: no sidecar configured');
+    const result = await applyImport(config, plan, { localDir, repoId: 'r'.repeat(64) });
+    assert.equal(result.mode, 'text-only (BM25)');
+
+    const ingestReq = requests.find((r) => r.pathname === '/ingest');
+    assert.ok(ingestReq.body.rows.every((r) => !('_emb_text' in r)), '_emb_text must be entirely absent, not merely empty, when no sidecar is configured');
+  });
+});
+
+test('applyImport populates _emb_text with the chunk text, and reports semantic (sidecar) mode, when accelEndpoint is configured', async () => {
+  await withFakeIngestServer(async (baseConfig, requests) => {
+    const config = { ...baseConfig, accelEndpoint: 'http://sidecar.internal:9999' };
+    const dir = tmpDir();
+    writeFile(dir, 'notes.md', '# Meeting\n\nDiscussed the roadmap.\n');
+    const { plan } = planImport(dir, { kind: 'meeting', actor: 'alice', repoDir: dir, date: '2026-01-01' });
+    const localDir = path.join(dir, '_fleet', 'local');
+
+    const result = await applyImport(config, plan, { localDir, repoId: 'r'.repeat(64) });
+    assert.equal(result.mode, 'semantic (sidecar)');
+
+    const ingestReq = requests.find((r) => r.pathname === '/ingest');
+    assert.ok(ingestReq.body.rows.every((r) => r._emb_text === r.chunk_text));
+  });
+});
+
+test('applyImport never calls the sidecar itself — accelEndpoint only ever toggles the _emb_text field, no request is ever made to it', async () => {
+  await withFakeIngestServer(async (baseConfig, requests) => {
+    const config = { ...baseConfig, accelEndpoint: 'http://sidecar.internal:9999' };
+    const dir = tmpDir();
+    writeFile(dir, 'notes.md', '# X\n\nbody');
+    const { plan } = planImport(dir, { kind: 'spec', actor: 'alice', repoDir: dir, date: '2026-01-01' });
+    const localDir = path.join(dir, '_fleet', 'local');
+
+    await applyImport(config, plan, { localDir, repoId: 'r'.repeat(64) });
+    assert.ok(requests.every((r) => r.pathname === '/ingest'), 'every request must be the ordinary /ingest call — never a direct call to the sidecar endpoint');
+  });
+});
+
+test('import.js source never imports a fetch/http client aimed at a sidecar and never adds a new dependency in either package.json', () => {
+  const src = fs.readFileSync(new URL('../src/grid/import.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(src, /accelEndpoint\)\s*{[^}]*fetch\(/s, 'accelEndpoint must only ever toggle a field, never trigger a direct network call from this module');
+
+  for (const pkgPath of [new URL('../package.json', import.meta.url), new URL('../../package.json', import.meta.url)]) {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    assert.deepEqual(Object.keys(pkg.dependencies ?? {}), ['yaml'], `${pkgPath} must not have gained an embeddings-related dependency`);
+  }
+});
+
 // --- import.js's own purity boundary: never a memory-verb call ----------------------
 
 test('DEFAULT_MAX_CHUNK_CHARS is exported and reasonable', () => {
