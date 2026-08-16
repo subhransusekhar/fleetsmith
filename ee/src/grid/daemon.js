@@ -16,6 +16,7 @@ import { mergeRisks } from './merge-risk.js';
 import { renderOverlaps } from './overlaps-render.js';
 import { tasksFromGitOnly, listCandidateBranches } from './git-only.js';
 import { planImport, applyImport } from './import.js';
+import { queryKnowledgeLive, queryKnowledgeDegraded, renderKnowledgeTable } from './knowledge.js';
 
 /**
  * The `fleetsmith grid` CLI verb (G3.5): `init` (G3.1), `sync`, and `sync --watch` — the daemon that ties
@@ -347,6 +348,23 @@ export function computeGitOnlyOverlaps(spec, cwd = process.cwd()) {
   return { summary, warnings, overlaps, risks: [], markdown, written: overlapsPath, degraded: false, gitOnly: true };
 }
 
+/**
+ * `fleetsmith grid knowledge <query> [--as-of <date>] [--as-recorded <date>] [--purpose <p>] [--limit n]`
+ * (G6.5): "what did we know before the March decision" — see `knowledge.js`'s own module doc comment for why
+ * `--as-of`/`--as-recorded` filter client-side over plain data fields rather than an engine `AS OF` clause.
+ * No cortex configured at all: degrades to `queryKnowledgeDegraded` over `_fleet/shared/knowledge/` directly
+ * (rule 3), never throws — this is a read-only query command, not a setup action like `init`.
+ */
+export async function computeGridKnowledge(spec, cwd, query, opts = {}) {
+  const rawConfig = resolveGridConfig(spec);
+  const result = rawConfig ? await queryKnowledgeLive({ ...rawConfig, fleetName: spec?.fleet?.name }, query, opts) : queryKnowledgeDegraded(cwd, query, opts);
+  const markdown = renderKnowledgeTable(result, opts);
+  const summary = `grid knowledge${result.degraded ? ' (degraded)' : ''}: ${result.rows.length} result(s) for "${query}"${
+    opts.asOf ? `, as-of ${opts.asOf}` : ''
+  }${opts.asRecorded ? `, as-recorded ${opts.asRecorded}` : ''}`;
+  return { summary, markdown, rows: result.rows, degraded: result.degraded, purpose: result.purpose };
+}
+
 // --- watch mode --------------------------------------------------------------------
 
 /**
@@ -540,13 +558,15 @@ export async function gridCliHandler(argv) {
   const { positional, flags } = parseGridArgs(argv);
   const [subcommand, fleetYamlPath = 'fleet.yaml'] = positional;
 
-  if (!subcommand || !['init', 'sync', 'overlaps', 'import'].includes(subcommand)) {
+  if (!subcommand || !['init', 'sync', 'overlaps', 'import', 'knowledge'].includes(subcommand)) {
     console.error(
-      `error: unknown grid subcommand "${subcommand ?? ''}" — expected "init", "sync [--watch]", "overlaps [--git-only]", or ` +
-        '"import <path|dir> --kind meeting|discussion|decision|spec [--client <name>] [--date <YYYY-MM-DD>] [--apply]" ' +
+      `error: unknown grid subcommand "${subcommand ?? ''}" — expected "init", "sync [--watch]", "overlaps [--git-only]", ` +
+        '"import <path|dir> --kind meeting|discussion|decision|spec [--client <name>] [--date <YYYY-MM-DD>] [--apply]", or ' +
+        '"knowledge <query> [--as-of <YYYY-MM-DD>] [--as-recorded <YYYY-MM-DD>] [--purpose <p>] [--limit n]" ' +
         '("overlaps --git-only" needs no cortex, no grid config, and no network access at all — the OSS answer, ' +
         'file-level overlaps synthesized straight from local git branches; "import" without --apply is a dry-run that ' +
-        'touches no network either)'
+        'touches no network either; "knowledge" degrades to filtering _fleet/shared/knowledge/ frontmatter directly ' +
+        'when no cortex is configured)'
     );
     return 1;
   }
@@ -600,6 +620,28 @@ export async function gridCliHandler(argv) {
       const { ingested, skipped, warnings: applyWarnings, mode } = await applyImport(config, plan, { localDir, repoId });
       console.log(`grid import --apply [${mode}]: ${ingested} row(s) ingested, ${skipped} already known (skipped, idempotent)`);
       for (const w of applyWarnings) console.error(`warning: ${w}`);
+      return 0;
+    }
+
+    if (subcommand === 'knowledge') {
+      const query = positional[2];
+      if (!query) {
+        console.error('error: `grid knowledge` requires a <query> argument');
+        return 1;
+      }
+      const limit = flags.limit !== undefined ? Number(flags.limit) : undefined;
+      if (limit !== undefined && (!Number.isInteger(limit) || limit <= 0)) {
+        console.error(`error: --limit must be a positive integer, got "${flags.limit}"`);
+        return 1;
+      }
+      const result = await computeGridKnowledge(spec, process.cwd(), query, {
+        asOf: flags['as-of'] ?? null,
+        asRecorded: flags['as-recorded'] ?? null,
+        purpose: flags.purpose ?? undefined,
+        limit,
+      });
+      console.log(result.summary);
+      console.log(`\n${result.markdown}`);
       return 0;
     }
 

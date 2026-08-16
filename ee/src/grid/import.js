@@ -301,6 +301,12 @@ export async function applyImport(config, plan, { localDir, repoId }) {
   const known = readImportedHashes(hashesPath);
   const semantic = Boolean(config.accelEndpoint);
   const mode = semantic ? 'semantic (sidecar)' : 'text-only (BM25)';
+  // One wall-clock stamp for this whole apply call (G6.5): the engine's own system-time versioning for
+  // ad-hoc /ingest types is verified (G3.3) not to be reliably queryable — `_system_from` is a recognized
+  // column name whose value is never populated. `imported_at` is therefore a second plain data field,
+  // distinct from `valid_from` (the document's own business date), letting `grid knowledge --as-recorded`
+  // answer "what had been imported by then" the only honest way available: client-stamped, not engine-tracked.
+  const importedAt = new Date().toISOString();
   const warnings = [];
   let ingested = 0;
   let skipped = 0;
@@ -308,7 +314,7 @@ export async function applyImport(config, plan, { localDir, repoId }) {
   for (const fileEntry of plan) {
     const newRows = fileEntry.rows
       .filter((r) => !known[r.content_hash])
-      .map((r) => (semantic ? { ...r, repo_id: repoId, _emb_text: r.chunk_text } : { ...r, repo_id: repoId }));
+      .map((r) => (semantic ? { ...r, repo_id: repoId, imported_at: importedAt, _emb_text: r.chunk_text } : { ...r, repo_id: repoId, imported_at: importedAt }));
     skipped += fileEntry.rows.length - newRows.length;
     if (newRows.length === 0) continue;
 
