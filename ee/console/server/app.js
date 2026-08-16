@@ -5,7 +5,8 @@ import { getBoard } from './routes/board.js';
 import { getAudit, getAuditWhy } from './routes/audit.js';
 import { getKnowledge, getKnowledgeDocuments, getProcedures, postPropose, postApprove, postPublish, postReject } from './routes/knowledge.js';
 import { getEquipScope, putEquipScope } from './routes/equip.js';
-import { listTokens, createToken, revokeToken } from './routes/tokens.js';
+import { listTokens, createToken, revokeToken, postRotateSelf } from './routes/tokens.js';
+import { getMembers } from './routes/members.js';
 
 /**
  * The complete route table (G8.1's own "Routes ... consumed by G8.2-G8.7" bullet) — every screen's backend in
@@ -36,6 +37,9 @@ export function buildApp() {
   router.route('GET', '/api/tokens', 'admin', listTokens);
   router.route('POST', '/api/tokens', 'admin', createToken);
   router.route('DELETE', '/api/tokens/:id', 'admin', revokeToken);
+  router.route('POST', '/api/tokens/self/rotate', 'member', postRotateSelf);
+
+  router.route('GET', '/api/members', 'member', getMembers);
 
   return router;
 }

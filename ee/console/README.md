@@ -24,9 +24,10 @@ node ee/console/server/index.js
   client-asserted header; when that engine call reports no principal (the common bearer-mode case — see
   `ee/src/grid/identity.js`), every admin route fails closed (403), regardless of `CONSOLE_ADMINS`. This is
   deliberately stricter than the CLI grid daemon's own advisory identity check.
-- `RELATA_ADMIN_TOKEN` (optional) — required only for the token-administration routes (`/api/tokens/*`),
-  which the engine itself gates behind this distinct credential, verified directly (`DELETE /tokens/:id` with
-  an ordinary bearer token returns `403 admin token required`). Every other route works without it.
+- `RELATA_ADMIN_TOKEN` (optional) — required only for the token-CREATE/REVOKE routes (`POST /api/tokens`,
+  `DELETE /api/tokens/:id`), which the engine itself gates behind this distinct credential, verified directly
+  (`DELETE /tokens/:id` with an ordinary bearer token returns `403 admin token required`). Self-rotation
+  (`POST /api/tokens/self/rotate`) needs no admin token — every other route works without one.
 - `PORT` (optional, default `4173`).
 
 ## Routes
@@ -46,9 +47,11 @@ node ee/console/server/index.js
 | POST | `/api/knowledge/:contentHash/reject` | **admin** | G8.4 (body: `{note}`, required) |
 | GET | `/api/equip/:fleet/:agent?remote=` | member | G8.5 (bindings + the exact `effective` view `recall()` itself computes) |
 | PUT | `/api/equip/:fleet/:agent?remote=` | **admin** | G8.5 (body: `{bindings: [{scope_kind, scope_ref, equipped}]}`) |
-| GET | `/api/tokens` | **admin** | G8.6 |
-| POST | `/api/tokens` | **admin** | G8.6 |
-| DELETE | `/api/tokens/:id` | **admin** | G8.6 |
+| GET | `/api/tokens` | **admin** | G8.6 (this-process-only, see below) |
+| POST | `/api/tokens` | **admin** | G8.6 (body: `{id, owner?, ttlSeconds?}` — full value shown once) |
+| DELETE | `/api/tokens/:id` | **admin** | G8.6 (immediate, irreversible) |
+| POST | `/api/tokens/self/rotate` | member (self-service) | G8.6 (wraps G7.1's `rotateToken`, caller's own token) |
+| GET | `/api/members?remote=` | member | G8.6 (grid-activity actors ∪ tokens created here, role from `CONSOLE_ADMINS`) |
 
 `role: 'admin'` routes are exactly what G8.8's curl-bypass suite targets: a member token (or no token at all)
 must get a 403/401 from every one of them, server-side, regardless of what the web UI would have rendered.
@@ -86,3 +89,13 @@ discoverable principal at all is refused (403), not silently shown zero rows or 
   `agent`/`fleet`/`repoId` (everything in this codebase, until this task) see byte-identical behavior.
   `/api/equip`'s `effective` field calls the exact same `equippedRefs`/`knowledgeCollectionRef` helpers
   `recall()` enforces with, so the console can never show an "effective" view that disagrees with reality.
+- **Tokens & members (G8.6).** `ttlSeconds` on create is forwarded best-effort as `ttl_seconds` — the one
+  earlier probe against `POST /tokens` only established that `id` is required, not an expiry field's real
+  name, so this is documented as assumed, same tier as the token-value field itself. Revocation is immediate
+  and irreversible — a live test confirms a revoked token fails to authenticate on its very next request
+  (the ~15s SSE-reauth framing in the issue describes a live stream this engine profile never actually opens,
+  per G3.3's own finding that `/graph/changes` emits nothing; what's real and verified is that revocation kills
+  the NEXT request outright, which is what actually stops the interval-reconcile fallback G3.5 established as
+  load-bearing). Every request is logged once (`server/logging.js`) with only method/path/redacted-query/
+  status/duration in scope — headers and response bodies are never even passed to the logger, so a token
+  value has no code path into log output at all, not merely a scrub applied after capturing it.
