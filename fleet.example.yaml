@@ -50,7 +50,7 @@ agents:
     goal: Each mitigation implemented, tested, and traceable to its threat entry.
     model: smart
     capabilities: { read: true, edit: true, run: true }
-    skills: [secure-remediation]
+    skills: [secure-remediation, grid-awareness]
     handoff:
       to: [security-verifier]
       artifact: 02-mitigations.md
@@ -105,6 +105,93 @@ skills:
       - Prefer framework-native guards over hand-rolled checks; note why when
         deviating.
       - Every mitigation ships with a failing-then-passing test proving it.
+
+  - name: grid-awareness
+    description: >
+      Methodology for reading `_fleet/local/grid/GRID.md` (multi-developer sync) and
+      responding to another developer's in-flight work before claiming a task. Use
+      whenever GRID.md lists a peer actor working on overlapping files or symbols,
+      when checking whether someone else is already touching a file or symbol,
+      before creating a new utility or helper that might already exist on a peer's
+      branch, when deciding whether to depend on another actor's task (the
+      `depends on: @<actor>#<task-seq>` ledger notation), or when interpreting a
+      `(stale)` actor or an `unreachable` grid header.
+    triggers:
+      should:
+        - "GRID.md shows bob already has an in-progress task touching the same files as mine — what should I do?"
+        - "before I write a new retry-helper utility, check if another developer's fleet already built one"
+        - "is anyone else's fleet currently touching the same file as me?"
+        - "how do I declare a dependency on another actor's task using the @actor#seq notation"
+        - "alice's presence in GRID.md is marked stale — does that still count as an overlap?"
+      shouldNot:
+        - "enumerate the API surface and map it to OWASP API Top 10 attack classes"
+        - "implement rate limiting and input validation for this endpoint"
+        - "rank these threats by exploitability and impact"
+        - "add a failing-then-passing test proving this mitigation works"
+        - "verify this mitigation actually blocks the attack, not just that the code exists"
+    body: |
+      # Grid awareness
+
+      Multi-developer sync (the "grid") projects every other developer's in-flight
+      work into `_fleet/local/grid/` before anyone commits. Read it before claiming
+      work; it tells you who else is touching what, right now.
+
+      ## Reading GRID.md
+
+      `_fleet/local/grid/GRID.md` has three parts:
+
+      | Section | What it tells you |
+      |---|---|
+      | Header | Sync timestamp, cortex reachability, active actor count |
+      | Per-actor (`## <actor>`) | Their in-progress tasks, declared files/symbols, staleness |
+      | Cross-actor dependencies | Every `@<actor>#<seq>` reference found in any ledger |
+
+      - An actor marked `(stale — last seen <time>)` has probably gone idle (no
+        heartbeat within the staleness TTL) — treat their declared work as unlikely
+        to still be in flight, not as gone for good.
+      - If the header reads `⚠ unreachable since <time>`, or GRID.md does not exist
+        at all: the cortex is down, or this fleet has no grid configured. Proceed
+        exactly as if you were the only developer. Grid state is advisory, never a
+        blocker — its absence changes nothing about how you work.
+
+      ## Overlap response protocol
+
+      Before claiming a task, compare its declared files/symbols against every
+      active peer's in-progress entries in GRID.md.
+
+      | Overlap kind | What to do |
+      |---|---|
+      | Same file(s), different symbols | Mention it in your handoff's Context digest (e.g. "bob is also editing src/x.js — coordinate before merging") and consider narrowing your own scope to reduce the chance of a large diff collision. |
+      | Same symbol name | Do not implement it yet. Recall with `purpose: cross_dev_reuse` naming the symbol first — the peer's artifact may already cover what you need. If it does, prefer depending on it over re-implementing. If it genuinely does not, say so in your handoff and proceed. |
+
+      Never silently duplicate a symbol a peer has already declared — that is
+      exactly the wasted work the grid exists to prevent.
+
+      ## Cross-actor dependency notation
+
+      Declare a dependency on another actor's in-progress task in your OWN ledger
+      row's `Depends on` column:
+
+      ```
+      depends on: @<actor>#<task-seq>
+      ```
+
+      Example: `depends on: @bob#4` means "this task depends on bob's task #4."
+
+      This is advisory, not a lock: bob is not notified, and nothing technically
+      blocks you from proceeding regardless. It binds only when the work reaches
+      the staging merge — the promotion ladder is what turns an advisory
+      dependency into a real one.
+
+      ## Reuse-before-write
+
+      Before creating a new utility, helper, or shared abstraction: one recall,
+      `purpose: cross_dev_reuse`, naming the symbol or capability you are about to
+      build. Cite the result in your handoff's Context digest — either what you
+      found (and why you're using it, extending it, or deliberately not), or "no
+      existing implementation found" if recall returned nothing. Skipping this
+      step is how two developers end up maintaining two slightly-different date
+      parsers.
 
 orchestrator:
   name: run-api-hardening
