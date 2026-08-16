@@ -19,8 +19,8 @@ import {
 
 // --- GRID_TYPES: the reviewable data file ----------------------------------
 
-test('GRID_TYPES defines exactly the five ontology types, each with a key and fields', () => {
-  assert.deepEqual(Object.keys(GRID_TYPES).sort(), ['ActorPresence', 'FleetTask', 'HandoffPointer', 'OrgDocument', 'RunEventSummary']);
+test('GRID_TYPES defines exactly the six ontology types, each with a key and fields', () => {
+  assert.deepEqual(Object.keys(GRID_TYPES).sort(), ['ActorPresence', 'EquipBinding', 'FleetTask', 'HandoffPointer', 'OrgDocument', 'RunEventSummary']);
   for (const [name, type] of Object.entries(GRID_TYPES)) {
     assert.ok(Array.isArray(type.key) && type.key.length > 0, `${name}.key must be a non-empty array`);
     assert.ok(type.fields && typeof type.fields === 'object', `${name}.fields must be an object`);
@@ -28,6 +28,13 @@ test('GRID_TYPES defines exactly the five ontology types, each with a key and fi
   }
   assert.deepEqual(GRID_TYPES.FleetTask.statuses, ['pending', 'in-progress', 'done', 'blocked', 'dropped']);
   assert.deepEqual(GRID_TYPES.OrgDocument.kinds, ['meeting', 'discussion', 'decision', 'spec']);
+  assert.deepEqual(GRID_TYPES.EquipBinding.scope_kinds, ['purpose', 'knowledge_collection', 'procedure']);
+});
+
+test('validateRow enforces EquipBinding.scope_kind is one of the declared vocabulary', () => {
+  const row = { repo_id: 'r', fleet: 'f', agent: 'a', scope_kind: 'purpose', scope_ref: 'x', equipped: true };
+  assert.doesNotThrow(() => validateRow('EquipBinding', row));
+  assert.throws(() => validateRow('EquipBinding', { ...row, scope_kind: 'not-a-real-kind' }), OntologyError);
 });
 
 // --- normalizeRemoteUrl / resolveRepoId -------------------------------------

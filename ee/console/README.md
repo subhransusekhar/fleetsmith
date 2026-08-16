@@ -44,8 +44,8 @@ node ee/console/server/index.js
 | POST | `/api/knowledge/:contentHash/approve` | **admin** | G8.4 (returns `diff` against the currently-published same title+chunk_index, if one exists) |
 | POST | `/api/knowledge/:contentHash/publish` | member | G8.4 |
 | POST | `/api/knowledge/:contentHash/reject` | **admin** | G8.4 (body: `{note}`, required) |
-| GET | `/api/equip/:fleet/:agent?remote=` | member | G8.5 |
-| PUT | `/api/equip/:fleet/:agent?remote=` | **admin** | G8.5 |
+| GET | `/api/equip/:fleet/:agent?remote=` | member | G8.5 (bindings + the exact `effective` view `recall()` itself computes) |
+| PUT | `/api/equip/:fleet/:agent?remote=` | **admin** | G8.5 (body: `{bindings: [{scope_kind, scope_ref, equipped}]}`) |
 | GET | `/api/tokens` | **admin** | G8.6 |
 | POST | `/api/tokens` | **admin** | G8.6 |
 | DELETE | `/api/tokens/:id` | **admin** | G8.6 |
@@ -77,3 +77,12 @@ discoverable principal at all is refused (403), not silently shown zero rows or 
 - `reject` (G8.4) is the one transition that moves backward (`proposed` -> `draft`) and the one that requires
   a note — `ee/src/grid/approval.js`'s `rejectOrgDocument`, a new sibling to G7.3's forward-only
   `assertValidTransition` machinery, not a case bolted onto it.
+- **Equip (G8.5) is REAL enforcement, not a declared intent.** `EquipBinding` is a first-class row in the G2.1
+  ontology (`ee/src/grid/types.json`), and `ee/src/memory/relatadb.js`'s `recall()` actually consults bindings
+  — when a caller passes `agent`/`fleet`/`repoId` in `opts` (an optional, additive extension riding on the
+  same generic object; the core memory port's own `RecallOptions` contract is untouched) — filtering both
+  `OrgDocument` results (by `knowledge_collection`, `kind[:client]`) and `lesson`-kind memory items (by
+  `procedure`). Per scope_kind, an EMPTY set of bindings means unrestricted: existing callers that never pass
+  `agent`/`fleet`/`repoId` (everything in this codebase, until this task) see byte-identical behavior.
+  `/api/equip`'s `effective` field calls the exact same `equippedRefs`/`knowledgeCollectionRef` helpers
+  `recall()` enforces with, so the console can never show an "effective" view that disagrees with reality.

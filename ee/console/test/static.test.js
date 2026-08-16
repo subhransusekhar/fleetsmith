@@ -104,3 +104,16 @@ test('GET /procedures.html serves a read-only page — no mutating fetch anywher
     }
   });
 });
+
+// --- G8.5's equip page --------------------------------------------------------------------------------------
+
+test('GET /equip.html serves the equip screen, with every API call scoped to /api/equip', async () => {
+  await withServer(async (url) => {
+    const { status, text } = await fetchText(`${url}/equip.html`);
+    assert.equal(status, 200);
+    assert.match(text, /fleetsmith grid — equip/);
+    for (const m of text.matchAll(/api\(`([^`]*)`/g)) {
+      assert.match(m[1], /^\/api\/equip/, `unexpected API target in the equip page: ${m[1]}`);
+    }
+  });
+});

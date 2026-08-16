@@ -352,13 +352,40 @@ export async function queryAllOrgDocuments(config, purpose = config.purposes?.[0
   return unpackQueryRows(result);
 }
 
-async function recallOrgDocuments(config, query, limit) {
-  return (await queryOrgDocuments(config, query, limit)).map(orgDocumentToItem);
+/** A bare `SELECT * FROM EquipBinding` — same shape/reason as `queryAllOrgDocuments` above. Exported for `ee/console/server/routes/equip.js` (G8.5), which needs to list a fleet/agent's current bindings. */
+export async function queryAllEquipBindings(config, purpose = config.purposes?.[0] ?? DEFAULT_WRITE_PURPOSE) {
+  const result = await request(config, { method: 'POST', path: '/query', body: { sql: 'SELECT * FROM EquipBinding', purpose } });
+  return unpackQueryRows(result);
 }
 
 function stripScore({ _score, ...item }) {
   void _score;
   return item;
+}
+
+/**
+ * G8.5's enforcement point. `bindings` is either `null` (no `agent`/`fleet`/`repoId` given — every EXISTING
+ * caller of `recall()`, since the memory port's own `RecallOptions` never had these fields before this task;
+ * this is opt-in enrichment riding on the same generic `opts` object, not a core port contract change) or the
+ * full set of `EquipBinding` rows for that repo+fleet+agent (plus any fleet-wide `agent: '*'` rows).
+ *
+ * Per scope_kind, an EMPTY set of matching bindings means "nothing configured for this kind" -> unrestricted
+ * (`null` from `equippedRefs`) — this is what makes "no bindings -> identical to pre-G8.5 behavior" true even
+ * for an agent that HAS some bindings of a different kind (e.g. only purposes restricted, knowledge left
+ * alone). Only once at least one binding row exists for a given kind does that kind become opt-in: exactly
+ * the refs marked `equipped: true` pass, everything else of that kind is filtered out — including the
+ * pathological case where every binding for a kind says `equipped: false`, which correctly means "equip
+ * nothing of this kind" rather than falling back to unrestricted.
+ */
+export function equippedRefs(bindings, scopeKind) {
+  const rows = bindings.filter((b) => b.scope_kind === scopeKind);
+  if (rows.length === 0) return null;
+  return new Set(rows.filter((b) => b.equipped).map((b) => b.scope_ref));
+}
+
+/** `"<kind>:<client>"`, or bare `"<kind>"` when there is no client — the same collection identity an equip binding's `scope_ref` names for `scope_kind: 'knowledge_collection'`. Exported (with `equippedRefs` above) so `ee/console/server/routes/equip.js` (G8.5) computes the exact same "effective" view this function enforces — one source of truth, not a second copy the UI could drift from. */
+export function knowledgeCollectionRef(row) {
+  return row.client ? `${row.kind}:${row.client}` : row.kind;
 }
 
 /**
@@ -374,15 +401,32 @@ function stripScore({ _score, ...item }) {
  * since RelataDB's `recall` has no `subject` parameter and only the coarser
  * `class_filter` for kind.
  *
- * G6.3: for `ORG_RECALL_PURPOSES`, this UNIONS the above with `recallOrgDocuments()` — team memory and
+ * G6.3: for `ORG_RECALL_PURPOSES`, this UNIONS the above with a `queryOrgDocuments()` search — team memory and
  * imported org knowledge answer through the exact same call, merged and ranked by whatever score each source
  * exposes (missing/non-numeric scores sort last, not first — an unscored hit is not assumed irrelevant, but a
  * genuinely-ranked one takes priority when both are present). The `_score` used to merge never appears on the
  * final returned items — `MemoryItem`'s documented shape has no such field, so `stripScore` removes it after
- * sorting. Every other purpose is completely unchanged — no `recallOrgDocuments` call is even made.
+ * sorting. Every other purpose is completely unchanged — no org-document query is even made.
+ *
+ * G8.5: `opts.agent`/`opts.fleet`/`opts.repoId` are optional, additive fields (never part of the core memory
+ * port's own `RecallOptions` contract — `assertValidRecall` doesn't know or care about them) that activate
+ * equip-binding enforcement when ALL THREE are given. Every existing call site in this codebase omits them,
+ * so `bindings` stays `null` and behavior is byte-identical to pre-G8.5 — the acceptance criterion this
+ * mechanism is built to satisfy, not just an implementation convenience. See `equippedRefs`'s own doc comment
+ * for exactly what "no bindings for a kind" vs. "some bindings, none equipped" each mean.
  */
 export async function recall(config, query, opts = {}) {
   assertValidRecall(opts);
+  const enforceEquip = Boolean(opts.agent && opts.fleet && opts.repoId);
+  const bindings = enforceEquip
+    ? (await queryAllEquipBindings(config)).filter((b) => b.repo_id === opts.repoId && b.fleet === opts.fleet && (b.agent === opts.agent || b.agent === '*'))
+    : null;
+
+  if (bindings) {
+    const equippedPurposes = equippedRefs(bindings, 'purpose');
+    if (equippedPurposes && !equippedPurposes.has(opts.purpose)) return [];
+  }
+
   const hasClientSideFilter = Boolean(opts.kind || opts.subject);
   const limit = opts.limit ?? 10;
   const result = await request(config, {
@@ -396,16 +440,29 @@ export async function recall(config, query, opts = {}) {
       top_k: overfetchLimit(limit, hasClientSideFilter),
     },
   });
-  const memoryItems = (result.rows ?? [])
+  let memoryItems = (result.rows ?? [])
     .map((row) => ({ ...decodeRow(row), _score: typeof row.score === 'number' ? row.score : 0 }))
     .filter((item) => (opts.kind ? item.kind === opts.kind : true))
     .filter((item) => (opts.subject ? item.subject === opts.subject : true));
+
+  if (bindings) {
+    // "procedure" is the only scope_kind that applies to plain memory items — a lesson has no finer real
+    // identity to slice by (ee/src/grid/approval.js's own established finding: no distinct ProcedureMemory
+    // type, nothing beyond kind='lesson' itself), so its one collection is named '*'.
+    const equippedProcedures = equippedRefs(bindings, 'procedure');
+    if (equippedProcedures !== null) memoryItems = memoryItems.filter((item) => item.kind !== 'lesson' || equippedProcedures.has('*'));
+  }
 
   if (!ORG_RECALL_PURPOSES.includes(opts.purpose)) {
     return memoryItems.slice(0, limit).map(stripScore);
   }
 
-  const orgItems = (await recallOrgDocuments(config, query, overfetchLimit(limit, hasClientSideFilter)))
+  let orgRows = await queryOrgDocuments(config, query, overfetchLimit(limit, hasClientSideFilter));
+  if (bindings) {
+    const equippedCollections = equippedRefs(bindings, 'knowledge_collection');
+    if (equippedCollections !== null) orgRows = orgRows.filter((row) => equippedCollections.has(knowledgeCollectionRef(row)));
+  }
+  const orgItems = orgRows.map(orgDocumentToItem)
     .filter((item) => (opts.kind ? item.kind === opts.kind : true))
     .filter((item) => (opts.subject ? item.subject === opts.subject : true));
 

@@ -212,51 +212,8 @@ test('a fully-wired propose call transitions the OrgDocument row via the caller\
   );
 });
 
-// --- equip (G8.5) ------------------------------------------------------------------------------------------
-
-test('GET /api/equip returns a default, unrestricted scope when none has been saved yet', async () => {
-  await withConsole({}, {}, async ({ consoleUrl }) => {
-    const { status, body } = await fetchJson(`${consoleUrl}/api/equip/demo/scout?remote=${encodeURIComponent(REMOTE)}`, AUTH('member-token'));
-    assert.equal(status, 200);
-    assert.equal(body.scope, null);
-    assert.deepEqual(body.compiled, { purposes: [], approvedOnly: false });
-  });
-});
-
-test('PUT /api/equip requires admin, validates purposes, and ingests under the caller\'s own token', async () => {
-  await withConsole(
-    { CONSOLE_ADMINS: 'alice' },
-    { tokensSelf: (t) => (t === 'admin-token' ? { present: true, principal: 'alice' } : { present: false }) },
-    async ({ consoleUrl, requests }) => {
-      const { status, body } = await fetchJson(`${consoleUrl}/api/equip/demo/scout?remote=${encodeURIComponent(REMOTE)}`, {
-        method: 'PUT',
-        headers: { Authorization: 'Bearer admin-token', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ knowledge_purposes: ['product_context'], approved_only: true }),
-      });
-      assert.equal(status, 200);
-      assert.deepEqual(body.compiled, { purposes: ['product_context'], approvedOnly: true });
-      assert.equal(body.scope.updated_by, 'alice');
-      const ingest = requests.find((r) => r.pathname === '/ingest');
-      assert.equal(ingest.token, 'admin-token');
-    }
-  );
-});
-
-test('PUT /api/equip rejects an unknown purpose before any network call', async () => {
-  await withConsole(
-    { CONSOLE_ADMINS: 'alice' },
-    { tokensSelf: (t) => (t === 'admin-token' ? { present: true, principal: 'alice' } : { present: false }) },
-    async ({ consoleUrl, requests }) => {
-      const { status } = await fetchJson(`${consoleUrl}/api/equip/demo/scout?remote=${encodeURIComponent(REMOTE)}`, {
-        method: 'PUT',
-        headers: { Authorization: 'Bearer admin-token', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ knowledge_purposes: ['not_a_real_purpose'] }),
-      });
-      assert.equal(status, 400);
-      assert.ok(!requests.some((r) => r.pathname === '/ingest'), 'must reject before ever reaching /ingest');
-    }
-  );
-});
+// --- equip (G8.5): see ee/console/test/equip.test.js for the full suite, moved there when the route was
+// --- rewritten to use the real EquipBinding ontology type instead of an earlier, purely-declarative draft.
 
 // --- tokens (G8.6) -----------------------------------------------------------------------------------------
 

@@ -67,6 +67,13 @@ export function fakeRelata({
       if (req.method === 'POST' && url.pathname === '/ingest') {
         if (!goodTokens.includes(token)) return json(401, { title: 'Unauthorized', status: 401 });
         const rows = parsed?.rows ?? [];
+        // Genuinely stateful, matching the real engine: a subsequent `SELECT * FROM <Type>` sees what was
+        // just ingested here — no server-side dedup (verified, G2.1), so this appends rather than replacing,
+        // the same "two writes to one key produce two bi-temporal versions" shape the real engine has.
+        const objectType = url.searchParams.get('object_type');
+        if (objectType) {
+          queryRows[objectType] = [...(queryRows[objectType] ?? []), ...rows];
+        }
         return json(200, { rows_ingested: rows.length, rows_queued: rows.length, rows_rejected: 0, connector: 'direct', errors: [] });
       }
 
