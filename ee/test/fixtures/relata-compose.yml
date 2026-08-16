@@ -1,0 +1,47 @@
+# A single-service RelataDB instance for the G1.5 contract/chaos suite.
+#
+# HONEST STATUS, stated up front because everything else in this adapter was
+# verified against a real, reachable instance and this is the one piece that
+# was not: `ghcr.io/relatadb/relata` is access-gated. `docker pull` against it
+# returns `denied` even authenticated with a real GitHub token (verified
+# 2026-08-16) — the package requires registry access RelataDB/ZySec grants,
+# which this checkout does not have. This file is written from RelataDB's own
+# documented quickstart (`docker run -p 9090:9090 -v ~/.relata:/data
+# ghcr.io/relatadb/relata:latest`, from the real v2.0.0 release README) and
+# from the real HTTP behavior verified against a NATIVELY installed instance
+# throughout G1.1-G1.4 (see the relatadb-local-instance-and-v2-api-shapes
+# project memory) — but the container path itself has not been pulled or
+# started. Whoever has registry access should be the one to confirm it boots
+# as written here.
+#
+# The manual alternative — what every other verification in this milestone
+# actually used — needs no image at all:
+#   RELATA_BEARER_TOKEN=<token> /path/to/relata serve
+#   # or, from a released tarball: RELATA_AUTH_MODE=none relata serve
+# then point RELATA_TEST_URL (and RELATA_TEST_TOKEN, if not using
+# RELATA_AUTH_MODE=none) at whatever port it prints.
+#
+# RELATA_AUTH_MODE=none is used here (rather than a bearer token) because this
+# is a disposable, no-real-data CI/test container: RelataDB's own `serve`
+# refuses to start with no auth configured at all UNLESS this is set
+# explicitly (verified: "Refusing to start" is the real error otherwise) — it
+# is the documented, intended escape hatch for exactly this case, not a
+# workaround.
+version: "3.8"
+
+services:
+  relata:
+    image: ghcr.io/relatadb/relata:latest
+    ports:
+      - "9090:9090"
+    environment:
+      RELATA_PROFILE: free
+      RELATA_AUTH_MODE: none
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/health"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+      start_period: 5s
+    # No volume mount: a throwaway instance for one test run should start
+    # empty every time, not accumulate state across CI runs.

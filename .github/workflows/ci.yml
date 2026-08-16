@@ -41,6 +41,66 @@ jobs:
       # model available.
       - run: node src/cli.js eval fleet.yaml --stage 2
 
+  # G1.5's live acceptance gate for the RelataDB adapter: runContract() plus
+  # a real kill-the-container chaos test, against an actual instance — not
+  # the fake servers ee/test/relatadb-{write,read}.test.js already run in
+  # the fast `test` job above. Kept as its own job for two reasons: those
+  # unit suites must stay fast and dependency-free, and `ghcr.io/relatadb/
+  # relata` is registry-gated (confirmed 2026-08-16: `docker pull` returns
+  # `denied` even authenticated with a real GitHub token) — this job only
+  # does anything once RELATA_REGISTRY_TOKEN is configured as a repo secret
+  # by someone with real access. Absent that secret it exits 0 having done
+  # nothing, rather than going red for a credential this repo doesn't hold.
+  relatadb-live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Bring up RelataDB (skips cleanly without registry access)
+        id: relata
+        env:
+          RELATA_REGISTRY_TOKEN: ${{ secrets.RELATA_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "$RELATA_REGISTRY_TOKEN" ]; then
+            echo "RELATA_REGISTRY_TOKEN not set — skipping the live RelataDB suite (see ee/test/fixtures/relata-compose.yml)."
+            echo "started=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "$RELATA_REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker compose -p relata-ci -f ee/test/fixtures/relata-compose.yml up -d
+          # Resolve the real container id compose assigned rather than
+          # assuming a name format — that has changed across Compose
+          # versions and this job would rather ask than guess.
+          container_id=$(docker compose -p relata-ci -f ee/test/fixtures/relata-compose.yml ps -q relata)
+          echo "container_id=$container_id" >> "$GITHUB_OUTPUT"
+          echo "started=true" >> "$GITHUB_OUTPUT"
+      - name: Wait for health
+        if: steps.relata.outputs.started == 'true'
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:9090/health >/dev/null && exit 0
+            sleep 2
+          done
+          echo "RelataDB never became healthy" >&2
+          exit 1
+      - name: Contract suite
+        if: steps.relata.outputs.started == 'true'
+        env:
+          RELATA_TEST_URL: http://127.0.0.1:9090
+        run: node --test ee/test/relatadb-contract.test.js
+      - name: Chaos suite
+        if: steps.relata.outputs.started == 'true'
+        env:
+          RELATA_TEST_URL: http://127.0.0.1:9090
+          RELATA_TEST_CONTAINER: ${{ steps.relata.outputs.container_id }}
+        run: node --test ee/test/relatadb-chaos.test.js
+      - name: Tear down
+        if: always() && steps.relata.outputs.started == 'true'
+        run: docker compose -p relata-ci -f ee/test/fixtures/relata-compose.yml down -v
+
   # The out-of-process half of the self-modification guard. Only evolution
   # branches are constrained: protected paths are human territory by
   # definition, so a person editing them is the system working. What must never
