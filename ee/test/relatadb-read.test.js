@@ -22,6 +22,7 @@ function fakeRelataStore() {
   const items = new Map(); // id -> {content, session_id, memory_class, confidence}
   let counter = 0;
   const orgDocuments = []; // seeded directly by a test — the OrgDocument rows HYBRID_SEARCH matches against
+  const equipBindings = []; // seeded directly by a test (G8.5) — matched by a bare SELECT * FROM EquipBinding
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
@@ -80,6 +81,9 @@ function fakeRelataStore() {
       }
 
       if (req.method === 'POST' && url.pathname === '/query') {
+        if (parsed?.sql === 'SELECT * FROM EquipBinding') {
+          return send(200, equipBindings.length ? { rows: equipBindings.length, columns: ['rows'], data: [{ rows: JSON.stringify(equipBindings) }] } : { rows: 0, columns: ['rows'], data: [] });
+        }
         const m = /^HYBRID_SEARCH FROM OrgDocument QUERY '((?:[^']|'')*)' LIMIT (\d+)$/.exec(parsed?.sql ?? '');
         if (!m) return send(400, { type: 'about:blank', title: 'Bad Request', status: 400, detail: `unrecognized sql: ${parsed?.sql}` });
         const q = m[1].replace(/''/g, "'").toLowerCase();
@@ -101,16 +105,16 @@ function fakeRelataStore() {
     });
   });
 
-  return { server, items, orgDocuments };
+  return { server, items, orgDocuments, equipBindings };
 }
 
 async function withFakeStore(fn) {
-  const { server, items, orgDocuments } = fakeRelataStore();
+  const { server, items, orgDocuments, equipBindings } = fakeRelataStore();
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address();
   const config = { url: `http://127.0.0.1:${port}`, token: 'test-token', purposes: ['test_purpose'], fleetName: 'test-fleet' };
   try {
-    await fn(config, items, orgDocuments);
+    await fn(config, items, orgDocuments, equipBindings);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -264,6 +268,102 @@ test('org-purpose recall respects the requested limit across the merged, unioned
     for (let i = 0; i < 5; i++) orgDocuments.push(orgDocRow({ content_hash: `hash-limit-${i}`, chunk_text: `limit test roadmap chunk ${i}` }));
     const found = await recall(config, 'limit test roadmap', { purpose: 'product_context', limit: 3 });
     assert.equal(found.length, 3);
+  });
+});
+
+// --- G8.5: equip-binding enforcement ------------------------------------------------
+
+const equipBinding = (overrides) => ({ repo_id: 'r1', fleet: 'demo', agent: 'scout', scope_kind: 'purpose', scope_ref: 'product_context', equipped: true, updated_by: 'alice', updated_at: '2026-01-01T00:00:00.000Z', ...overrides });
+
+test('recall() called WITHOUT agent/fleet/repoId never enforces equip bindings, even when some exist for that repo — this is the "no behavior change for existing callers" guarantee', async () => {
+  await withFakeStore(async (config, items, orgDocuments, equipBindings) => {
+    equipBindings.push(equipBinding({ scope_kind: 'purpose', scope_ref: 'decision_rationale', equipped: true })); // would exclude product_context if enforced
+    orgDocuments.push(orgDocRow({}));
+    const found = await recall(config, 'roadmap', { purpose: 'product_context' }); // no agent/fleet/repoId
+    assert.ok(found.some((i) => i.id === 'org:hash1'), 'unenforced recall must behave exactly as it did before G8.5');
+  });
+});
+
+test('an unequipped purpose returns zero rows, without even reaching the org-document query', async () => {
+  await withFakeStore(async (config, items, orgDocuments, equipBindings) => {
+    equipBindings.push(equipBinding({ scope_kind: 'purpose', scope_ref: 'decision_rationale', equipped: true })); // product_context NOT in the equipped set
+    orgDocuments.push(orgDocRow({}));
+    const found = await recall(config, 'roadmap', { purpose: 'product_context', agent: 'scout', fleet: 'demo', repoId: 'r1' });
+    assert.deepEqual(found, []);
+  });
+});
+
+test('an equipped purpose (present in the equipped set) proceeds normally', async () => {
+  await withFakeStore(async (config, items, orgDocuments, equipBindings) => {
+    equipBindings.push(equipBinding({ scope_kind: 'purpose', scope_ref: 'product_context', equipped: true }));
+    orgDocuments.push(orgDocRow({}));
+    const found = await recall(config, 'roadmap', { purpose: 'product_context', agent: 'scout', fleet: 'demo', repoId: 'r1' });
+    assert.ok(found.some((i) => i.id === 'org:hash1'));
+  });
+});
+
+test('no purpose bindings at all for this agent (only knowledge_collection bindings exist) leaves purpose unrestricted', async () => {
+  await withFakeStore(async (config, items, orgDocuments, equipBindings) => {
+    equipBindings.push(equipBinding({ scope_kind: 'knowledge_collection', scope_ref: 'meeting:acme', equipped: true }));
+    orgDocuments.push(orgDocRow({}));
+    const found = await recall(config, 'roadmap', { purpose: 'product_context', agent: 'scout', fleet: 'demo', repoId: 'r1' });
+    assert.ok(found.some((i) => i.id === 'org:hash1'), 'purpose has no bindings of its own kind, so it stays unrestricted regardless of other kinds being restricted');
+  });
+});
+
+test('unequipping a knowledge collection (kind:client) removes its rows from recall — the e2e proof G8.5\'s acceptance criterion names', async () => {
+  await withFakeStore(async (config, items, orgDocuments, equipBindings) => {
+    orgDocuments.push(orgDocRow({ content_hash: 'equipped-hash', kind: 'meeting', client: 'acme', chunk_text: 'roadmap chunk from an equipped collection' }));
+    orgDocuments.push(orgDocRow({ content_hash: 'unequipped-hash', kind: 'discussion', client: 'other-co', chunk_text: 'roadmap chunk from an UNequipped collection' }));
+    equipBindings.push(equipBinding({ scope_kind: 'knowledge_collection', scope_ref: 'meeting:acme', equipped: true }));
+    // No binding row at all for 'discussion:other-co' -> since AT LEAST ONE knowledge_collection binding
+    // exists for this agent, the kind becomes opt-in: only scope_refs explicitly equipped pass.
+
+    const found = await recall(config, 'roadmap chunk', { purpose: 'product_context', agent: 'scout', fleet: 'demo', repoId: 'r1' });
+    assert.ok(found.some((i) => i.id === 'org:equipped-hash'), 'the equipped collection\'s row must still be recallable');
+    assert.ok(!found.some((i) => i.id === 'org:unequipped-hash'), 'the unequipped collection\'s row must be gone from recall');
+  });
+});
+
+test('a knowledge_collection binding with equipped:false explicitly excludes that collection, distinct from "no binding at all"', async () => {
+  await withFakeStore(async (config, items, orgDocuments, equipBindings) => {
+    orgDocuments.push(orgDocRow({ content_hash: 'blocked-hash', kind: 'meeting', client: 'acme', chunk_text: 'explicitly blocked roadmap chunk' }));
+    equipBindings.push(equipBinding({ scope_kind: 'knowledge_collection', scope_ref: 'meeting:acme', equipped: false }));
+    const found = await recall(config, 'blocked roadmap', { purpose: 'product_context', agent: 'scout', fleet: 'demo', repoId: 'r1' });
+    assert.deepEqual(found, [], 'equipped:false for the only binding of this kind means equip NOTHING of this kind, not "fall back to unrestricted"');
+  });
+});
+
+test('a fleet-wide binding (agent: "*") applies when no agent-specific binding exists', async () => {
+  await withFakeStore(async (config, items, orgDocuments, equipBindings) => {
+    orgDocuments.push(orgDocRow({ content_hash: 'fleet-wide-hash', kind: 'meeting', client: 'acme', chunk_text: 'fleet-wide roadmap chunk' }));
+    equipBindings.push(equipBinding({ agent: '*', scope_kind: 'knowledge_collection', scope_ref: 'meeting:acme', equipped: true }));
+    const found = await recall(config, 'fleet-wide roadmap', { purpose: 'product_context', agent: 'any-agent-name', fleet: 'demo', repoId: 'r1' });
+    assert.ok(found.some((i) => i.id === 'org:fleet-wide-hash'));
+  });
+});
+
+test('a "procedure" scope_kind binding filters lesson-kind memory items, never affecting decision/note items', async () => {
+  await withFakeStore(async (config, items, orgDocuments, equipBindings) => {
+    const backend = relatadbBackend(config);
+    await backend.remember({ kind: 'lesson', text: 'always check the ledger first', origin: 'evolved', subject: 'scout' });
+    await backend.remember({ kind: 'note', text: 'the ledger format changed in Q1', origin: 'human', subject: 'scout' });
+    equipBindings.push(equipBinding({ scope_kind: 'procedure', scope_ref: '*', equipped: false })); // equip NO procedures
+
+    const found = await recall(config, 'ledger', { purpose: 'p', agent: 'scout', fleet: 'demo', repoId: 'r1' });
+    assert.ok(!found.some((i) => i.kind === 'lesson'), 'the unequipped lesson must be filtered out');
+    assert.ok(found.some((i) => i.kind === 'note'), 'a note is a different kind entirely — the procedure binding must not touch it');
+  });
+});
+
+test('bindings scoped to a different repo_id/fleet/agent never apply', async () => {
+  await withFakeStore(async (config, items, orgDocuments, equipBindings) => {
+    orgDocuments.push(orgDocRow({ content_hash: 'other-scope-hash', kind: 'meeting', client: 'acme', chunk_text: 'unrelated-scope roadmap chunk' }));
+    equipBindings.push(equipBinding({ repo_id: 'a-different-repo', scope_kind: 'knowledge_collection', scope_ref: 'meeting:acme', equipped: false }));
+    equipBindings.push(equipBinding({ fleet: 'a-different-fleet', scope_kind: 'knowledge_collection', scope_ref: 'meeting:acme', equipped: false }));
+    equipBindings.push(equipBinding({ agent: 'a-different-agent', scope_kind: 'knowledge_collection', scope_ref: 'meeting:acme', equipped: false }));
+    const found = await recall(config, 'unrelated-scope roadmap', { purpose: 'product_context', agent: 'scout', fleet: 'demo', repoId: 'r1' });
+    assert.ok(found.some((i) => i.id === 'org:other-scope-hash'), 'bindings for a different repo/fleet/agent must not restrict this one');
   });
 });
 

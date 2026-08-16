@@ -88,5 +88,22 @@
       "rejected_at": "string",
       "rejection_note": "string"
     }
+  },
+  "EquipBinding": {
+    "description": "One row per (fleet, agent, scope_kind, scope_ref) equip decision (G8.5) — which recall purposes, knowledge collections (kind, or kind:client), and procedure sets an agent may draw on. `agent` is '*' for a fleet-wide binding (applies to every agent in that fleet with no more specific row). Consulted by ee/src/memory/relatadb.js's recall() ONLY when a caller passes opts.agent/opts.fleet/opts.repoId — existing callers that never pass those see zero behavior change, and per scope_kind, an ABSENT set of bindings means unrestricted (opt-in restriction, never opt-in permission): recall is byte-identical to pre-G8.5 behavior until a binding is actually written for that repo+fleet+agent+scope_kind.",
+    "key": ["repo_id", "fleet", "agent", "scope_kind", "scope_ref"],
+    "scope_kinds": ["purpose", "knowledge_collection", "procedure"],
+    "fields": {
+      "repo_id": "string",
+      "fleet": "string",
+      "agent": "string",
+      "scope_kind": "string",
+      "scope_ref": "string",
+      "equipped": "boolean",
+      "updated_by": "string",
+      "updated_at": "string",
+      "purpose": "string",
+      "origin": "string"
+    }
   }
 }

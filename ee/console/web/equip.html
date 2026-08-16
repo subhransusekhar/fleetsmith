@@ -1,0 +1,157 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>fleetsmith grid — equip</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 0; padding: 1.5rem; max-width: 900px; margin-inline: auto; line-height: 1.4; }
+  h1 { font-size: 1.1rem; margin: 0 0 1rem; }
+  h2 { font-size: 0.95rem; margin: 1.5rem 0 0.5rem; }
+  nav { font-size: 0.85rem; margin-bottom: 0.75rem; }
+  nav a { margin-right: 1rem; }
+  nav a.current { font-weight: 600; text-decoration: none; }
+  form#connect { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  form#connect input { flex: 1 1 160px; padding: 0.35rem 0.5rem; }
+  #status { font-size: 0.85rem; color: #666; margin-bottom: 1rem; }
+  .note { font-size: 0.8rem; color: #888; margin-bottom: 0.75rem; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; margin-bottom: 1rem; }
+  th, td { border: 1px solid #ccc; padding: 0.35rem 0.5rem; text-align: left; vertical-align: top; }
+  .unrestricted { color: #666; font-style: italic; }
+  .add-row { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+  .add-row input, .add-row select { padding: 0.3rem; }
+  .add-row input[type="text"] { flex: 1 1 180px; }
+  button.remove { color: #a11; }
+  .error { color: #a11; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<nav><a href="/">Board</a><a href="/audit.html">Audit</a><a href="/knowledge.html">Knowledge</a><a href="/procedures.html">Procedures</a><a class="current" href="/equip.html">Equip</a></nav>
+<h1>fleetsmith grid — equip</h1>
+
+<p class="note">
+  Per-fleet/agent recall scopes. Enforced for real by <code>ee/src/memory/relatadb.js</code>'s <code>recall()</code>
+  — an unequipped scope contributes zero rows to that agent's recall, the moment a binding exists for that
+  scope_kind. With NO bindings at all for a scope_kind, everything of that kind stays unrestricted (the default,
+  opt-in-restriction behavior).
+</p>
+
+<form id="connect">
+  <input id="token" placeholder="bearer token" type="password" required />
+  <input id="remote" placeholder="git remote URL" required />
+  <input id="fleet" placeholder="fleet name" required />
+  <input id="agent" placeholder="agent name" required />
+  <button type="submit">Load</button>
+</form>
+
+<div id="content" hidden>
+  <div id="status"></div>
+
+  <h2>Current bindings</h2>
+  <table>
+    <thead><tr><th>Scope kind</th><th>Scope ref</th><th>Equipped</th><th>Agent</th><th></th></tr></thead>
+    <tbody id="bindings"></tbody>
+  </table>
+
+  <h2>Effective (what recall() will actually enforce)</h2>
+  <table>
+    <thead><tr><th>Scope kind</th><th>Equipped refs</th></tr></thead>
+    <tbody id="effective"></tbody>
+  </table>
+
+  <h2>Add / change a binding</h2>
+  <div class="add-row">
+    <select id="new-kind">
+      <option value="purpose">purpose</option>
+      <option value="knowledge_collection">knowledge_collection</option>
+      <option value="procedure">procedure</option>
+    </select>
+    <input id="new-ref" type="text" placeholder="scope_ref (e.g. product_context, meeting:acme, *)" />
+    <label><input id="new-equipped" type="checkbox" checked /> equipped</label>
+    <button type="button" id="add">Save binding</button>
+  </div>
+  <div id="save-error" class="error"></div>
+</div>
+
+<script>
+  let token = null;
+  let remote = null;
+  let fleet = null;
+  let agent = null;
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  async function api(path, opts) {
+    const res = await fetch(path, { ...opts, headers: { ...(opts?.headers ?? {}), Authorization: `Bearer ${token}` } });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+    return body;
+  }
+
+  function render(body) {
+    document.getElementById('bindings').innerHTML = body.bindings.length
+      ? body.bindings
+          .map(
+            (b) =>
+              `<tr><td>${escapeHtml(b.scope_kind)}</td><td>${escapeHtml(b.scope_ref)}</td><td>${b.equipped}</td><td>${escapeHtml(b.agent)}${b.agent === '*' ? ' (fleet-wide)' : ''}</td></tr>`
+          )
+          .join('')
+      : '<tr><td colspan="4" class="unrestricted">no bindings at all — everything unrestricted</td></tr>';
+
+    document.getElementById('effective').innerHTML = Object.entries(body.effective)
+      .map(([kind, refs]) => `<tr><td>${escapeHtml(kind)}</td><td>${refs === null ? '<span class="unrestricted">unrestricted (no bindings of this kind)</span>' : escapeHtml(refs.join(', ') || '(none — nothing of this kind equipped)')}</td></tr>`)
+      .join('');
+  }
+
+  async function load() {
+    const statusEl = document.getElementById('status');
+    try {
+      const body = await api(`/api/equip/${encodeURIComponent(fleet)}/${encodeURIComponent(agent)}?remote=${encodeURIComponent(remote)}`);
+      statusEl.textContent = `${body.bindings.length} binding(s) for ${fleet}/${agent}`;
+      render(body);
+    } catch (e) {
+      statusEl.innerHTML = `<span class="error">${escapeHtml(e.message)}</span>`;
+    }
+  }
+
+  document.getElementById('connect').addEventListener('submit', (e) => {
+    e.preventDefault();
+    token = document.getElementById('token').value.trim();
+    remote = document.getElementById('remote').value.trim();
+    fleet = document.getElementById('fleet').value.trim();
+    agent = document.getElementById('agent').value.trim();
+    if (!token || !remote || !fleet || !agent) return;
+    document.getElementById('content').hidden = false;
+    load();
+  });
+
+  document.getElementById('add').addEventListener('click', async () => {
+    const scope_kind = document.getElementById('new-kind').value;
+    const scope_ref = document.getElementById('new-ref').value.trim();
+    const equipped = document.getElementById('new-equipped').checked;
+    const errorEl = document.getElementById('save-error');
+    errorEl.textContent = '';
+    if (!scope_ref) {
+      errorEl.textContent = 'scope_ref is required';
+      return;
+    }
+    try {
+      // PUT is additive-by-request — this sends only the ONE new/changed binding; the server upserts it
+      // alongside whatever bindings already exist (it re-reads and returns the full current set below).
+      await api(`/api/equip/${encodeURIComponent(fleet)}/${encodeURIComponent(agent)}?remote=${encodeURIComponent(remote)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bindings: [{ scope_kind, scope_ref, equipped }] }),
+      });
+      document.getElementById('new-ref').value = '';
+      load();
+    } catch (e) {
+      errorEl.textContent = e.message;
+    }
+  });
+</script>
+</body>
+</html>

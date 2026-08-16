@@ -96,6 +96,9 @@ export function validateRow(typeName, row) {
   if (typeName === 'OrgDocument' && row.kind !== undefined && !type.kinds.includes(row.kind)) {
     throw new OntologyError(`OrgDocument.kind "${row.kind}" is not one of ${type.kinds.join(', ')}`);
   }
+  if (typeName === 'EquipBinding' && row.scope_kind !== undefined && !type.scope_kinds.includes(row.scope_kind)) {
+    throw new OntologyError(`EquipBinding.scope_kind "${row.scope_kind}" is not one of ${type.scope_kinds.join(', ')}`);
+  }
   return row;
 }
 
