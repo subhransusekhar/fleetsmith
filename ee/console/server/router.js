@@ -13,18 +13,18 @@ import { extractBearerToken, authenticateToken, resolveRole, AuthError } from '.
 const ROLES = ['public', 'member', 'admin'];
 
 export function createRouter() {
-  const routes = [];
+  const registered = [];
 
   /** `pattern` uses `:name` segments, e.g. `/api/equip/:fleet/:agent`. `role` is checked in `dispatch`, never left to the handler to remember. */
   function route(method, pattern, role, handler) {
     if (!ROLES.includes(role)) throw new Error(`route ${method} ${pattern}: unknown role "${role}" (expected one of ${ROLES.join(', ')})`);
     const segments = pattern.split('/').filter(Boolean);
-    routes.push({ method, segments, role, handler, pattern });
+    registered.push({ method, segments, role, handler, pattern });
   }
 
   function match(method, pathname) {
     const pathSegments = pathname.split('/').filter(Boolean);
-    for (const r of routes) {
+    for (const r of registered) {
       if (r.method !== method || r.segments.length !== pathSegments.length) continue;
       const params = {};
       let ok = true;
@@ -101,5 +101,10 @@ export function createRouter() {
     }
   }
 
-  return { route, dispatch, _routes: routes };
+  /** `[{method, pattern, role}]` — never handlers. The one authoritative source `manifest.js` (G8.8) reads from, so the authz-bypass suite can never drift from what is actually registered (there is no separate, hand-maintained list to fall out of sync with this one). */
+  function routes() {
+    return registered.map((r) => ({ method: r.method, pattern: r.pattern, role: r.role }));
+  }
+
+  return { route, dispatch, routes };
 }
