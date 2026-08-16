@@ -47,7 +47,7 @@ function setupRepo() {
   return { repoDir, localDir };
 }
 
-function fakeRelata({ failInit = false, queryRows = {} } = {}) {
+function fakeRelata({ failInit = false, queryRows = {}, tokensSelf = { present: false }, rotateResponse = { token: 'rotated-token' } } = {}) {
   const requests = [];
   const server = http.createServer((req, res) => {
     let body = '';
@@ -74,7 +74,12 @@ function fakeRelata({ failInit = false, queryRows = {} } = {}) {
       }
       if (req.method === 'GET' && url.pathname === '/tokens/self') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ present: false }));
+        res.end(JSON.stringify(tokensSelf));
+        return;
+      }
+      if (req.method === 'POST' && url.pathname === '/tokens/self/rotate') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(rotateResponse));
         return;
       }
       if (req.method === 'POST' && url.pathname === '/ingest') {
@@ -221,6 +226,92 @@ test('syncOnce never throws — no grid config degrades to a successful, advisor
   assert.equal(result.degraded, true);
   assert.equal(result.notConfigured, true);
   assert.match(result.summary, /not configured/);
+});
+
+// --- identity (G7.1): a real principal mismatch refuses push, but pull still works -------------------------
+
+test('syncOnce refuses to push (not the whole cycle) when the token principal really mismatches the local actor — pull still works', async () => {
+  const realActor = resolveActor();
+  const mismatchedPrincipal = `not-${realActor}`;
+  await withFakeRelata({ tokensSelf: { present: true, principal: mismatchedPrincipal } }, async (config, requests) => {
+    const { repoDir } = setupRepo();
+    const spec = loadSpecFile(path.join(repoDir, 'fleet.yaml'));
+    const result = await syncOnce(spec, repoDir);
+
+    assert.equal(result.degraded, false, 'a real identity mismatch degrades the push step only, not the whole cycle');
+    assert.equal(result.pushResult.pushed.length, 0, 'nothing must have been pushed');
+    assert.ok(result.warnings.some((w) => w.includes('push skipped') && w.includes(mismatchedPrincipal) && w.includes(realActor)));
+    assert.ok(!requests.some((r) => r.pathname === '/ingest'), 'no row may have been ingested when the principal genuinely mismatches');
+    assert.ok(requests.some((r) => r.pathname === '/query'), 'pull (reconcile) must still have run — reading peers is always allowed');
+    void config;
+  });
+});
+
+test('syncOnce pushes normally when the engine reports no discoverable principal at all (the common bearer-mode case)', async () => {
+  await withFakeRelata({ tokensSelf: { present: false } }, async (config, requests) => {
+    const { repoDir } = setupRepo();
+    const spec = loadSpecFile(path.join(repoDir, 'fleet.yaml'));
+    const result = await syncOnce(spec, repoDir);
+
+    assert.equal(result.degraded, false);
+    assert.ok(!result.warnings.some((w) => w.includes('push skipped')), 'an undiscoverable principal must never be treated as a mismatch');
+    assert.ok(requests.some((r) => r.pathname === '/ingest'), 'push must have proceeded — nothing was actually verified to refuse it on');
+    void config;
+  });
+});
+
+test('syncOnce pushes normally when the token principal matches the local actor', async () => {
+  const realActor = resolveActor();
+  await withFakeRelata({ tokensSelf: { present: true, principal: realActor } }, async (config, requests) => {
+    const { repoDir } = setupRepo();
+    const spec = loadSpecFile(path.join(repoDir, 'fleet.yaml'));
+    const result = await syncOnce(spec, repoDir);
+
+    assert.equal(result.degraded, false);
+    assert.ok(!result.warnings.some((w) => w.includes('push skipped')));
+    assert.ok(requests.some((r) => r.pathname === '/ingest'));
+    void config;
+  });
+});
+
+test('gridCliHandler: "token rotate" prints the new token and update/restart guidance', async () => {
+  const { repoDir } = setupRepo();
+  await withFakeRelata({ rotateResponse: { token: 'shiny-new-token' } }, async (config, requests) => {
+    const { exitCode, logs } = await runCliInDir(repoDir, ['token', 'fleet.yaml', 'rotate']);
+    assert.equal(exitCode, 0);
+    assert.ok(logs.some((l) => l.includes('shiny-new-token')));
+    assert.ok(logs.some((l) => /restart/i.test(l)));
+    assert.ok(requests.some((r) => r.pathname === '/tokens/self/rotate' && r.method === 'POST'));
+    void config;
+  });
+});
+
+test('gridCliHandler: "token" rejects an unknown sub-subcommand', async () => {
+  const { repoDir } = setupRepo();
+  await withFakeRelata({}, async () => {
+    const { exitCode, errors } = await runCliInDir(repoDir, ['token', 'fleet.yaml', 'bogus-action']);
+    assert.equal(exitCode, 1);
+    assert.ok(errors.some((e) => e.includes('rotate')));
+  });
+});
+
+test('gridCliHandler: "token rotate" with no grid config errors clearly (a deliberate action, like init)', async () => {
+  const { repoDir } = setupRepo();
+  const { exitCode, errors } = await runCliInDir(repoDir, ['token', 'fleet.yaml', 'rotate']);
+  assert.equal(exitCode, 1);
+  assert.ok(errors.some((e) => e.includes('not configured')));
+});
+
+test('gridCliHandler: "token" mentions itself in the unknown-subcommand help text', async () => {
+  const originalError = console.error;
+  const errors = [];
+  console.error = (m) => errors.push(m);
+  try {
+    await gridCliHandler(['bogus']);
+  } finally {
+    console.error = originalError;
+  }
+  assert.ok(errors.some((e) => e.includes('token rotate')));
 });
 
 // --- overlaps (G5.3): syncOnce's post-reconcile hook, GRID.md's pointer line, and the one-shot verb -------
@@ -688,6 +779,14 @@ test('runWatch.stop() halts everything — no further requests after stopping', 
     } finally {
       controller.stop();
     }
+    // A request legitimately IN FLIGHT at the exact moment `stop()` runs (sent by the client, not yet fully
+    // arrived and logged by the server) is not a bug — `stop()` only prevents FUTURE requests (clearing
+    // timers/watchers/SSE), it cannot un-send one already on the wire. Without this short settle window,
+    // resetting `requests` immediately after `stop()` races that in-flight request's arrival, occasionally
+    // counting it as "after stop" when it was really "before, just slow to land" — worse odds once syncOnce's
+    // chain grew a real extra round trip (G7.1's identity check). Settling first, THEN resetting, keeps the
+    // assertion about what it actually means: no request INITIATED after stop.
+    await sleep(100);
     requests.length = 0;
     await sleep(200);
     assert.equal(requests.length, 0);

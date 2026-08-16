@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "status": "aspirational — not applied anywhere; no engine-side mechanism exists to apply it against yet",
+  "description": "The desired grid access-control policy, in fleetsmith's own vocabulary — NOT a RelataDB-native policy format. RelataDB's conditional/cell-level ACL enforcement is not yet wired into every call site on the upstream engine (tracked as RelataDB #3118/#3125/#3126; see docs/architecture/intelligence-grid.md and docs/milestones/v0.7.0-intelligence-grid.md, which already call this out as a known gap, not an assumption made here). This file exists so the desired policy is reviewable now and ready to apply the moment a real engine-side mechanism ships. The OPERATIVE enforcement today is client-side only: ee/src/grid/identity.js's assertPushIdentity(), which refuses to push when a token's principal is discoverable and mismatches the local actor.",
+  "rules": [
+    {
+      "id": "writer-actor-must-equal-principal",
+      "applies_to": ["FleetTask", "ActorPresence", "HandoffPointer", "RunEventSummary", "OrgDocument"],
+      "rule": "a write to any row of these types must be rejected unless the row's actor field (imported_by, for OrgDocument) equals the authenticated token's principal",
+      "enforced_by": "client-side only (ee/src/grid/identity.js's assertPushIdentity) — no server-side equivalent exists on this engine yet; see the 'status' field above"
+    },
+    {
+      "id": "org-approval-requires-approver-role",
+      "applies_to": ["OrgApproval"],
+      "rule": "a write to an OrgApproval row must be rejected unless the authenticated principal carries an approver role",
+      "enforced_by": "not enforceable anywhere yet — OrgApproval does not exist as a type (it is G7.3's own future deliverable), and no role/scope concept has been verified on this engine surface at all. Documented here as a requirement for G7.3 to pick up if/when the engine gains one, not as something G7.1 implements."
+    }
+  ]
+}
