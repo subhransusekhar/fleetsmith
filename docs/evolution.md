@@ -54,6 +54,19 @@ failure, and removing one re-opens it.
    per-run injection, which would break prompt caching.
 8. **Git is the archive.** Every mutation is a branch, every promotion a tagged
    merge, `git revert` the rollback.
+9. **Grid state is advisory input to prompts and health; it may never gate an
+   agent, alter a QA/eval verdict, or bypass the promotion ladder into
+   `_fleet/shared/`.** The `SubagentStop` handover gate and its validator
+   (`_fleet/local/scripts/validate-handoff.sh`) remain on the protected-paths
+   list and are never referenced by `ee/` code — enforced structurally by
+   `ee/test/daemon.test.js`'s `'gate isolation'` test and reaffirmed by
+   `ee/test/degradation-matrix.test.js`'s `'gate isolation (reaffirmed)'` test,
+   both of which grep every file under `ee/src/` for the string
+   `validate-handoff` and fail if it appears anywhere. A fleet with the cortex
+   unreachable must behave — in every gate outcome — exactly like a fleet with
+   no grid at all: `ee/test/degradation-matrix.test.js`'s six-row matrix
+   exercises every reachability/license state the adapter can report and
+   asserts each one degrades to that same outcome.
 
 ## Operations
 

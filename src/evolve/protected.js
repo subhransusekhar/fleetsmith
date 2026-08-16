@@ -43,6 +43,10 @@ export const HARD_PROTECTED = [
   'src/evolve/patch.js',
   'src/evolve/protected.js',
   'test/**',
+  // The enterprise tier's own scorecard — the same reasoning as `test/**` above, added by G9.4 while
+  // recording the grid invariant in docs/evolution.md: `ee/test/**` includes the contract-pin suite (G9.3)
+  // and the degradation matrix (G9.1) that prove the grid can never gate an agent or fake reachability.
+  'ee/test/**',
   '.github/workflows/**',
   '_fleet/local/scripts/validate-handoff.sh',
   'docs/milestones/v0.5.0-self-evolution.md',
