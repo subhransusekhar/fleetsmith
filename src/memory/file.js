@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import YAML from 'yaml';
 import { assertValidItem, assertValidRecall, MemoryError } from './port.js';
 import { parsePlaybook, renderPlaybook, addBullet, bump, dedupe } from '../playbook/index.js';
 import { registerMemoryBackend } from '../lib/registry.js';
@@ -27,6 +28,19 @@ import { registerMemoryBackend } from '../lib/registry.js';
  * reason `fleetsmith health` uses it: this project ships one runtime
  * dependency, and lexical retrieval over a few hundred bullets is adequate.
  * Where it is not adequate is exactly the case the RelataDB adapter exists for.
+ *
+ * **Org knowledge (v0.7.0 G6.4) — the file-backend counterpart to the RelataDB adapter's `OrgDocument`
+ * union (G6.3, `ee/src/memory/relatadb.js`).** Rule 3 of that milestone ("nothing is ee-only") applied to
+ * org knowledge specifically: `shared/knowledge/<name>.md` — committed, PR-reviewed markdown with a small
+ * YAML frontmatter block (`kind`, `client`, `date`, `source`) — is scanned, heading-chunked, and
+ * token-overlap ranked for the SAME fixed allowlist of org purposes G6.3 uses, returning items in the exact
+ * same provenance-string shape (`"<source> (<kind>[, <client>], <date>)"`) so a skill's recall instructions
+ * stay backend-agnostic. `ORG_RECALL_PURPOSES`/the kind mapping are independently duplicated from
+ * `relatadb.js`'s own copies, not imported — core (this file) must never import from `ee/`, and keeping two
+ * small, hand-synced lists is the same trade-off `ee/src/grid/project.js` already makes for
+ * `FleetTask.status`. **`remember` never writes here** — knowledge enters through `fleetsmith grid import`
+ * (ee/) or a hand-authored PR, the same trust model as a playbook bullet added by hand vs. one written
+ * through the port; there is no `'knowledge'` `ITEM_KIND` for an agent to even attempt it with.
  */
 
 export function fileBackend({ spec, cwd = process.cwd() } = {}) {
@@ -39,6 +53,7 @@ export function fileBackend({ spec, cwd = process.cwd() } = {}) {
     decisions: path.join(shared, 'evolution/decisions.jsonl'),
     notes: (subject) => path.join(local, 'notes', `${subject}.md`),
     runs: path.join(local, 'runs'),
+    knowledge: path.join(shared, 'knowledge'),
   };
 
   return {
@@ -85,6 +100,7 @@ export function fileBackend({ spec, cwd = process.cwd() } = {}) {
     async recall(query, opts = {}) {
       assertValidRecall(opts);
       const items = readAll(paths, spec);
+      if (ORG_RECALL_PURPOSES.includes(opts.purpose)) items.push(...readKnowledge(paths));
       const q = tokens(query);
       return items
         .filter((i) => (opts.kind ? i.kind === opts.kind : true))
@@ -189,6 +205,86 @@ function readEvidence(shared, id) {
   } catch {
     return [];
   }
+}
+
+/**
+ * Purposes that pull `shared/knowledge/` into `recall()` — an independent, hand-synced duplicate of
+ * `ee/src/memory/relatadb.js`'s own `ORG_RECALL_PURPOSES` (G6.3). Core must never import from `ee/`, so this
+ * small list is kept identical by hand rather than shared; a caller-facing skill instruction is written once
+ * against this fixed vocabulary and works unchanged on either backend.
+ */
+const ORG_RECALL_PURPOSES = ['product_context', 'client_commitment', 'decision_rationale'];
+
+/** `OrgDocument.kind` (meeting/discussion/decision/spec — the same vocabulary `ee/src/grid/ontology.js` declares) has no 1:1 mapping onto `ITEM_KINDS` (`port.js`) — `decision` lines up directly, everything else is closest to `note`: an imported reference, not a learned `lesson` or a run `event`. */
+const KNOWLEDGE_KIND_TO_ITEM_KIND = { decision: 'decision', meeting: 'note', discussion: 'note', spec: 'note' };
+
+/** `---\n<yaml>\n---\n<body>` — a malformed or missing frontmatter block degrades to an empty frontmatter object and the whole file as body, never a throw: one badly-authored knowledge file must not break recall for every other one. */
+function parseKnowledgeFile(raw) {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(raw);
+  if (!m) return { frontmatter: {}, body: raw };
+  let frontmatter;
+  try {
+    frontmatter = YAML.parse(m[1]);
+  } catch {
+    frontmatter = null;
+  }
+  return { frontmatter: frontmatter && typeof frontmatter === 'object' ? frontmatter : {}, body: m[2] };
+}
+
+/** One chunk per heading section (heading path + everything until the next heading of any level) — simpler than `ee/src/grid/import.js`'s own char-budget packer (independently written, not shared code; this file backend's own stated philosophy is that lexical retrieval over a modest corpus does not need that precision), but the same underlying idea: a citable, section-sized unit rather than "the whole file" or "one line." */
+function chunkKnowledgeBody(body) {
+  const chunks = [];
+  let headingPath = [];
+  let lines = [];
+  const flush = () => {
+    const text = lines.join('\n').trim();
+    if (text) chunks.push({ headingPath: [...headingPath], text });
+    lines = [];
+  };
+  for (const line of body.split('\n')) {
+    const m = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (m) {
+      flush();
+      const level = m[1].length;
+      headingPath = headingPath.slice(0, level - 1);
+      headingPath[level - 1] = m[2].trim();
+      continue;
+    }
+    lines.push(line);
+  }
+  flush();
+  return chunks;
+}
+
+/** `"<source> (<kind>[, <client>], <date>)"` — identical shape to G6.3's `orgDocumentProvenance`, so a skill's recall instructions read the same citation format regardless of which backend answered. `client` is omitted (not a bare double comma) when the frontmatter carries none. */
+function knowledgeProvenance(frontmatter, filename) {
+  const parts = [frontmatter.kind ?? 'unknown'];
+  if (frontmatter.client) parts.push(frontmatter.client);
+  parts.push(frontmatter.date ?? 'unknown-date');
+  return `${frontmatter.source || filename} (${parts.join(', ')})`;
+}
+
+/** Every `shared/knowledge/*.md` file, heading-chunked, one `MemoryItem` per chunk — never called by `readAll()` itself, only from `recall()` and only for `ORG_RECALL_PURPOSES`, so a non-org recall never pays the cost of scanning this directory at all. */
+function readKnowledge(paths) {
+  const dir = paths.knowledge;
+  if (!fs.existsSync(dir)) return [];
+  const items = [];
+  for (const filename of fs.readdirSync(dir).filter((f) => f.endsWith('.md'))) {
+    const raw = fs.readFileSync(path.join(dir, filename), 'utf8');
+    const { frontmatter, body } = parseKnowledgeFile(raw);
+    chunkKnowledgeBody(body).forEach((chunk, i) => {
+      const text = chunk.headingPath.length ? `${chunk.headingPath.join(' > ')}\n\n${chunk.text}` : chunk.text;
+      items.push({
+        id: `knowledge:${filename}:${i}`,
+        kind: KNOWLEDGE_KIND_TO_ITEM_KIND[frontmatter.kind] ?? 'note',
+        text,
+        subject: frontmatter.client,
+        origin: 'human',
+        evidence: [knowledgeProvenance(frontmatter, filename)],
+      });
+    });
+  }
+  return items;
 }
 
 function readAll(paths, spec) {

@@ -51,7 +51,11 @@ repo/
     │   ├── CHANGELOG.md              #   append-only; one row per change
     │   ├── playbooks/<agent>.md      #   ACE bullets: stable ids + counters
     │   ├── decisions.jsonl           #   promotion decisions (T13)
-    │   └── evals/noise.json          #   measured noise floor (T7)
+    │   ├── evals/noise.json          #   measured noise floor (T7)
+    │   └── knowledge/<name>.md       #   org knowledge: frontmatter (kind/client/date/source)
+    │                                 #   + markdown body — PR'd in like a playbook, recalled
+    │                                 #   for org-purpose queries via token overlap (v0.7.0 G6.4;
+    │                                 #   RelataDB backend adds semantic search over the same tier)
     └── local/                        # GITIGNORED (per developer)
         ├── LEDGER.md
         ├── handoffs/
