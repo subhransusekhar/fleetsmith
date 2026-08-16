@@ -1,0 +1,64 @@
+{
+  "FleetTask": {
+    "description": "One row per ledger entry a developer's fleet has in flight — the grid's live view of _fleet/local/LEDGER.md, projected up before any commit exists.",
+    "key": ["repo_id", "actor", "task_seq"],
+    "statuses": ["pending", "in-progress", "done", "blocked", "dropped"],
+    "fields": {
+      "repo_id": "string",
+      "actor": "string",
+      "task_seq": "integer",
+      "task": "string",
+      "status": "string",
+      "depends_on": "string[]",
+      "artifact": "string",
+      "files_declared": "string[]",
+      "symbols_declared": "string[]",
+      "branch": "string",
+      "purpose": "string",
+      "origin": "string"
+    }
+  },
+  "ActorPresence": {
+    "description": "One row per developer per repo — is their fleet running right now, on which branch, since when.",
+    "key": ["repo_id", "actor"],
+    "fields": {
+      "repo_id": "string",
+      "actor": "string",
+      "run_id": "string",
+      "branch": "string",
+      "started_at": "string",
+      "heartbeat_at": "string",
+      "purpose": "string",
+      "origin": "string"
+    }
+  },
+  "HandoffPointer": {
+    "description": "A pointer to (and a digest of) one handoff file — never the handoff body, never file contents. Server-side cell ACL is not fully wired, so a minimal payload is the defense.",
+    "key": ["repo_id", "actor", "seq"],
+    "fields": {
+      "repo_id": "string",
+      "actor": "string",
+      "seq": "integer",
+      "from_agent": "string",
+      "to_agent": "string",
+      "artifact": "string",
+      "criteria_digest": "string",
+      "purpose": "string",
+      "origin": "string"
+    }
+  },
+  "RunEventSummary": {
+    "description": "Per-actor, per-run counts reduced from _fleet/local/runs/<actor>-<ts>/events.jsonl — the run event vocabulary from src/compile/telemetry.js, never the raw event stream itself.",
+    "key": ["repo_id", "actor", "run_id"],
+    "fields": {
+      "repo_id": "string",
+      "actor": "string",
+      "run_id": "string",
+      "gate_pass": "integer",
+      "gate_block": "integer",
+      "execute_tool_error": "integer",
+      "purpose": "string",
+      "origin": "string"
+    }
+  }
+}

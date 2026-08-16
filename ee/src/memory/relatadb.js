@@ -115,8 +115,14 @@ export function unwrapRelataResponse(raw) {
   }
 }
 
-/** The shared HTTP transport. `config` is `resolveGridConfig()`'s result (G1.1) plus `fleetName`, merged by the caller. */
-export async function request(config, { method = 'GET', path, query, body, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+/**
+ * The shared HTTP transport. `config` is `resolveGridConfig()`'s result (G1.1) plus `fleetName`, merged by the
+ * caller. `token` overrides `config.token` for the one call site (G2.1's `ontologyMigrate`) that needs a
+ * separate, more-privileged credential (RelataDB gates `/ontology/migrate` behind its own `RELATA_ADMIN_TOKEN`,
+ * distinct from the regular data-plane bearer token this config otherwise carries) — every other caller omits
+ * it and gets today's behavior unchanged.
+ */
+export async function request(config, { method = 'GET', path, query, body, token = config.token, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   const url = new URL(path, config.url);
   if (query) {
     for (const [k, v] of Object.entries(query)) {
@@ -129,7 +135,7 @@ export async function request(config, { method = 'GET', path, query, body, timeo
     res = await fetch(url, {
       method,
       headers: {
-        Authorization: `Bearer ${config.token}`,
+        Authorization: `Bearer ${token}`,
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
