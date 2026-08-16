@@ -10,6 +10,9 @@
     "README.md",
     "LICENSE"
   ],
+  "dependencies": {
+    "yaml": "^2.9.0"
+  },
   "peerDependencies": {
     "fleetsmith": ">=0.7.0"
   },

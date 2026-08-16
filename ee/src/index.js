@@ -8,12 +8,13 @@
  *
  * Populated by milestone v0.7.0 (docs/milestones/v0.7.0-tasks.md):
  *   G1  registerMemoryBackend('relatadb', …)   — done (G1.1–G1.4)
- *   G3  registerCliCommand('grid', …)          — ./grid/daemon.js, not yet built
+ *   G3  registerCliCommand('grid', …)          — done (G3.1–G3.5), ./grid/daemon.js
  */
 import { resolveGridConfig } from './config.js';
 import { relatadbBackend } from './memory/relatadb.js';
 import { withDegradation } from './memory/degrade.js';
 import { fileBackend } from 'fleetsmith/memory/file';
+import { gridCliHandler, onRunStart, onRunEnd } from './grid/daemon.js';
 
 export function register(registry) {
   // Same factory shape as core's own 'file' registration: `({spec, cwd}) ->
@@ -28,4 +29,13 @@ export function register(registry) {
     const relata = relatadbBackend({ ...grid, fleetName: spec?.fleet?.name });
     return withDegradation(relata, file);
   });
+
+  registry.registerCliCommand('grid', gridCliHandler);
+
+  // Provisioned, not load-bearing today — see the doc comment on onRunStart/onRunEnd in grid/daemon.js:
+  // nothing in core calls runDaemonHooks('run_start'|'run_end', …) yet, so these never fire in practice.
+  // `fleetsmith grid sync --watch` detects a real run's lifecycle itself, by watching the CURRENT-<actor>
+  // marker file directly — it does not depend on this registration either.
+  registry.registerDaemonHook('run_start', onRunStart);
+  registry.registerDaemonHook('run_end', onRunEnd);
 }
