@@ -2394,7 +2394,7 @@ test('learned notes compile in as advisory, after human instructions', () => {
 test('protected paths cover the referee, and cannot be widened from the spec', () => {
   const spec = normalizeSpec({ fleet: { name: 'p' }, agents: [{ name: 'a', role: 'r' }] });
   const m = protectedManifest(spec);
-  for (const needed of ['src/spec/**', 'src/qa/**', 'src/eval/**', 'test/**', '.github/workflows/**']) {
+  for (const needed of ['src/spec/**', 'src/qa/**', 'src/eval/**', 'test/**', 'ee/test/**', '.github/workflows/**']) {
     assert.ok(m.paths.includes(needed), `${needed} must be protected`);
   }
   // The list is hard-coded, not derived: a spec claiming otherwise changes nothing.
@@ -2410,12 +2410,14 @@ test('violations flags an evolution branch touching the scorecard', () => {
     'src/adapters/claude-code.js',
     'test/eval-fleets/01-minimal-single-agent.yaml',
     '.github/workflows/ci.yml',
+    'ee/test/contract-pin.test.js',
   ]);
   assert.deepEqual(
     hits.map((h) => h.file),
-    ['test/eval-fleets/01-minimal-single-agent.yaml', '.github/workflows/ci.yml']
+    ['test/eval-fleets/01-minimal-single-agent.yaml', '.github/workflows/ci.yml', 'ee/test/contract-pin.test.js']
   );
   assert.deepEqual(violations(['src/adapters/goose.js', 'README.md']), [], 'ordinary source is editable');
+  assert.deepEqual(violations(['ee/src/grid/daemon.js']), [], 'ee source (not ee/test) stays editable — only the enterprise scorecard is protected');
 });
 
 test('length caps are enforced at patch time', () => {
