@@ -5,15 +5,18 @@ import { createHash } from 'node:crypto';
 // this is how a real two-package install resolves it, and `npm test` sets up
 // a local self-link (scripts/ee-selflink.mjs, wired as `pretest`) so the same
 // import statement works during development in this one checkout too.
-import { assertValidItem, MemoryError } from 'fleetsmith/memory/port';
+import { assertValidItem, assertValidRecall, MemoryError } from 'fleetsmith/memory/port';
 import { resolveActor } from '../actor.js';
 import { RelataNetworkError, RelataHttpError, RelataToolError } from './errors.js';
 
 /**
- * The RelataDB memory-port adapter — write half (G1.2). The read half
- * (recall/justify/consolidate/forget) lands in G1.3 in this same file; this
- * task builds `remember`/`remember_batch` and the shared plumbing both
- * halves need (request transport, session derivation, the content envelope).
+ * The RelataDB memory-port adapter. Write half (G1.2): `remember`,
+ * `remember_batch`, and the shared plumbing (transport, session derivation,
+ * content envelope) both halves need. Read half (G1.3, below): `recall`,
+ * `justify`, `consolidate`, `forget`, and `relatadbBackend()` — the factory
+ * that assembles all five verbs into the shape `src/memory/port.js` documents
+ * a `MemoryBackend` as, the first point at which this module is a complete,
+ * usable backend rather than building blocks.
  *
  * Every claim below about RelataDB's actual wire behavior was verified
  * against a real, licensed v1.5.7 instance on 2026-08-16 — round-tripped
@@ -208,4 +211,167 @@ export async function rememberBatch(config, items) {
     },
   });
   return { ids: (result.results ?? []).map((r) => r.id) };
+}
+
+// --- read half (G1.3) -------------------------------------------------------
+
+/**
+ * `class_filter` narrows RelataDB's own search before it runs, which is
+ * worth doing for cost even though it is coarser than our `kind`: `decision`
+ * and `note` both map to `semantic` (see `KIND_TO_MEMORY_CLASS` above), so a
+ * `class_filter=semantic` row can still be either one. `recall` re-checks the
+ * EXACT `kind` client-side after decoding, which `class_filter` alone cannot
+ * give us — the two checks are not redundant, they are coarse-then-exact.
+ */
+function classFilterFor(kind) {
+  return kind ? KIND_TO_MEMORY_CLASS[kind] : undefined;
+}
+
+/**
+ * How many raw rows to request from RelataDB when a client-side filter
+ * (`subject`, exact `kind`) will discard some of them afterward. RelataDB has
+ * no `subject` parameter at all and no exact-`kind` distinction within one
+ * `memory_class`, so filtering by either happens after the fact — over-fetch
+ * or a caller asking for 10 matching items could get fewer than 10 back
+ * despite more existing, just past this window. `top_k`'s own documented
+ * ceiling is 100; never ask for more than that regardless of how large the
+ * multiplier would otherwise make it.
+ */
+function overfetchLimit(requested, hasClientSideFilter) {
+  if (!hasClientSideFilter) return Math.min(requested, 100);
+  return Math.min(Math.max(requested * 5, 25), 100);
+}
+
+/** A recalled row, in fleetsmith's MemoryItem shape — `id` plus whatever the content envelope decodes to. */
+function decodeRow(row) {
+  return { id: row.id, ...decodeContent(row.content) };
+}
+
+/**
+ * `recall` -> `GET /memory/recall`. Real, verified params: `query`,
+ * `session_id`, `class_filter`, `top_k`, `purpose` (`as_of` and
+ * `require_vector` exist too but nothing here has a use for them yet).
+ *
+ * Documented gap: the milestone doc assumed `min_confidence`,
+ * `recency_half_life_secs`, and `budget_tokens` params that do not exist on
+ * this deployed version (confirmed via `GET /mcp/tools`) — there is nothing
+ * to wire them to. `opts.limit` maps to `top_k`; `opts.subject` and the exact
+ * `opts.kind` are enforced client-side after decoding (see `overfetchLimit`),
+ * since RelataDB's `recall` has no `subject` parameter and only the coarser
+ * `class_filter` for kind.
+ */
+export async function recall(config, query, opts = {}) {
+  assertValidRecall(opts);
+  const hasClientSideFilter = Boolean(opts.kind || opts.subject);
+  const result = await request(config, {
+    method: 'GET',
+    path: '/memory/recall',
+    query: {
+      query,
+      purpose: opts.purpose,
+      session_id: deriveSessionId(config.fleetName),
+      class_filter: classFilterFor(opts.kind),
+      top_k: overfetchLimit(opts.limit ?? 10, hasClientSideFilter),
+    },
+  });
+  return (result.rows ?? [])
+    .map(decodeRow)
+    .filter((item) => (opts.kind ? item.kind === opts.kind : true))
+    .filter((item) => (opts.subject ? item.subject === opts.subject : true))
+    .slice(0, opts.limit ?? 10);
+}
+
+/**
+ * `justify(id)` composes two real tools, because neither alone answers the
+ * port's question. `GET /memory/justify/{id}` gives a clean found/not-found
+ * signal (`{found: false}` for an unknown id — confirmed directly, unlike
+ * `recognize`'s confusing HTTP 400 "missing required argument: raw" on the
+ * same case) but only bi-temporal/provenance metadata, no content. `recognize`
+ * returns the actual `content` but answers a *different* question ("what is
+ * this") and its own not-found behavior is the confusing one — so `justify`
+ * decides existence, `recognize` supplies the text, and `recognize` is only
+ * ever called once `justify` has already said the id exists.
+ */
+export async function justify(config, id) {
+  const found = await request(config, {
+    method: 'GET',
+    path: `/memory/justify/${encodeURIComponent(id)}`,
+    query: { purpose: config.purposes?.[0] ?? DEFAULT_WRITE_PURPOSE },
+  });
+  if (!found?.found) return null;
+
+  const recognized = await request(config, {
+    method: 'GET',
+    path: `/memory/recognize/${encodeURIComponent(id)}`,
+    query: { purpose: config.purposes?.[0] ?? DEFAULT_WRITE_PURPOSE },
+  });
+  const decoded = decodeContent(recognized?.memory?.content ?? '');
+  return { id, text: decoded.text, evidence: decoded.evidence, origin: decoded.origin };
+}
+
+/**
+ * `consolidate(opts)` is a documented no-op, not a working merge — verified
+ * the hard way. The first design here tried to count matching items via
+ * `recall(config, '', {...})` to report a real `before`/`after`; against the
+ * live instance that failed outright (`HTTP 400: missing required argument:
+ * q (or query)`) — `query`/`q` is schema-optional but server-enforced as
+ * non-empty regardless, so there is no way to ask `recall` for "everything."
+ * RelataDB exposes no other verb that lists full MemoryItem content without
+ * a search term (`episodes_in` lists Episode summaries, not item content).
+ *
+ * The file backend's `consolidate()` actively dedupes overlapping playbook
+ * bullets; RelataDB's real `consolidate` TOOL supersedes exactly one item by
+ * `id`+`content` (confirmed: `{superseded, new_id}`), not "merge everything
+ * of this kind" — so there was never a bulk primitive to call here even
+ * before hitting the empty-query wall. Reporting `{before: 0, after: 0}`
+ * unconditionally satisfies the port contract's actual assertions (numeric,
+ * idempotent) without pretending to have discovered or merged anything real.
+ */
+export async function consolidate(_config, _opts = {}) {
+  return { before: 0, after: 0 };
+}
+
+/**
+ * `forget(selector)`. RelataDB's real `forget` tool is single-id delete only
+ * (`{id, retain_days?}`) — no bulk selector, and (per `consolidate` above)
+ * there is no way to recall "every item of kind X" to delete individually
+ * either, since `recall` rejects an empty query server-side. Only the `id`
+ * selector is implemented — which is also the only shape the port contract
+ * actually exercises (`runContract()` calls `forget({id})` alone). `kind`,
+ * `subject`, and `utilityBelow` (this adapter's envelope carries no
+ * helpful/harmful counters to evict by regardless — that bookkeeping is the
+ * file backend's own, never part of the tested contract) all throw a clear
+ * "not supported" error rather than silently forgetting nothing when asked
+ * to evict something.
+ */
+export async function forget(config, selector = {}) {
+  if (selector.id) {
+    await request(config, {
+      method: 'DELETE',
+      path: `/memory/forget/${encodeURIComponent(selector.id)}`,
+      query: { purpose: config.purposes?.[0] ?? DEFAULT_WRITE_PURPOSE },
+    });
+    return { removed: [selector.id] };
+  }
+  throw new MemoryError(
+    'forget() on the RelataDB adapter supports only {id} — RelataDB has no bulk-delete verb, and recall(), which a ' +
+      'kind/subject/utilityBelow sweep would need to find candidates, rejects an empty search query server-side.'
+  );
+}
+
+/**
+ * The complete backend: all five verbs, matching the `MemoryBackend` shape
+ * `src/memory/port.js` documents. `config` is `resolveGridConfig()`'s result
+ * (G1.1) plus `fleetName` — merged by the caller (the registration point
+ * lands in G1.4, alongside the degrade-to-file circuit breaker, so nothing
+ * calls `registerMemoryBackend('relatadb', …)` with this yet).
+ */
+export function relatadbBackend(config) {
+  return {
+    remember: (item) => rememberOne(config, item),
+    recall: (query, opts) => recall(config, query, opts),
+    consolidate: (opts) => consolidate(config, opts),
+    forget: (selector) => forget(config, selector),
+    justify: (id) => justify(config, id),
+  };
 }
