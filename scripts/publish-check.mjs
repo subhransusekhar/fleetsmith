@@ -15,13 +15,14 @@ function readJson(relPath) {
   return JSON.parse(readFileSync(path.join(REPO_ROOT, relPath), 'utf8'));
 }
 
-// On Windows, `npm` on PATH is a `.cmd` shim — execFileSync needs either that exact extension or `shell:
-// true` to resolve it; the bare name alone throws ENOENT there (caught by this project's own Windows
-// release-binary CI run, not written defensively up front).
-const NPM_CMD = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+// On Windows, `npm` on PATH is a `.cmd` shim, not a real executable — even naming that exact extension
+// (`npm.cmd`) still throws `EINVAL` from execFileSync without `shell: true`, since a .cmd file has to run
+// through cmd.exe, not be exec'd directly (both failure modes caught for real by this project's own
+// Windows release-binary CI run, not written defensively up front).
+const WINDOWS = process.platform === 'win32';
 
 function packFileList(cwd) {
-  const raw = execFileSync(NPM_CMD, ['pack', '--dry-run', '--json'], { cwd, encoding: 'utf8' });
+  const raw = execFileSync(WINDOWS ? 'npm.cmd' : 'npm', ['pack', '--dry-run', '--json'], { cwd, encoding: 'utf8', shell: WINDOWS });
   const [entry] = JSON.parse(raw);
   return entry.files.map((f) => f.path);
 }

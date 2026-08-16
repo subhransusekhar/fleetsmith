@@ -1022,7 +1022,7 @@ test('runWatch detects a run starting and ending via the CURRENT-<actor> marker,
     const logs = [];
     const controller = runWatch(spec, repoDir, { log: (m) => logs.push(m), debounceMs: 30, heartbeatMs: 100_000, reconcileIntervalMs: 100_000 });
     try {
-      await sleep(200);
+      await sleep(400); // widened from 200ms, matching the sibling ledger-change test above
       requests.length = 0;
 
       // resolveActor() has no cwd of its own — it reads THIS process's ambient git config, not repoDir's
@@ -1031,14 +1031,15 @@ test('runWatch detects a run starting and ending via the CURRENT-<actor> marker,
       const actor = resolveActor();
       const markerPath = path.join(localDir, 'runs', `CURRENT-${actor}`);
       fs.writeFileSync(markerPath, 'test-run-id');
-      // 600ms, not 300ms: the debounce itself is only 30ms, but the chain it triggers (fs.watch event ->
-      // scheduleSync -> a full syncOnce() — two HTTP round trips to the fake server plus materialize()'s
-      // file I/O) occasionally exceeded a 300ms window under load, flaking this test.
-      await sleep(600);
+      // 1000ms, not 300/600ms: the debounce itself is only 30ms, but the chain it triggers (fs.watch event
+      // -> scheduleSync -> a full syncOnce() — two HTTP round trips to the fake server plus materialize()'s
+      // file I/O) occasionally exceeded a 600ms window under load on a real Windows CI runner, flaking this
+      // test even after an earlier 300ms->600ms widening — this margin has needed raising twice now.
+      await sleep(1000);
       assert.ok(logs.some((l) => l.includes('run-start')));
 
       fs.rmSync(markerPath);
-      await sleep(600);
+      await sleep(1000);
 
       assert.ok(logs.some((l) => l.includes('run-end')));
       const endedReq = requests.find((r) => r.pathname === '/ingest' && r.query.object_type === 'ActorPresence' && r.body.rows.some((row) => row.ended_at));
