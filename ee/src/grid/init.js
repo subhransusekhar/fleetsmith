@@ -5,6 +5,7 @@ import { request } from '../memory/relatadb.js';
 import { ontologyMigrate } from './ontology.js';
 import { resolveActor } from '../actor.js';
 import { aclPolicyStatus } from './identity.js';
+import { seedPurposes } from './purposes.js';
 
 /**
  * `fleetsmith grid init` (G3.1): the one-time (and always safe to re-run) setup a checkout needs before the
@@ -19,7 +20,9 @@ import { aclPolicyStatus } from './identity.js';
  *     `[purpose] mode = "open"` is this engine's only observed configuration — every purpose string works
  *     unregistered regardless, so "seed the standard purposes" has no real network call to make. This step
  *     is therefore a pure, local, zero-network computation: the list this checkout will use for every future
- *     grid call, not a write to the engine.
+ *     grid call, not a write to the engine. `seedPurposes()` itself now lives in `./purposes.js` (G7.2), which
+ *     also names each standard purpose's one-line meaning and `assertPurpose()` for typo-proofing a
+ *     human-typed `--purpose` CLI flag — this module just calls it.
  *  2. **`/tokens/self` reports `{"present": false}` for every bearer token tried, including the actual,
  *     correctly-authenticating one** — not just for ad-hoc `POST /tokens`-created records (which also never
  *     authenticated as real credentials in testing; that endpoint appears to be bookkeeping for a different
@@ -36,18 +39,6 @@ import { aclPolicyStatus } from './identity.js';
  */
 
 export class InitError extends Error {}
-
-/** The vocabulary every grid deployment needs regardless of spec, per the milestone's G7.2 purpose list, plus anything the spec itself declared (`config.purposes`, from G1.1's `resolveGridConfig`). */
-const STANDARD_PURPOSES = ['cross_dev_reuse', 'regression_check', 'product_context', 'client_commitment', 'decision_rationale', 'grid_sync'];
-
-function seedPurposes(config) {
-  const purposes = [...new Set([...STANDARD_PURPOSES, ...(config.purposes ?? [])])];
-  return {
-    purposes,
-    registered: false,
-    note: 'no purpose-registration endpoint exists on this engine surface (verified: /purposes, /purpose, /purposes/register all 404) — purpose_mode=open accepts every one of these strings unregistered',
-  };
-}
 
 async function checkTokenSanity(config, actor) {
   try {
