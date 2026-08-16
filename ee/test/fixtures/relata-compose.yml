@@ -1,4 +1,12 @@
-# A single-service RelataDB instance for the G1.5 contract/chaos suite.
+# A single-service RelataDB instance for the G1.5 contract/chaos suite and G9.3's contract-pin suite.
+#
+# PINNED TAG + upgrade procedure (G9.3): `1.5.7` — matching `ENGINE_VERSION_PIN` in
+# `ee/test/contract-pin.test.js` — not the milestone doc's "v2.0.0", because v1.5.7 is the only version this
+# project has ever actually round-tripped a real request against (see that file's own header for the full
+# reasoning and the concrete behavioral discrepancies this found relative to the v2.0.0-sourced doc). To
+# upgrade: bump this tag AND `ENGINE_VERSION_PIN` in the SAME PR, run `node --test ee/test/contract-pin.test.js`
+# against the new version, and read every diff in behavior it reports before touching any grid code
+# (`ontology.js`, `pull.js`, `push.js`, `knowledge.js`, `daemon.js`) that depends on these facts.
 #
 # HONEST STATUS, stated up front because everything else in this adapter was
 # verified against a real, reachable instance and this is the one piece that
@@ -7,15 +15,16 @@
 # 2026-08-16) — the package requires registry access RelataDB/ZySec grants,
 # which this checkout does not have. This file is written from RelataDB's own
 # documented quickstart (`docker run -p 9090:9090 -v ~/.relata:/data
-# ghcr.io/relatadb/relata:latest`, from the real v2.0.0 release README) and
-# from the real HTTP behavior verified against a NATIVELY installed instance
-# throughout G1.1-G1.4 (see the relatadb-local-instance-and-v2-api-shapes
-# project memory) — but the container path itself has not been pulled or
-# started. Whoever has registry access should be the one to confirm it boots
-# as written here.
+# ghcr.io/relatadb/relata:<tag>`) and from the real HTTP behavior verified
+# against a NATIVELY installed v1.5.7 instance throughout G1.1-G1.5 and G9.3
+# (see the relatadb-local-instance-and-v2-api-shapes project memory) — but the
+# container path itself has not been pulled or started, and the `1.5.7` tag's
+# existence at this registry is assumed by analogy to `:latest`, not confirmed.
+# Whoever has registry access should be the one to confirm it boots as written
+# here.
 #
-# The manual alternative — what every other verification in this milestone
-# actually used — needs no image at all:
+# The manual alternative — what every other live verification in this
+# milestone actually used — needs no image at all:
 #   RELATA_BEARER_TOKEN=<token> /path/to/relata serve
 #   # or, from a released tarball: RELATA_AUTH_MODE=none relata serve
 # then point RELATA_TEST_URL (and RELATA_TEST_TOKEN, if not using
@@ -26,12 +35,16 @@
 # refuses to start with no auth configured at all UNLESS this is set
 # explicitly (verified: "Refusing to start" is the real error otherwise) — it
 # is the documented, intended escape hatch for exactly this case, not a
-# workaround.
+# workaround. Note this means contract-pin.test.js's contract 5 (token
+# rotation) cannot exercise anything meaningful against THIS fixture (no auth
+# is enforced at all to rotate away from) — see that test's own gating comment
+# for why it needs a separate, explicit opt-in (RELATA_TEST_ALLOW_ROTATE=1)
+# rather than running automatically whenever this compose file is up.
 version: "3.8"
 
 services:
   relata:
-    image: ghcr.io/relatadb/relata:latest
+    image: ghcr.io/relatadb/relata:1.5.7
     ports:
       - "9090:9090"
     environment:
