@@ -60,6 +60,9 @@ node ee/console/server/index.js
 
 `role: 'admin'` routes are exactly what G8.8's curl-bypass suite targets: a member token (or no token at all)
 must get a 403/401 from every one of them, server-side, regardless of what the web UI would have rendered.
+The manifest this suite checks against (`server/manifest.js`'s `routeManifest()`) is derived directly from
+`buildApp()`'s own router — there is no second, hand-maintained route list to fall out of sync with the one
+above.
 
 `/api/audit` has a THIRD access shape, distinct from the plain member/admin split: a member token's `actor`
 filter is overwritten server-side with their own discovered principal (`routes/audit.js`'s
@@ -117,3 +120,13 @@ discoverable principal at all is refused (403), not silently shown zero rows or 
   carried forward through the heartbeat timer's and run-end's OWN presence pushes (both fixed as part of this
   task) so a heartbeat firing after a successful sync never silently blanks it back out — last-write-wins on
   `ActorPresence` replaces the whole row, not a per-field merge.
+- **The authz-bypass suite (G8.8, `test/authz-bypass.test.js`).** Every mutation route in the live manifest
+  gets a raw-fetch bypass attempt per insufficient role (anonymous, member-where-admin-needed), each asserting
+  BOTH the correct status code and zero state change via a follow-up admin-authenticated read — a route that
+  merely 403s while still mutating would pass a status-only check. The completeness check
+  (`assertMutationsFullyTested`) fails loudly, naming every gap, if a new mutation route is ever added without
+  a matching test case; its own correctness is proven with a synthetic manifest (a real drift scenario can't
+  be committed just to watch CI fail on it). Point 4 of this task's own "what to build" ("run in CI with the
+  live container") could not be exercised this session — CI is currently disabled by the user's own
+  instruction (see project memory), and no live credentials were configured; the suite runs fully against a
+  fake cortex today and is ready to run against a live one the moment both are available again.
