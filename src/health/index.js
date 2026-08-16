@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { collectHealthSources } from '../lib/registry.js';
 
 /**
  * Harness health — aggregation of run telemetry into decision-grade signals.
@@ -13,6 +14,19 @@ import path from 'node:path';
  * The ΔH early exit matters as much as the metrics. A self-evolving system
  * that re-derives "nothing changed" on every run is a system that costs money
  * to stand still, so when aggregate health has not moved, the loop stops here.
+ *
+ * --- G7.5: grid-sourced peers in the per-actor breakdown, never in the gate --------------------------------
+ *
+ * `agents[name].actors` may gain entries for actors this checkout has never run locally, sourced through the
+ * `registerHealthSource` registry seam (`src/lib/registry.js`) — ee registers one when the grid daemon has
+ * materialized peer summaries (`ee/src/grid/health-source.js`, reading files, never the network). Those rows
+ * (`RunEventSummary`, G3.1) are reduced across every agent in a run, not per-agent (the type's key is
+ * `repo_id`+`actor`+`run_id`, with no room for an `agent` dimension) — so a grid-sourced entry is fleet-wide
+ * peer data, not this agent's own attribution, and is applied identically under every agent's breakdown for
+ * exactly that reason. It never overwrites a locally-observed actor (this checkout's own events are always
+ * authoritative for its own actors), and it is always tagged `source: 'grid'` so it is never mistaken for
+ * local data. Crucially, `aggregate()` and `deltaH` below read only `failureRisk`/`validationGap`/`compatibility`
+ * /`redundancy` — never `.actors` — so grid data can enrich this breakdown without ever moving a gate input.
  */
 
 /** Below this aggregate change, maintenance is skipped entirely. */
@@ -31,6 +45,10 @@ export const EVICTION_MIN_RUNS = 10;
 export function computeHealth(spec, { runsDir, previous = null } = {}) {
   const events = readEvents(runsDir);
   const runs = new Set(events.map((e) => e.run_id)).size;
+
+  // `runsDir` is `<fleet.local>/runs`; grid peer summaries live alongside it at `<fleet.local>/grid/peers` —
+  // see materialize.js (G3.4/G7.5). No `runsDir` (e.g. a spec-only caller) means no grid lookup either.
+  const gridRows = runsDir ? collectHealthSources(spec, path.dirname(runsDir)) : [];
 
   const agents = {};
   for (const agent of spec.agents) {
@@ -56,7 +74,7 @@ export function computeHealth(spec, { runsDir, previous = null } = {}) {
       // setup" look identical in an aggregate and mean opposite things — only
       // the first is a harness defect, and the evolution loop must not
       // mistake one for the other.
-      actors: byActor(mine),
+      actors: mergeGridActors(byActor(mine), gridRows),
     };
   }
 
@@ -161,6 +179,20 @@ function byActor(events) {
     if (e.event === 'gate_block') out[actor].blocks++;
   }
   return out;
+}
+
+/**
+ * Adds grid-sourced peer rows to a local `byActor()` result, never overwriting a locally-observed actor — this
+ * checkout's own events are always authoritative for its own actors breakdown. See the module doc comment for
+ * why grid rows carry no agent dimension and are therefore applied identically under every agent.
+ */
+function mergeGridActors(localActors, gridRows) {
+  const merged = { ...localActors };
+  for (const row of gridRows) {
+    if (!row?.actor || merged[row.actor]) continue;
+    merged[row.actor] = { passes: row.gate_pass ?? 0, blocks: row.gate_block ?? 0, source: 'grid' };
+  }
+  return merged;
 }
 
 export function readEvents(runsDir) {

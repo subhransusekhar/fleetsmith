@@ -227,9 +227,52 @@ test('materialize handles an actor known only via HandoffPointer/RunEventSummary
   assert.ok(written.some((p) => p.endsWith('GRID.md')));
 });
 
-test('materialize receives RunEventSummary rows without error, even though they have no materialized file surface in this task', () => {
+// --- RunEventSummary -> peers/<actor>/health.json (G7.5) --------------------
+
+test('materialize writes peers/<actor>/health.json from RunEventSummary rows, summed across runs', () => {
   const localDir = tempLocalDir();
-  assert.doesNotThrow(() => materialize([row('RunEventSummary', { actor: 'bob', run_id: 'r1', gate_pass: 1, gate_block: 0, execute_tool_error: 0 })], localDir, { now: NOW }));
+  const { written } = materialize(
+    [
+      row('RunEventSummary', { actor: 'bob', run_id: 'r1', gate_pass: 3, gate_block: 1, execute_tool_error: 0 }),
+      row('RunEventSummary', { actor: 'bob', run_id: 'r2', gate_pass: 2, gate_block: 0, execute_tool_error: 1 }),
+    ],
+    localDir,
+    { now: NOW }
+  );
+  const healthPath = path.join(localDir, 'grid', 'peers', 'bob', 'health.json');
+  assert.ok(fs.existsSync(healthPath));
+  assert.deepEqual(JSON.parse(fs.readFileSync(healthPath, 'utf8')), {
+    actor: 'bob',
+    runs: 2,
+    gate_pass: 5,
+    gate_block: 1,
+    execute_tool_error: 1,
+  });
+  assert.ok(written.some((p) => p.endsWith(path.join('bob', 'health.json'))));
+});
+
+test('materialize dedupes RunEventSummary rows by repo_id+actor+run_id (last write wins) before summing health.json', () => {
+  const localDir = tempLocalDir();
+  materialize(
+    [
+      row('RunEventSummary', { actor: 'bob', run_id: 'r1', gate_pass: 1, gate_block: 0, execute_tool_error: 0 }),
+      // Same natural key pushed twice (no server-side dedup, G2.1) — must count once, with the later values.
+      row('RunEventSummary', { actor: 'bob', run_id: 'r1', gate_pass: 9, gate_block: 9, execute_tool_error: 9 }),
+    ],
+    localDir,
+    { now: NOW }
+  );
+  const health = JSON.parse(fs.readFileSync(path.join(localDir, 'grid', 'peers', 'bob', 'health.json'), 'utf8'));
+  assert.deepEqual(health, { actor: 'bob', runs: 1, gate_pass: 9, gate_block: 9, execute_tool_error: 9 });
+});
+
+test('materialize\'s health.json is upsert-only — an actor absent from a later cycle keeps their existing health.json', () => {
+  const localDir = tempLocalDir();
+  materialize([row('RunEventSummary', { actor: 'bob', run_id: 'r1', gate_pass: 1, gate_block: 0, execute_tool_error: 0 })], localDir, { now: NOW });
+  const before = fs.readFileSync(path.join(localDir, 'grid', 'peers', 'bob', 'health.json'), 'utf8');
+
+  materialize([row('RunEventSummary', { actor: 'carol', run_id: 'r1', gate_pass: 1, gate_block: 0, execute_tool_error: 0 })], localDir, { now: NOW });
+  assert.equal(fs.readFileSync(path.join(localDir, 'grid', 'peers', 'bob', 'health.json'), 'utf8'), before);
 });
 
 test('materialize renders GRID.md\'s Org-approved section from OrgDocument rows, deduped by content_hash then by title (G7.3)', () => {

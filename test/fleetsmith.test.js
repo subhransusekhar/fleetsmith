@@ -38,6 +38,8 @@ import {
   getCliCommand,
   registerDaemonHook,
   runDaemonHooks,
+  registerHealthSource,
+  collectHealthSources,
   listRegistered,
   _resetForTests as resetRegistry,
 } from '../src/lib/registry.js';
@@ -2208,6 +2210,101 @@ test('health tolerates a truncated event line mid-run', () => {
   fs.rmSync(runs, { recursive: true, force: true });
 });
 
+// --- G7.5: grid-sourced peers in the actors: breakdown ----------------------
+
+test('a registered health source adds peer actors, marked source: grid, without disturbing local entries', () => {
+  resetRegistryForTest();
+  const spec = normalizeSpec({
+    fleet: { name: 'h' },
+    agents: [{ name: 'a', role: 'r' }, { name: 'b', role: 'r' }],
+    orchestrator: { name: 'run-h', phases: [{ name: 'W', agents: ['a', 'b'] }] },
+  });
+  const runs = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-grid-health-'));
+  writeRun(runs, 'ada-1', [{ event: 'gate_pass', agent: 'a' }]);
+
+  registerHealthSource(() => [{ actor: 'grace', gate_pass: 4, gate_block: 1, execute_tool_error: 2 }]);
+  const h = computeHealth(spec, { runsDir: runs });
+
+  // Local data is untouched — same shape the pre-grid test above asserts.
+  assert.deepEqual(h.agents.a.actors.ada, { passes: 1, blocks: 0 });
+  // The peer shows up under EVERY agent's breakdown, since RunEventSummary has
+  // no agent dimension to attribute it more narrowly — see the module doc.
+  assert.deepEqual(h.agents.a.actors.grace, { passes: 4, blocks: 1, source: 'grid' });
+  assert.deepEqual(h.agents.b.actors.grace, { passes: 4, blocks: 1, source: 'grid' });
+  fs.rmSync(runs, { recursive: true, force: true });
+  resetRegistryForTest();
+});
+
+test('a grid row never overwrites a locally-observed actor', () => {
+  resetRegistryForTest();
+  const spec = normalizeSpec({ fleet: { name: 'h' }, agents: [{ name: 'a', role: 'r' }] });
+  const runs = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-grid-precedence-'));
+  writeRun(runs, 'ada-1', [{ event: 'gate_pass', agent: 'a' }, { event: 'gate_pass', agent: 'a' }]);
+
+  // A grid row claiming to be "ada" with wildly different numbers must lose to
+  // this checkout's own observed events for that same actor.
+  registerHealthSource(() => [{ actor: 'ada', gate_pass: 999, gate_block: 999 }]);
+  const h = computeHealth(spec, { runsDir: runs });
+  assert.deepEqual(h.agents.a.actors.ada, { passes: 2, blocks: 0 });
+  fs.rmSync(runs, { recursive: true, force: true });
+  resetRegistryForTest();
+});
+
+test('evolve-relevant health outputs are byte-identical with grid data present vs absent', () => {
+  const spec = normalizeSpec({
+    fleet: { name: 'h' },
+    agents: [
+      { name: 'good', role: 'r', handoff: { to: ['bad'], artifact: 'a.md', criteria: ['c'] } },
+      { name: 'bad', role: 'r' },
+    ],
+    orchestrator: { name: 'run-h', phases: [{ name: 'W', agents: ['good', 'bad'] }] },
+  });
+  const runs = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-grid-invariant-'));
+  writeRun(runs, 'ada-1', [
+    { event: 'gate_pass', agent: 'good' },
+    { event: 'gate_block', agent: 'bad' },
+  ]);
+
+  const evolveRelevant = (h) => ({
+    aggregate: h.aggregate,
+    deltaH: h.deltaH,
+    maintenanceNeeded: h.maintenanceNeeded,
+    compatibility: h.compatibility,
+    agents: Object.fromEntries(
+      Object.entries(h.agents).map(([name, a]) => [name, { utility: a.utility, failureRisk: a.failureRisk, validationGap: a.validationGap }])
+    ),
+  });
+
+  resetRegistryForTest();
+  const withoutGrid = computeHealth(spec, { runsDir: runs });
+
+  registerHealthSource(() => [{ actor: 'grace', gate_pass: 10, gate_block: 10, execute_tool_error: 10 }]);
+  const withGrid = computeHealth(spec, { runsDir: runs });
+  resetRegistryForTest();
+
+  assert.deepEqual(evolveRelevant(withGrid), evolveRelevant(withoutGrid), 'grid data must never move a gate input');
+  // Confirm the two runs actually differed in the one place that's allowed to.
+  assert.notDeepEqual(withGrid.agents.good.actors, withoutGrid.agents.good.actors);
+  fs.rmSync(runs, { recursive: true, force: true });
+});
+
+test('OSS (no registered health source): actors breakdown is exactly the pre-G7.5 shape', () => {
+  resetRegistryForTest();
+  const spec = normalizeSpec({
+    fleet: { name: 'h' },
+    agents: [{ name: 'a', role: 'r', handoff: { to: ['b'], artifact: 'x.md' } }, { name: 'b', role: 'r' }],
+    orchestrator: { name: 'run-h', phases: [{ name: 'W', agents: ['a', 'b'] }] },
+  });
+  const runs = fs.mkdtempSync(path.join(os.tmpdir(), 'fleetsmith-oss-health-'));
+  writeRun(runs, 'ada-1', [{ event: 'gate_block', agent: 'a' }]);
+  writeRun(runs, 'grace-1', [{ event: 'gate_pass', agent: 'a' }]);
+
+  const h = computeHealth(spec, { runsDir: runs });
+  assert.deepEqual(h.agents.a.actors.ada, { passes: 0, blocks: 1 });
+  assert.deepEqual(h.agents.a.actors.grace, { passes: 1, blocks: 0 });
+  fs.rmSync(runs, { recursive: true, force: true });
+});
+
 // --- T10: ACE playbooks -----------------------------------------------------
 
 test('playbook merges a restatement but keeps distinct lessons apart', () => {
@@ -3728,8 +3825,55 @@ test('listRegistered reports names only — never factories or handlers', () => 
   assert.deepEqual(listed.commands, ['fixture-command']);
   assert.equal(listed.hooks.run_end, 1);
   assert.equal(listed.hooks.run_start, 0);
+  assert.equal(listed.healthSources, 0);
   // Every value must be a plain string or number, never a function.
   for (const v of [...listed.backends, ...listed.commands]) assert.equal(typeof v, 'string');
+  resetRegistryForTest();
+});
+
+// --- G7.5: registerHealthSource ----------------------------------------------
+
+test('registerHealthSource is a list, not a name→factory map: every registered source is called and its rows concatenated', () => {
+  resetRegistryForTest();
+  const spec = normalizeSpec({ fleet: { name: 'h' }, agents: [{ name: 'a', role: 'r' }] });
+  const calls = [];
+  registerHealthSource((s, localDir) => {
+    calls.push([s, localDir]);
+    return [{ actor: 'ada', gate_pass: 3 }];
+  });
+  registerHealthSource(() => [{ actor: 'grace', gate_pass: 1 }]);
+
+  const rows = collectHealthSources(spec, '/some/local/dir');
+  assert.deepEqual(
+    rows.map((r) => r.actor).sort(),
+    ['ada', 'grace']
+  );
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], spec);
+  assert.equal(calls[0][1], '/some/local/dir');
+  resetRegistryForTest();
+});
+
+test('a throwing health source is logged and skipped, never propagated, and a non-array return is dropped', () => {
+  resetRegistryForTest();
+  const spec = normalizeSpec({ fleet: { name: 'h' }, agents: [{ name: 'a', role: 'r' }] });
+  registerHealthSource(() => {
+    throw new Error('cortex unreachable');
+  });
+  registerHealthSource(() => undefined);
+  registerHealthSource(() => [{ actor: 'ada', gate_pass: 1 }]);
+
+  const originalError = console.error;
+  const logged = [];
+  console.error = (msg) => logged.push(msg);
+  let rows;
+  try {
+    rows = collectHealthSources(spec, '/x');
+  } finally {
+    console.error = originalError;
+  }
+  assert.deepEqual(rows, [{ actor: 'ada', gate_pass: 1 }]);
+  assert.match(logged.join('\n'), /health source failed.*cortex unreachable/);
   resetRegistryForTest();
 });
 

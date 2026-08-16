@@ -9,12 +9,14 @@
  * Populated by milestone v0.7.0 (docs/milestones/v0.7.0-tasks.md):
  *   G1  registerMemoryBackend('relatadb', …)   — done (G1.1–G1.4)
  *   G3  registerCliCommand('grid', …)          — done (G3.1–G3.5), ./grid/daemon.js
+ *   G7.5 registerHealthSource(…)                — done, ./grid/health-source.js
  */
 import { resolveGridConfig } from './config.js';
 import { relatadbBackend } from './memory/relatadb.js';
 import { withDegradation } from './memory/degrade.js';
 import { fileBackend } from 'fleetsmith/memory/file';
 import { gridCliHandler, onRunStart, onRunEnd } from './grid/daemon.js';
+import { readGridHealthSummaries } from './grid/health-source.js';
 
 export function register(registry) {
   // Same factory shape as core's own 'file' registration: `({spec, cwd}) ->
@@ -38,4 +40,8 @@ export function register(registry) {
   // marker file directly — it does not depend on this registration either.
   registry.registerDaemonHook('run_start', onRunStart);
   registry.registerDaemonHook('run_end', onRunEnd);
+
+  // G7.5: `src/health/index.js` calls this with (spec, localDir) for every `fleetsmith health`/`evolve` run.
+  // Reads a materialized file, never the network — see the doc comment on readGridHealthSummaries.
+  registry.registerHealthSource(readGridHealthSummaries);
 }
