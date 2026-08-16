@@ -5,6 +5,7 @@ import YAML from 'yaml';
 import { normalizeSpec } from 'fleetsmith/spec';
 import { resolveGridConfig } from '../config.js';
 import { resolveActor } from '../actor.js';
+import { request } from '../memory/relatadb.js';
 import { resolveRepoId, ingestRows } from './ontology.js';
 import { gridInit } from './init.js';
 import { pushOnce } from './push.js';
@@ -37,6 +38,29 @@ import { materialize } from './materialize.js';
  * `ended_at` set rather than deleting anything; G3.4's `materialize()` already resolves "last write wins"
  * client-side from that same full history, so the ended state surfaces in `presence.json` with zero new
  * machinery needed here.
+ *
+ * --- Degradation (G3.6): three distinct "grid isn't working" conditions, three distinct responses ----------
+ *
+ *  1. **Not configured at all** — the common OSS-checkout case. `init` still refuses outright (`DaemonError`,
+ *     non-zero exit): typing `grid init` is a deliberate setup action, and a silently-skipped setup is a
+ *     worse failure mode than a clear one. Every OTHER subcommand (`sync`, `sync --watch`) prints one
+ *     advisory line and exits/returns 0 — a cron'd `grid sync` on a repo nobody enabled the enterprise tier
+ *     for must never page anyone. Daemon hooks (`onRunStart`/`onRunEnd`) already no-op silently for this
+ *     case (unchanged from G3.5).
+ *  2. **Configured but the cortex is unreachable** (network failure, 401, or any other error the connectivity
+ *     probe below surfaces — a license-expiry symptom looks identical to any other auth/HTTP failure from
+ *     this module's vantage point, and is handled the same way, not specially detected). `syncOnce` probes
+ *     once with the same cheap authenticated no-op read G3.1's `gridInit` uses (`POST /query {sql:"SELECT
+ *     1"}`) before doing anything else. On failure: exactly ONE warning, `pushOnce`/`pullOnce` are skipped
+ *     entirely (so `pushed.json` stays untouched — the next success re-diffs and catches up naturally, no
+ *     buffering machinery needed), and `_fleet/local/grid/GRID.md`'s header gets a stale marker via a
+ *     targeted text edit — deliberately NOT a `materialize()` call, which would rebuild the file from this
+ *     cycle's (empty) `newRows` and erase every previously-known peer section. `_fleet/local/grid/
+ *     unreachable-since` persists the timestamp of the FIRST failure across process restarts (a `grid sync`
+ *     cron invocation is a fresh process every time), and is cleared on the next success.
+ *  3. **Recovery is automatic**, not a separate code path: once the probe succeeds again, `unreachable-since`
+ *     is cleared and the ordinary push→pull→materialize cycle runs, which naturally overwrites `GRID.md`'s
+ *     header back to a normal one as part of its regular full rebuild.
  */
 
 export class DaemonError extends Error {}
@@ -68,6 +92,70 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function readIfExists(filePath) {
+  try {
+    return fs.readFileSync(filePath, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+function atomicWrite(filePath, content) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const tmp = `${filePath}.tmp-${process.pid}-${Math.floor(Math.random() * 1e9)}`;
+  fs.writeFileSync(tmp, content);
+  fs.renameSync(tmp, filePath);
+}
+
+/** The cheapest real connectivity+auth probe: `GET /health` is unauthenticated regardless of the token (G3.1's finding), so only an authenticated call actually proves the cortex is both reachable AND accepting this token. */
+async function checkCortexReachable(config) {
+  try {
+    await request(config, { method: 'POST', path: '/query', body: { sql: 'SELECT 1', purpose: config.purposes?.[0] ?? 'grid_sync' } });
+    return { reachable: true };
+  } catch (e) {
+    return { reachable: false, reason: e.message };
+  }
+}
+
+function unreachableSincePath(localDir) {
+  return path.join(localDir, 'grid', 'unreachable-since');
+}
+
+/** Returns the FIRST-failure timestamp, creating it only if this is a new outage — a restart between two failed cycles must not reset "since" to "just now". */
+function markUnreachableSince(localDir) {
+  const p = unreachableSincePath(localDir);
+  const existing = readIfExists(p)?.trim();
+  if (existing) return existing;
+  const since = nowIso();
+  atomicWrite(p, since);
+  return since;
+}
+
+function clearUnreachableMarker(localDir) {
+  try {
+    fs.unlinkSync(unreachableSincePath(localDir));
+  } catch {
+    /* already absent — nothing to clear */
+  }
+}
+
+/**
+ * A targeted edit to GRID.md's own header line, not a `materialize()` call — there is no new `newRows` to
+ * rebuild the file from during an outage, and rebuilding from an empty set would erase every previously
+ * materialized peer section. Falls back to writing a minimal placeholder when no GRID.md exists yet (an
+ * outage before the very first successful sync) or its header doesn't match the expected shape.
+ */
+function markGridStale(localDir, since, reason) {
+  const p = path.join(localDir, 'grid', 'GRID.md');
+  const current = readIfExists(p);
+  const staleSegment = `⚠ unreachable since ${since} (${reason}) — peer data may be stale`;
+  if (current === null || !current.includes('· Cortex:')) {
+    atomicWrite(p, `# Grid\n\n_Synced: never_ · Cortex: ${staleSegment} · Active actors: 0\n`);
+    return;
+  }
+  atomicWrite(p, current.replace(/· Cortex: [^·\n]*/, `· Cortex: ${staleSegment}`));
+}
+
 // --- one-shot commands -----------------------------------------------------------
 
 /** `fleetsmith grid init`. Throws `DaemonError`/`InitError` (G3.1) for a missing config or a failed token check — a user error, not a degradable one. */
@@ -81,13 +169,36 @@ export async function runInit(spec, cwd = process.cwd()) {
   return { summary, result };
 }
 
-/** One push → reconcile → materialize cycle. Never throws for a degraded condition (network errors, per-type failures) — only for a missing/malformed grid config, which is a user error. */
+/**
+ * One push → reconcile → materialize cycle. Never throws: an unconfigured grid or an unreachable cortex are
+ * both degraded-but-successful outcomes (see the module doc comment's degradation section) — `sync` running
+ * unattended (a cron job, a daemon loop) must never fail loudly for either. `result.degraded` is set in both
+ * cases so a caller can tell "nothing happened, on purpose" from a normal cycle without parsing the summary
+ * text.
+ */
 export async function syncOnce(spec, cwd = process.cwd()) {
-  const config = resolveConfigOrThrow(spec);
+  const rawConfig = resolveGridConfig(spec);
   const localDir = localDirFor(spec, cwd);
+
+  if (!rawConfig) {
+    return { summary: 'grid sync: not configured — skipping (set RELATA_URL+RELATA_TOKEN, or a `grid:` block in fleet.yaml, to enable)', warnings: [], degraded: true, notConfigured: true };
+  }
+  const config = { ...rawConfig, fleetName: spec?.fleet?.name };
+
+  const reachability = await checkCortexReachable(config);
+  if (!reachability.reachable) {
+    const since = markUnreachableSince(localDir);
+    markGridStale(localDir, since, reachability.reason);
+    return {
+      summary: `grid sync: cortex unreachable since ${since} (${reachability.reason}) — push buffered (pushed.json untouched), pull skipped, peers marked stale`,
+      warnings: [reachability.reason],
+      degraded: true,
+    };
+  }
+  clearUnreachableMarker(localDir);
+
   const actor = resolveActor();
   const repoId = resolveRepoId(cwd);
-
   const pushResult = await pushOnce(config, cwd, { localDir, actor, repoId });
   const pullResult = await pullOnce(config, cwd, { localDir, repoId, actor });
   const { written } = materialize(pullResult.newRows, localDir);
@@ -97,7 +208,7 @@ export async function syncOnce(spec, cwd = process.cwd()) {
   const summary = `grid sync: pushed ${pushResult.pushed.length} row(s), pulled ${pullResult.newRows.length} row(s) from ${actorsSeen.size} actor(s), wrote ${written.length} file(s)${
     warnings.length ? `, ${warnings.length} warning(s)` : ''
   }`;
-  return { summary, warnings, pushResult, pullResult, written };
+  return { summary, warnings, pushResult, pullResult, written, degraded: false };
 }
 
 // --- watch mode --------------------------------------------------------------------
@@ -109,13 +220,23 @@ export async function syncOnce(spec, cwd = process.cwd()) {
  * independent of whether anything else changed — deliberately bypassing `pushOnce`'s digest-diff, since the
  * whole point of a heartbeat is a fresh timestamp even when nothing else did change. Returns a controller;
  * the real CLI handler runs this until the process receives SIGINT/SIGTERM.
+ *
+ * Returns `{stop(), active: false}` immediately, printing one advisory line, when grid is not configured —
+ * `sync --watch` on an OSS checkout must not hang waiting for a SIGINT that would only ever stop a loop that
+ * was never doing anything (see the module doc comment's degradation section). `gridCliHandler` checks
+ * `.active` to decide whether to wait for a shutdown signal at all.
  */
 export function runWatch(spec, cwd = process.cwd(), opts = {}) {
-  const config = resolveConfigOrThrow(spec);
+  const log = opts.log ?? console.log;
+  const rawConfig = resolveGridConfig(spec);
+  if (!rawConfig) {
+    log('grid sync --watch: not configured — skipping (set RELATA_URL+RELATA_TOKEN, or a `grid:` block in fleet.yaml, to enable)');
+    return { stop() {}, active: false };
+  }
+  const config = { ...rawConfig, fleetName: spec?.fleet?.name };
   const localDir = localDirFor(spec, cwd);
   const actor = resolveActor();
   const repoId = resolveRepoId(cwd);
-  const log = opts.log ?? console.log;
   const heartbeatMs = opts.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
   const debounceMs = opts.debounceMs ?? DEFAULT_WATCH_DEBOUNCE_MS;
 
@@ -203,6 +324,7 @@ export function runWatch(spec, cwd = process.cwd(), opts = {}) {
       interval.stop();
       for (const w of fsWatchers) w.close();
     },
+    active: true,
   };
 }
 
@@ -291,6 +413,7 @@ export async function gridCliHandler(argv) {
 
     if (flags.watch) {
       const controller = runWatch(spec);
+      if (!controller.active) return 0; // not configured — runWatch already printed the advisory line
       await new Promise((resolve) => {
         process.on('SIGINT', () => {
           controller.stop();

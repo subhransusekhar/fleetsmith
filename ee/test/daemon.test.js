@@ -144,12 +144,23 @@ test('gridCliHandler returns 1 when the fleet.yaml file does not exist', async (
   assert.equal(await gridCliHandler(['sync', '/definitely/not/a/real/path/fleet.yaml']), 1);
 });
 
-test('gridCliHandler returns 1 (user error) when grid is not configured', async () => {
+test('gridCliHandler: "sync" with no grid config exits 0, degraded (G3.6 — not a user error)', async () => {
   const { repoDir } = setupRepo();
   const cwd = process.cwd();
   process.chdir(repoDir);
   try {
-    assert.equal(await gridCliHandler(['sync', 'fleet.yaml']), 1);
+    assert.equal(await gridCliHandler(['sync', 'fleet.yaml']), 0);
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('gridCliHandler: "init" with no grid config still exits 1 (a deliberate setup action, unlike sync)', async () => {
+  const { repoDir } = setupRepo();
+  const cwd = process.cwd();
+  process.chdir(repoDir);
+  try {
+    assert.equal(await gridCliHandler(['init', 'fleet.yaml']), 1);
   } finally {
     process.chdir(cwd);
   }
@@ -199,10 +210,13 @@ test('syncOnce pushes, reconciles, and materializes in one call, against a fake 
   });
 });
 
-test('syncOnce never throws for a per-cycle degraded condition — only resolveConfigOrThrow can throw', async () => {
+test('syncOnce never throws — no grid config degrades to a successful, advisory result (G3.6)', async () => {
   const { repoDir } = setupRepo();
   const spec = loadSpecFile(path.join(repoDir, 'fleet.yaml'));
-  await assert.rejects(() => syncOnce(spec, repoDir), DaemonError); // no config at all — the one throwing case
+  const result = await syncOnce(spec, repoDir);
+  assert.equal(result.degraded, true);
+  assert.equal(result.notConfigured, true);
+  assert.match(result.summary, /not configured/);
 });
 
 // --- run lifecycle hooks (onRunStart/onRunEnd) — provisioned, tested directly ----
