@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { RelataNetworkError, RelataHttpError } from './errors.js';
+import { RelataNetworkError, RelataHttpError, RelataMalformedResponseError } from './errors.js';
 
 /**
  * The degrade-to-file circuit breaker (G1.4) — what actually gets registered
@@ -14,9 +14,12 @@ import { RelataNetworkError, RelataHttpError } from './errors.js';
  *
  * Trip conditions, and why they are not all treated alike:
  *  - **Network error** (`RelataNetworkError` — unreachable, DNS failure, or
- *    our own `AbortSignal.timeout` firing) and **401/403** (revoked or
- *    expired token) trip on the FIRST occurrence. These are unambiguous:
- *    there is nothing a second attempt would learn that the first didn't.
+ *    our own `AbortSignal.timeout` firing), **401/403** (revoked or
+ *    expired token), and **`RelataMalformedResponseError`** (G9.1 — a 2xx
+ *    response whose body is not even valid JSON) trip on the FIRST
+ *    occurrence. These are unambiguous: there is nothing a second attempt
+ *    would learn that the first didn't — a garbled response is treated
+ *    exactly like an unreachable cortex, not specially retried.
  *  - **A 4xx body that reads like license exhaustion** (mentions "license"
  *    alongside "expired"/"exhausted"/"exceeded"/"grace"/"revoked") also trips
  *    immediately, for the same reason. Unverified against a real exhausted
@@ -71,6 +74,10 @@ function looksLikeLicenseExhaustion(e) {
 /** Trips on the first occurrence — nothing a retry would learn that this call didn't already. */
 function isImmediateTrip(e) {
   if (e instanceof RelataNetworkError) return true;
+  // A 2xx response whose body isn't even valid JSON (G9.1) is treated exactly like "unreachable" — a
+  // response this garbled is not a caller-side bug (unlike RelataToolError, below) and a retry has nothing
+  // more to learn than the first attempt already showed.
+  if (e instanceof RelataMalformedResponseError) return true;
   if (e instanceof RelataHttpError && (e.status === 401 || e.status === 403)) return true;
   return looksLikeLicenseExhaustion(e);
 }

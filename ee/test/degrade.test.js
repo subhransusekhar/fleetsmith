@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { withDegradation } from '../src/memory/degrade.js';
 import { relatadbBackend } from '../src/memory/relatadb.js';
-import { RelataNetworkError, RelataHttpError, RelataToolError } from '../src/memory/errors.js';
+import { RelataNetworkError, RelataHttpError, RelataToolError, RelataMalformedResponseError } from '../src/memory/errors.js';
 import { fileBackend } from 'fleetsmith/memory/file';
 import { normalizeSpec } from 'fleetsmith/spec';
 import { MemoryError } from 'fleetsmith/memory/port';
@@ -116,6 +116,25 @@ test('a 4xx body reading like license exhaustion trips immediately', async () =>
   await assert.doesNotReject(() => wrapped.consolidate());
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /license exhausted/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('G9.1: a garbage/malformed response (RelataMalformedResponseError) trips immediately, exactly like an unreachable cortex', async () => {
+  const { dir, backend: file } = realFileBackend();
+  const { onDegrade, calls: warnings } = capturingOnDegrade();
+  const { backend: relata, calls: relataCalls } = scriptedRelata([
+    { throws: new RelataMalformedResponseError('RelataDB GET /memory/recall -> HTTP 200 with a non-JSON body: <<<garbage>>>') },
+    { returns: { id: 'should-not-be-reached' } },
+  ]);
+  const wrapped = withDegradation(relata, file, { onDegrade });
+
+  const result = await wrapped.consolidate();
+  assert.ok(typeof result.before === 'number', 'falls back to the file backend for this same call — never a crash');
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /RelataMalformedResponseError/);
+
+  await wrapped.consolidate();
+  assert.equal(relataCalls.length, 1, 'relata must not be tried again once tripped — a garbled response gets no more benefit of the doubt than a network failure');
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

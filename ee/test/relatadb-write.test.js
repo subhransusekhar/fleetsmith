@@ -11,7 +11,7 @@ import {
   rememberOne,
   rememberBatch,
 } from '../src/memory/relatadb.js';
-import { RelataNetworkError, RelataHttpError, RelataToolError } from '../src/memory/errors.js';
+import { RelataNetworkError, RelataHttpError, RelataToolError, RelataMalformedResponseError } from '../src/memory/errors.js';
 import { MemoryError } from 'fleetsmith/memory/port';
 
 /**
@@ -219,6 +219,60 @@ test('a 200 response with isError:true (a real RelataDB shape) surfaces as Relat
       return true;
     });
   });
+});
+
+// --- G9.1: a 2xx response with a non-JSON body is a classified error, never a silent null --------------------
+
+test('request() throws RelataMalformedResponseError for a 2xx response whose body is not valid JSON', async () => {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('not json at all <<<garbage>>>');
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const config = { url: `http://127.0.0.1:${server.address().port}`, token: 'test-token' };
+    await assert.rejects(() => request(config, { method: 'GET', path: '/anything' }), (e) => {
+      assert.ok(e instanceof RelataMalformedResponseError);
+      assert.match(e.message, /non-JSON body/);
+      return true;
+    });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('request() treats a 2xx response with an EMPTY body as null, not malformed — an intentionally empty body is not garbage', async () => {
+  const server = http.createServer((req, res) => {
+    res.writeHead(204);
+    res.end();
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const config = { url: `http://127.0.0.1:${server.address().port}`, token: 'test-token' };
+    const result = await request(config, { method: 'GET', path: '/anything' });
+    assert.equal(result, null);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('a non-2xx response with a non-JSON body still becomes a normal RelataHttpError, not RelataMalformedResponseError — the raw text becomes its detail message', async () => {
+  const server = http.createServer((req, res) => {
+    res.writeHead(503, { 'Content-Type': 'text/plain' });
+    res.end('upstream timeout');
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const config = { url: `http://127.0.0.1:${server.address().port}`, token: 'test-token' };
+    await assert.rejects(() => request(config, { method: 'GET', path: '/anything' }), (e) => {
+      assert.ok(e instanceof RelataHttpError);
+      assert.equal(e.status, 503);
+      assert.match(e.message, /upstream timeout/);
+      return true;
+    });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test('rememberBatch writes every item under one shared session id and returns every id', async () => {
