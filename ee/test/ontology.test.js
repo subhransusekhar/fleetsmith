@@ -19,14 +19,15 @@ import {
 
 // --- GRID_TYPES: the reviewable data file ----------------------------------
 
-test('GRID_TYPES defines exactly the four ontology types, each with a key and fields', () => {
-  assert.deepEqual(Object.keys(GRID_TYPES).sort(), ['ActorPresence', 'FleetTask', 'HandoffPointer', 'RunEventSummary']);
+test('GRID_TYPES defines exactly the five ontology types, each with a key and fields', () => {
+  assert.deepEqual(Object.keys(GRID_TYPES).sort(), ['ActorPresence', 'FleetTask', 'HandoffPointer', 'OrgDocument', 'RunEventSummary']);
   for (const [name, type] of Object.entries(GRID_TYPES)) {
     assert.ok(Array.isArray(type.key) && type.key.length > 0, `${name}.key must be a non-empty array`);
     assert.ok(type.fields && typeof type.fields === 'object', `${name}.fields must be an object`);
     for (const keyField of type.key) assert.ok(keyField in type.fields, `${name}.key field "${keyField}" must also be a declared field`);
   }
   assert.deepEqual(GRID_TYPES.FleetTask.statuses, ['pending', 'in-progress', 'done', 'blocked', 'dropped']);
+  assert.deepEqual(GRID_TYPES.OrgDocument.kinds, ['meeting', 'discussion', 'decision', 'spec']);
 });
 
 // --- normalizeRemoteUrl / resolveRepoId -------------------------------------
@@ -99,6 +100,15 @@ test('validateRow rejects an off-vocabulary FleetTask status', () => {
     () => validateRow('FleetTask', { repo_id: 'r1', actor: 'alice', task_seq: 1, status: 'not-a-real-status' }),
     /not one of/
   );
+});
+
+test('validateRow accepts an OrgDocument row carrying every required key field', () => {
+  const row = { repo_id: 'r1', content_hash: 'abc123', kind: 'meeting' };
+  assert.equal(validateRow('OrgDocument', row), row);
+});
+
+test('validateRow rejects an off-vocabulary OrgDocument kind', () => {
+  assert.throws(() => validateRow('OrgDocument', { repo_id: 'r1', content_hash: 'abc123', kind: 'not-a-real-kind' }), /not one of/);
 });
 
 // --- ingestRows / ontologyMigrate against a fake server ---------------------

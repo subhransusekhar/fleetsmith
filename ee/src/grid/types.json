@@ -61,5 +61,24 @@
       "purpose": "string",
       "origin": "string"
     }
+  },
+  "OrgDocument": {
+    "description": "One row per chunk of an imported meeting note, discussion, decision record, or spec (G6.1) — provenance-tracked org knowledge, keyed by content hash so a re-import of unchanged content is a local no-op (RelataDB itself has no server-side dedup on /ingest — see FleetTask's own note — so idempotency here is a client-side digest-tracking concern, the same shape as G3.2's pushed.json). `valid_from` is the document's own business date (the meeting date, not the import date) — a plain data field, not an engine-level bi-temporal parameter; the engine's own system-time versioning is separate and not client-settable.",
+    "key": ["repo_id", "content_hash"],
+    "kinds": ["meeting", "discussion", "decision", "spec"],
+    "fields": {
+      "repo_id": "string",
+      "content_hash": "string",
+      "kind": "string",
+      "title": "string",
+      "client": "string",
+      "chunk_index": "integer",
+      "chunk_text": "string",
+      "source_file": "string",
+      "imported_by": "string",
+      "valid_from": "string",
+      "purpose": "string",
+      "origin": "string"
+    }
   }
 }

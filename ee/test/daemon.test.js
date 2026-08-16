@@ -430,6 +430,89 @@ test('gridCliHandler: "overlaps" prints the summary and the rendered table, exit
   assert.ok(logs.some((l) => l.includes('## Declared overlaps')));
 });
 
+// --- grid import (G6.1) -------------------------------------------------------------
+
+function runCliInDir(dir, argv) {
+  const cwd = process.cwd();
+  process.chdir(dir);
+  const originalLog = console.log;
+  const originalError = console.error;
+  const logs = [];
+  const errors = [];
+  console.log = (m) => logs.push(m);
+  console.error = (m) => errors.push(m);
+  return gridCliHandler(argv)
+    .then((exitCode) => ({ exitCode, logs, errors }))
+    .finally(() => {
+      console.log = originalLog;
+      console.error = originalError;
+      process.chdir(cwd);
+    });
+}
+
+test('gridCliHandler: "import" dry-run (no --apply) works with no grid config at all, touches no network', async () => {
+  const { repoDir } = setupRepo();
+  fs.writeFileSync(path.join(repoDir, 'notes.md'), '# Meeting\n\nWe discussed the roadmap.\n');
+
+  const { exitCode, logs } = await runCliInDir(repoDir, ['import', 'fleet.yaml', 'notes.md', '--kind', 'meeting', '--date', '2026-01-10']);
+  assert.equal(exitCode, 0);
+  assert.ok(logs.some((l) => /grid import:.*1 file\(s\), 1 chunk\(s\) planned \(dry-run/.test(l)));
+});
+
+test('gridCliHandler: "import" requires --kind', async () => {
+  const { repoDir } = setupRepo();
+  fs.writeFileSync(path.join(repoDir, 'notes.md'), '# X\n\nbody\n');
+  const { exitCode, errors } = await runCliInDir(repoDir, ['import', 'fleet.yaml', 'notes.md']);
+  assert.equal(exitCode, 1);
+  assert.ok(errors.some((e) => e.includes('--kind')));
+});
+
+test('gridCliHandler: "import" requires a <path|dir> argument', async () => {
+  const { repoDir } = setupRepo();
+  const { exitCode, errors } = await runCliInDir(repoDir, ['import', 'fleet.yaml']);
+  assert.equal(exitCode, 1);
+  assert.ok(errors.some((e) => e.includes('<path|dir>')));
+});
+
+test('gridCliHandler: "import --apply" with no grid config configured errors clearly (a deliberate setup action, like init)', async () => {
+  const { repoDir } = setupRepo();
+  fs.writeFileSync(path.join(repoDir, 'notes.md'), '# X\n\nbody\n');
+  const { exitCode, errors } = await runCliInDir(repoDir, ['import', 'fleet.yaml', 'notes.md', '--kind', 'meeting', '--date', '2026-01-10', '--apply']);
+  assert.equal(exitCode, 1);
+  assert.ok(errors.some((e) => e.includes('not configured')));
+});
+
+test('gridCliHandler: "import --apply" ingests against a fake server, and a re-run is idempotent (zero new rows)', async () => {
+  const { repoDir } = setupRepo();
+  fs.writeFileSync(path.join(repoDir, 'notes.md'), '# Meeting\n\nWe discussed the roadmap.\n');
+
+  await withFakeRelata({}, async (config, requests) => {
+    const first = await runCliInDir(repoDir, ['import', 'fleet.yaml', 'notes.md', '--kind', 'meeting', '--date', '2026-01-10', '--apply']);
+    assert.equal(first.exitCode, 0);
+    assert.ok(first.logs.some((l) => /grid import --apply: 1 row\(s\) ingested, 0 already known/.test(l)));
+    assert.ok(requests.some((r) => r.pathname === '/ingest' && r.query.object_type === 'OrgDocument'));
+
+    requests.length = 0;
+    const second = await runCliInDir(repoDir, ['import', 'fleet.yaml', 'notes.md', '--kind', 'meeting', '--date', '2026-01-10', '--apply']);
+    assert.equal(second.exitCode, 0);
+    assert.ok(second.logs.some((l) => /grid import --apply: 0 row\(s\) ingested, 1 already known/.test(l)));
+    assert.deepEqual(requests, [], 're-apply must not call /ingest at all once every row is already known');
+    void config;
+  });
+});
+
+test('gridCliHandler: "import" mentions itself in the unknown-subcommand help text', async () => {
+  const originalError = console.error;
+  const errors = [];
+  console.error = (m) => errors.push(m);
+  try {
+    await gridCliHandler(['bogus']);
+  } finally {
+    console.error = originalError;
+  }
+  assert.ok(errors.some((e) => e.includes('import <path|dir>')));
+});
+
 // --- run lifecycle hooks (onRunStart/onRunEnd) — provisioned, tested directly ----
 
 test('onRunStart/onRunEnd no-op silently when ctx.spec is absent', async () => {
