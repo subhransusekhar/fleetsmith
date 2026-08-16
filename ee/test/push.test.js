@@ -192,7 +192,7 @@ test('a deleted pushed.json self-heals the same way', async () => {
 
 // --- redaction hook --------------------------------------------------------------
 
-test('a redactRow that throws skips that batch with a warning, without failing the whole push', async () => {
+test('a redactRow that throws for every FleetTask row blocks that whole type, but sibling types still push', async () => {
   await withFakeRelata({}, async (config, requests) => {
     const { repoDir, localDir } = setupRepo();
     const redactRow = (row) => {
@@ -203,7 +203,28 @@ test('a redactRow that throws skips that batch with a warning, without failing t
 
     assert.ok(!requests.some((r) => r.objectType === 'FleetTask'));
     assert.ok(requests.some((r) => r.objectType === 'HandoffPointer'), 'other types must still push');
-    assert.ok(result.warnings.some((w) => w.includes('redaction')));
+    assert.ok(result.warnings.some((w) => w.includes('FleetTask') && w.includes('no FleetTask rows may leave this machine')));
+  });
+});
+
+test('G9.2: redaction is PER ROW — a redactRow that blocks only ONE FleetTask row still pushes its sibling rows of the SAME type', async () => {
+  await withFakeRelata({}, async (config, requests) => {
+    const { repoDir, localDir } = setupRepo();
+    const redactRow = (row) => {
+      if (row.task === 'implement feature') throw new Error('looks like it contains a secret');
+      return row;
+    };
+    const result = await pushOnce(config, repoDir, { ...ACTOR_OPTS, localDir, redactRow });
+
+    const fleetTaskReq = requests.find((r) => r.objectType === 'FleetTask');
+    assert.ok(fleetTaskReq, 'the FleetTask type must still push — it has un-blocked rows too');
+    const pushedTasks = fleetTaskReq.body.rows.map((r) => r.task);
+    assert.ok(pushedTasks.includes('analyze requirements'), 'task_seq 1, not blocked, must be pushed');
+    assert.ok(pushedTasks.includes('cross-actor dependent task'), 'task_seq 3, not blocked, must be pushed');
+    assert.ok(!pushedTasks.includes('implement feature'), 'task_seq 2, blocked, must NOT be pushed');
+
+    assert.ok(result.warnings.some((w) => w.includes('looks like it contains a secret')), 'the blocked row\'s own warning must still be present');
+    assert.ok(result.pushed.some((k) => k.startsWith('FleetTask::') && !k.includes('implement')), 'unblocked FleetTask rows must be recorded as pushed');
   });
 });
 
