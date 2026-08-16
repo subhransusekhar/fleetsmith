@@ -19,6 +19,7 @@ import { planImport, applyImport } from './import.js';
 import { queryKnowledgeLive, queryKnowledgeDegraded, renderKnowledgeTable } from './knowledge.js';
 import { assertPushIdentity, rotateToken, IdentityError } from './identity.js';
 import { assertPurpose } from './purposes.js';
+import { proposeOrgDocument, approveOrgDocument, publishOrgDocument } from './approval.js';
 
 /**
  * The `fleetsmith grid` CLI verb (G3.5): `init` (G3.1), `sync`, and `sync --watch` — the daemon that ties
@@ -574,17 +575,18 @@ export async function gridCliHandler(argv) {
   const { positional, flags } = parseGridArgs(argv);
   const [subcommand, fleetYamlPath = 'fleet.yaml'] = positional;
 
-  if (!subcommand || !['init', 'sync', 'overlaps', 'import', 'knowledge', 'token'].includes(subcommand)) {
+  if (!subcommand || !['init', 'sync', 'overlaps', 'import', 'knowledge', 'token', 'propose', 'approve', 'publish'].includes(subcommand)) {
     console.error(
       `error: unknown grid subcommand "${subcommand ?? ''}" — expected "init", "sync [--watch]", "overlaps [--git-only]", ` +
         '"import <path|dir> --kind meeting|discussion|decision|spec [--client <name>] [--date <YYYY-MM-DD>] [--apply]", ' +
-        '"knowledge <query> [--as-of <YYYY-MM-DD>] [--as-recorded <YYYY-MM-DD>] [--purpose <p>] [--limit n]", or ' +
-        '"token rotate" ' +
+        '"knowledge <query> [--as-of <YYYY-MM-DD>] [--as-recorded <YYYY-MM-DD>] [--purpose <p>] [--limit n]", ' +
+        '"token rotate", or "propose|approve|publish <content_hash>" ' +
         '("overlaps --git-only" needs no cortex, no grid config, and no network access at all — the OSS answer, ' +
         'file-level overlaps synthesized straight from local git branches; "import" without --apply is a dry-run that ' +
         'touches no network either; "knowledge" degrades to filtering _fleet/shared/knowledge/ frontmatter directly ' +
         'when no cortex is configured; "token rotate" prints the new token — updating RELATA_TOKEN/token_env and ' +
-        'restarting any running daemon is on you)'
+        'restarting any running daemon is on you; "approve" requires being listed in grid.approvers — see ' +
+        'docs/enterprise/identity.md)'
     );
     return 1;
   }
@@ -614,6 +616,20 @@ export async function gridCliHandler(argv) {
       const { token } = await rotateToken(config);
       console.log(`grid token rotate: new token issued — ${token}`);
       console.log('update RELATA_TOKEN (or the env var fleet.grid.token_env names) with this value, then restart any already-running `grid sync --watch` daemon to pick it up.');
+      return 0;
+    }
+
+    if (['propose', 'approve', 'publish'].includes(subcommand)) {
+      const contentHash = positional[2];
+      if (!contentHash) {
+        console.error(`error: \`grid ${subcommand}\` requires a <content_hash> argument`);
+        return 1;
+      }
+      const config = resolveConfigOrThrow(spec);
+      const actor = resolveActor();
+      const transition = { propose: proposeOrgDocument, approve: approveOrgDocument, publish: publishOrgDocument }[subcommand];
+      const updated = await transition(config, contentHash, actor);
+      console.log(`grid ${subcommand}: "${updated.title}" (${contentHash}) is now ${updated.approval}${updated.approval === 'approved' ? ` (by ${updated.approved_by} at ${updated.approved_at})` : ''}`);
       return 0;
     }
 

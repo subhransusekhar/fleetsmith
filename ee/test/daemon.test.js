@@ -314,6 +314,99 @@ test('gridCliHandler: "token" mentions itself in the unknown-subcommand help tex
   assert.ok(errors.some((e) => e.includes('token rotate')));
 });
 
+// --- org-approved channel (G7.3): grid propose/approve/publish ----------------------
+
+function orgDocForCli(overrides) {
+  return {
+    repo_id: 'r'.repeat(64),
+    content_hash: 'hash1',
+    kind: 'meeting',
+    title: 'Q1 Planning Meeting',
+    client: 'acme',
+    chunk_index: 0,
+    chunk_text: 'roadmap discussion text',
+    source_file: 'notes.md',
+    imported_by: 'someone',
+    valid_from: '2026-01-01',
+    imported_at: '2026-01-01T00:00:00.000Z',
+    purpose: 'product_context',
+    origin: 'human',
+    ...overrides,
+  };
+}
+
+test('gridCliHandler: "propose" transitions draft -> proposed and prints the result', async () => {
+  const { repoDir } = setupRepo();
+  await withFakeRelata({ queryRows: { OrgDocument: [orgDocForCli({})] } }, async (config, requests) => {
+    const { exitCode, logs } = await runCliInDir(repoDir, ['propose', 'fleet.yaml', 'hash1']);
+    assert.equal(exitCode, 0);
+    assert.ok(logs.some((l) => l.includes('Q1 Planning Meeting') && l.includes('proposed')));
+    assert.ok(requests.some((r) => r.pathname === '/ingest' && r.query.object_type === 'OrgDocument'));
+    void config;
+  });
+});
+
+test('gridCliHandler: "approve" refuses when the local actor is not a configured approver', async () => {
+  const { repoDir } = setupRepo();
+  await withFakeRelata({ queryRows: { OrgDocument: [orgDocForCli({ approval: 'proposed' })] } }, async () => {
+    // No grid.approvers configured at all in this fleet.yaml — the default fixture (setupRepo()) has none.
+    const { exitCode, errors } = await runCliInDir(repoDir, ['approve', 'fleet.yaml', 'hash1']);
+    assert.equal(exitCode, 1);
+    assert.ok(errors.some((e) => e.includes('not listed in grid.approvers')));
+  });
+});
+
+test('gridCliHandler: "approve" succeeds for a configured approver', async () => {
+  const { repoDir } = setupRepo();
+  // FLEETSMITH_ACTOR (highest-priority in resolveActor()'s own resolution chain) rather than relying on
+  // ambient git config — resolveActor() has no cwd of its own, it reads THIS process's ambient git config,
+  // which differs from repoDir's local one that runCliInDir's chdir puts the CLI handler inside (the same
+  // gotcha already noted elsewhere in this file for the run-start/run-end tests).
+  const actor = 'g7-3-test-approver';
+  // withFakeRelata sets RELATA_URL/RELATA_TOKEN, and resolveGridConfig's env-pair path takes priority over
+  // the fleet.yaml grid: block entirely — so the approvers list must come from GRID_APPROVERS (the env-pair
+  // path's own field, per ee/src/config.js), not from a spec-block `approvers:` list, which would be silently
+  // ignored here.
+  process.env.FLEETSMITH_ACTOR = actor;
+  process.env.GRID_APPROVERS = actor;
+  try {
+    await withFakeRelata({ queryRows: { OrgDocument: [orgDocForCli({ approval: 'proposed' })] } }, async () => {
+      const { exitCode, logs } = await runCliInDir(repoDir, ['approve', 'fleet.yaml', 'hash1']);
+      assert.equal(exitCode, 0);
+      assert.ok(logs.some((l) => l.includes('approved') && l.includes(actor)));
+    });
+  } finally {
+    delete process.env.FLEETSMITH_ACTOR;
+    delete process.env.GRID_APPROVERS;
+  }
+});
+
+test('gridCliHandler: "propose" requires a <content_hash> argument', async () => {
+  const { repoDir } = setupRepo();
+  const { exitCode, errors } = await runCliInDir(repoDir, ['propose', 'fleet.yaml']);
+  assert.equal(exitCode, 1);
+  assert.ok(errors.some((e) => e.includes('<content_hash>')));
+});
+
+test('gridCliHandler: "propose" with no grid config errors clearly (a deliberate action)', async () => {
+  const { repoDir } = setupRepo();
+  const { exitCode, errors } = await runCliInDir(repoDir, ['propose', 'fleet.yaml', 'hash1']);
+  assert.equal(exitCode, 1);
+  assert.ok(errors.some((e) => e.includes('not configured')));
+});
+
+test('gridCliHandler: "propose|approve|publish" are documented in the unknown-subcommand help text', async () => {
+  const originalError = console.error;
+  const errors = [];
+  console.error = (m) => errors.push(m);
+  try {
+    await gridCliHandler(['bogus']);
+  } finally {
+    console.error = originalError;
+  }
+  assert.ok(errors.some((e) => e.includes('propose|approve|publish')));
+});
+
 // --- overlaps (G5.3): syncOnce's post-reconcile hook, GRID.md's pointer line, and the one-shot verb -------
 
 function peerFleetTask(overrides) {

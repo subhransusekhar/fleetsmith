@@ -11,9 +11,9 @@
     },
     {
       "id": "org-approval-requires-approver-role",
-      "applies_to": ["OrgApproval"],
-      "rule": "a write to an OrgApproval row must be rejected unless the authenticated principal carries an approver role",
-      "enforced_by": "not enforceable anywhere yet — OrgApproval does not exist as a type (it is G7.3's own future deliverable), and no role/scope concept has been verified on this engine surface at all. Documented here as a requirement for G7.3 to pick up if/when the engine gains one, not as something G7.1 implements."
+      "applies_to": ["OrgDocument"],
+      "rule": "an OrgDocument row's transition to the 'approved' approval state must be rejected unless the actor carries an approver role",
+      "enforced_by": "client-side only (ee/src/grid/approval.js's assertApprover, G7.3), checked against grid.approvers/GRID_APPROVERS — a fleet-configured allowlist, not an engine role. Still no server-side equivalent: no role/scope concept has been verified on this engine surface at all, so there is nothing for a real ACL policy to enforce here either, same as the rule above."
     }
   ]
 }

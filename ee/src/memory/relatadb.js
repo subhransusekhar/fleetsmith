@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { assertValidItem, assertValidRecall, MemoryError } from 'fleetsmith/memory/port';
 import { resolveActor } from '../actor.js';
 import { RelataNetworkError, RelataHttpError, RelataToolError } from './errors.js';
+import { RANKING_BOOST, isApprovedOrPublished } from '../grid/approval.js';
 
 /**
  * The RelataDB memory-port adapter. Write half (G1.2): `remember`,
@@ -298,7 +299,15 @@ function orgDocumentProvenance(row) {
   return `${row.source_file} (${parts.join(', ')})`;
 }
 
+/**
+ * `RANKING_BOOST`/`isApprovedOrPublished` come from `../grid/approval.js` (G7.3) — the only two exports this
+ * module pulls from it, both pure and dependency-free, specifically so this import does not pull in
+ * `approval.js`'s own network calls (which themselves import `queryAllOrgDocuments` FROM this file — the
+ * cycle stays harmless because neither side invokes the other's functions at module-evaluation time, only
+ * later inside function bodies, which is exactly what ES modules' live bindings are for).
+ */
 function orgDocumentToItem(row) {
+  const baseScore = typeof row.score === 'number' ? row.score : 0;
   return {
     id: `org:${row.content_hash}`,
     kind: ORG_KIND_TO_ITEM_KIND[row.kind] ?? 'note',
@@ -306,7 +315,7 @@ function orgDocumentToItem(row) {
     subject: row.title,
     origin: 'human',
     evidence: [orgDocumentProvenance(row)],
-    _score: typeof row.score === 'number' ? row.score : 0,
+    _score: isApprovedOrPublished(row) ? baseScore * RANKING_BOOST : baseScore,
   };
 }
 
@@ -327,6 +336,19 @@ function orgDocumentToItem(row) {
 export async function queryOrgDocuments(config, query, limit, purpose = config.purposes?.[0] ?? DEFAULT_WRITE_PURPOSE) {
   const sql = `HYBRID_SEARCH FROM OrgDocument QUERY '${escapeSqlString(query)}' LIMIT ${limit}`;
   const result = await request(config, { method: 'POST', path: '/query', body: { sql, purpose } });
+  return unpackQueryRows(result);
+}
+
+/**
+ * A bare `SELECT * FROM OrgDocument` — no `WHERE`, matching `pull.js`'s own `reconcile()` (G3.3's verified
+ * finding: any `WHERE` clause, even a trivially-true one, empties the result for this class of ad-hoc
+ * ingested type). Exported for G7.3's `approval.js`, which needs an EXACT key lookup by `content_hash` —
+ * `queryOrgDocuments`'s `HYBRID_SEARCH` is a fuzzy text search, no use for finding one specific row — so this
+ * fetches every row and lets the caller filter client-side, the same shape every other exact-key lookup in
+ * this package already takes.
+ */
+export async function queryAllOrgDocuments(config, purpose = config.purposes?.[0] ?? DEFAULT_WRITE_PURPOSE) {
+  const result = await request(config, { method: 'POST', path: '/query', body: { sql: 'SELECT * FROM OrgDocument', purpose } });
   return unpackQueryRows(result);
 }
 
