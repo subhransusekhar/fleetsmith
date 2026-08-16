@@ -33,6 +33,11 @@ import { resolveRepoId } from '../src/grid/ontology.js';
  *    *materialized* effect (a re-run after the simulated crash produces correct, non-duplicated files),
  *    which is the property G3.3/G3.4's design (at-least-once delivery + idempotent, keyed writes) actually
  *    promises.
+ *
+ * Extended for G5.3: after the two cross-visibility checks, alice and bob each declare the same artifact —
+ * `syncOnce`'s new post-reconcile overlap hook must pick that up in the SAME cycle that materializes bob's
+ * peer view of alice, landing in `OVERLAPS.md` and `GRID.md`'s new one-line pointer without a separate
+ * `grid overlaps` invocation.
  */
 
 function git(args, cwd) {
@@ -69,6 +74,10 @@ function setupActorRepo(actorLabel) {
 
 function ledgerWithTask(text, status) {
   return ['# Ledger', '', '| # | Task | Owner | Depends on | Status | Artifact |', '|---|------|-------|-----------|--------|----------|', `| 1 | ${text} | actor | - | ${status} | - |`, ''].join('\n');
+}
+
+function ledgerWithTaskArtifact(text, status, artifact) {
+  return ['# Ledger', '', '| # | Task | Owner | Depends on | Status | Artifact |', '|---|------|-------|-----------|--------|----------|', `| 1 | ${text} | actor | - | ${status} | ${artifact} |`, ''].join('\n');
 }
 
 function sleep(ms) {
@@ -134,6 +143,22 @@ test('two-actor e2e: cross-visibility, concurrent push, crash/restart resilience
   assert.match(bobLedgerAtAlice, /bob in-flight work/);
   const gridMdAtAlice = fs.readFileSync(path.join(alice.localDir, 'grid', 'GRID.md'), 'utf8');
   assert.match(gridMdAtAlice, /## bob/);
+
+  // --- overlap detection lands in OVERLAPS.md after a peer pushes a colliding task (G5.3) ---
+  writeFile(alice.localDir, 'LEDGER.md', ledgerWithTaskArtifact('alice overlap work', 'in-progress', 'docs/shared-report.md'));
+  await withEnv('FLEETSMITH_ACTOR', 'alice', () => syncOnce(alice.spec, alice.repoDir));
+  await sleep(2500);
+
+  writeFile(bob.localDir, 'LEDGER.md', ledgerWithTaskArtifact('bob overlap work', 'in-progress', 'docs/shared-report.md'));
+  const bobOverlapSync = await withEnv('FLEETSMITH_ACTOR', 'bob', () => syncOnce(bob.spec, bob.repoDir));
+  assert.equal(bobOverlapSync.degraded, false);
+  assert.ok(bobOverlapSync.overlaps.length >= 1, "bob's sync should detect the shared-artifact overlap with alice");
+
+  const overlapsAtBob = fs.readFileSync(path.join(bob.localDir, 'grid', 'OVERLAPS.md'), 'utf8');
+  assert.match(overlapsAtBob, /docs\/shared-report\.md/);
+  assert.match(overlapsAtBob, /artifact/);
+  const gridMdAtBobAfterOverlap = fs.readFileSync(path.join(bob.localDir, 'grid', 'GRID.md'), 'utf8');
+  assert.match(gridMdAtBobAfterOverlap, /Overlaps: \d+ detected/);
 
   // --- 20-iteration concurrent push: zero loss, zero cross-actor contention --------
   const ITERATIONS = 20;

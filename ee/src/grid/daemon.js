@@ -8,9 +8,12 @@ import { resolveActor } from '../actor.js';
 import { request } from '../memory/relatadb.js';
 import { resolveRepoId, ingestRows } from './ontology.js';
 import { gridInit } from './init.js';
-import { pushOnce } from './push.js';
-import { pullOnce, watchGridChanges, startIntervalReconcile } from './pull.js';
+import { pushOnce, collectLedgerTasks, resolveBranch } from './push.js';
+import { pullOnce, reconcile, watchGridChanges, startIntervalReconcile } from './pull.js';
 import { materialize } from './materialize.js';
+import { findOverlaps } from './overlaps.js';
+import { mergeRisks } from './merge-risk.js';
+import { renderOverlaps } from './overlaps-render.js';
 
 /**
  * The `fleetsmith grid` CLI verb (G3.5): `init` (G3.1), `sync`, and `sync --watch` — the daemon that ties
@@ -107,6 +110,35 @@ function atomicWrite(filePath, content) {
   fs.renameSync(tmp, filePath);
 }
 
+/** Last-write-wins by natural key (`repo_id`+`actor`+`task_seq`), same resolution `materialize()` (G3.4) already applies to every other row type — `/ingest` has no server-side dedup, and a peer's own ledger can also legitimately repeat a `task_seq` across pushes. */
+function dedupeTasks(rows) {
+  const byKey = new Map();
+  for (const t of rows) byKey.set(`${t.repo_id}|${t.actor}|${t.task_seq}`, t);
+  return [...byKey.values()];
+}
+
+/**
+ * Every currently-known `FleetTask` this checkout can see: this actor's own ledger (never returned by
+ * `reconcile()`, which explicitly excludes the calling actor's own rows — "you are not your own peer") plus
+ * whichever peer `FleetTask` rows the caller already has on hand from this cycle's reconcile. `findOverlaps`
+ * (G5.1) and `mergeRisks` (G5.2) both need the FULL active set, local and peer alike, to see a real
+ * cross-actor collision.
+ */
+function gatherActiveTasks(localDir, repoDir, ctx, peerFleetTaskRows, warnings) {
+  const localTasks = collectLedgerTasks(localDir, repoDir, ctx, warnings);
+  return dedupeTasks([...localTasks, ...peerFleetTaskRows]);
+}
+
+/** Runs G5.1+G5.2 over `tasks` and atomically writes `_fleet/local/grid/OVERLAPS.md` (G5.3). Never throws: a `mergeRisks` git failure degrades to no risks found for the affected pair, with a warning (G5.2's own contract) — this function surfaces those warnings, it never lets one git hiccup break the render. */
+function computeAndRenderOverlaps(tasks, repoDir, localDir, { syncedAt } = {}) {
+  const overlaps = findOverlaps(tasks);
+  const { risks, warnings } = mergeRisks(tasks, repoDir);
+  const markdown = renderOverlaps(overlaps, risks, { syncedAt: syncedAt ?? nowIso(), warnings });
+  const overlapsPath = path.join(localDir, 'grid', 'OVERLAPS.md');
+  atomicWrite(overlapsPath, markdown);
+  return { overlaps, risks, warnings, markdown, written: overlapsPath };
+}
+
 /** The cheapest real connectivity+auth probe: `GET /health` is unauthenticated regardless of the token (G3.1's finding), so only an authenticated call actually proves the cortex is both reachable AND accepting this token. */
 async function checkCortexReachable(config) {
   try {
@@ -199,16 +231,84 @@ export async function syncOnce(spec, cwd = process.cwd()) {
 
   const actor = resolveActor();
   const repoId = resolveRepoId(cwd);
-  const pushResult = await pushOnce(config, cwd, { localDir, actor, repoId });
+  const branch = resolveBranch(cwd);
+  const pushResult = await pushOnce(config, cwd, { localDir, actor, repoId, branch });
   const pullResult = await pullOnce(config, cwd, { localDir, repoId, actor });
-  const { written } = materialize(pullResult.newRows, localDir);
+
+  // Reuses this cycle's already-fetched `pullResult.newRows` rather than a fresh reconcile() — reconcile()
+  // is a full bounded scan every call (G3.3's own finding), so a second call here would just re-fetch the
+  // same rows over the network for no benefit, and would double this cycle's HTTP round trips.
+  const overlapWarnings = [];
+  const ctx = { repoId, actor, branch, purpose: config.purposes?.[0] ?? 'grid_sync', origin: 'human' };
+  const peerFleetTaskRows = pullResult.newRows.filter((r) => r.typeName === 'FleetTask').map((r) => r.row);
+  const tasks = gatherActiveTasks(localDir, cwd, ctx, peerFleetTaskRows, overlapWarnings);
+  const { overlaps, warnings: riskWarnings } = computeAndRenderOverlaps(tasks, cwd, localDir);
+  overlapWarnings.push(...riskWarnings);
+
+  const { written } = materialize(pullResult.newRows, localDir, { overlapCount: overlaps.length });
+  written.push(path.join(localDir, 'grid', 'OVERLAPS.md'));
 
   const actorsSeen = new Set(pullResult.newRows.map((r) => r.row.actor));
-  const warnings = [...pushResult.warnings, ...pullResult.warnings];
-  const summary = `grid sync: pushed ${pushResult.pushed.length} row(s), pulled ${pullResult.newRows.length} row(s) from ${actorsSeen.size} actor(s), wrote ${written.length} file(s)${
+  const warnings = [...pushResult.warnings, ...pullResult.warnings, ...overlapWarnings];
+  const summary = `grid sync: pushed ${pushResult.pushed.length} row(s), pulled ${pullResult.newRows.length} row(s) from ${actorsSeen.size} actor(s), wrote ${written.length} file(s), ${overlaps.length} overlap(s)${
     warnings.length ? `, ${warnings.length} warning(s)` : ''
   }`;
-  return { summary, warnings, pushResult, pullResult, written, degraded: false };
+  return { summary, warnings, pushResult, pullResult, written, overlaps, degraded: false };
+}
+
+/**
+ * `fleetsmith grid overlaps` (G5.3): pull the latest rows, compute overlaps (G5.1) and merge risks (G5.2)
+ * over this checkout's own ledger plus every peer's, render and write `OVERLAPS.md`, and return it for the
+ * CLI to print. A standalone pull, not a full `syncOnce` — this command answers "what's colliding right now"
+ * without also pushing this actor's own state or touching `GRID.md`/peer files; degrades the same way `sync`
+ * does (never throws) for the two shared advisory conditions: not configured, and cortex unreachable.
+ */
+export async function computeOverlaps(spec, cwd = process.cwd()) {
+  const rawConfig = resolveGridConfig(spec);
+  const localDir = localDirFor(spec, cwd);
+
+  if (!rawConfig) {
+    return {
+      summary: 'grid overlaps: not configured — skipping (set RELATA_URL+RELATA_TOKEN, or a `grid:` block in fleet.yaml, to enable)',
+      warnings: [],
+      degraded: true,
+      notConfigured: true,
+      overlaps: [],
+      risks: [],
+    };
+  }
+  const config = { ...rawConfig, fleetName: spec?.fleet?.name };
+
+  const reachability = await checkCortexReachable(config);
+  if (!reachability.reachable) {
+    return {
+      summary: `grid overlaps: cortex unreachable (${reachability.reason}) — cannot compute a live view`,
+      warnings: [reachability.reason],
+      degraded: true,
+      overlaps: [],
+      risks: [],
+    };
+  }
+
+  const actor = resolveActor();
+  const repoId = resolveRepoId(cwd);
+  const branch = resolveBranch(cwd);
+  const ctx = { repoId, actor, branch, purpose: config.purposes?.[0] ?? 'grid_sync', origin: 'human' };
+
+  const warnings = [];
+  const { newRows, warnings: reconcileWarnings } = await reconcile(config, repoId, { actor });
+  warnings.push(...reconcileWarnings);
+  const peerFleetTaskRows = newRows.filter((r) => r.typeName === 'FleetTask').map((r) => r.row);
+  const tasks = gatherActiveTasks(localDir, cwd, ctx, peerFleetTaskRows, warnings);
+
+  const { overlaps, risks, warnings: riskWarnings, markdown, written } = computeAndRenderOverlaps(tasks, cwd, localDir);
+  warnings.push(...riskWarnings);
+
+  const activeCount = tasks.filter((t) => t.status === 'in-progress').length;
+  const summary = `grid overlaps: ${overlaps.length} overlap(s), ${risks.length} merge risk(s) across ${activeCount} active task(s)${
+    warnings.length ? `, ${warnings.length} warning(s)` : ''
+  }`;
+  return { summary, warnings, overlaps, risks, markdown, written, degraded: false };
 }
 
 // --- watch mode --------------------------------------------------------------------
@@ -391,8 +491,8 @@ export async function gridCliHandler(argv) {
   const { positional, flags } = parseGridArgs(argv);
   const [subcommand, fleetYamlPath = 'fleet.yaml'] = positional;
 
-  if (!subcommand || !['init', 'sync'].includes(subcommand)) {
-    console.error(`error: unknown grid subcommand "${subcommand ?? ''}" — expected "init" or "sync [--watch]"`);
+  if (!subcommand || !['init', 'sync', 'overlaps'].includes(subcommand)) {
+    console.error(`error: unknown grid subcommand "${subcommand ?? ''}" — expected "init", "sync [--watch]", or "overlaps"`);
     return 1;
   }
 
@@ -424,6 +524,14 @@ export async function gridCliHandler(argv) {
           resolve();
         });
       });
+      return 0;
+    }
+
+    if (subcommand === 'overlaps') {
+      const result = await computeOverlaps(spec);
+      console.log(result.summary);
+      if (result.markdown) console.log(`\n${result.markdown}`);
+      for (const w of result.warnings) console.error(`warning: ${w}`);
       return 0;
     }
 

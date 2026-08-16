@@ -7,9 +7,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { runInit, syncOnce, runWatch, gridCliHandler, loadSpecFile, onRunStart, onRunEnd, DaemonError } from '../src/grid/daemon.js';
+import { runInit, syncOnce, runWatch, gridCliHandler, loadSpecFile, onRunStart, onRunEnd, computeOverlaps, DaemonError } from '../src/grid/daemon.js';
 import { request } from '../src/memory/relatadb.js';
 import { resolveActor } from '../src/actor.js';
+import { resolveRepoId } from '../src/grid/ontology.js';
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const FIXTURES = path.join(fileURLToPath(new URL('.', import.meta.url)), 'fixtures', 'projection');
@@ -46,7 +47,7 @@ function setupRepo() {
   return { repoDir, localDir };
 }
 
-function fakeRelata({ failInit = false } = {}) {
+function fakeRelata({ failInit = false, queryRows = {} } = {}) {
   const requests = [];
   const server = http.createServer((req, res) => {
     let body = '';
@@ -62,10 +63,13 @@ function fakeRelata({ failInit = false } = {}) {
           res.end(JSON.stringify({ type: 'about:blank', title: 'Unauthorized', status: 401, detail: 'unauthorized' }));
           return;
         }
+        // `queryRows` lets a test seed peer rows a real reconcile() would have found (e.g. a peer's
+        // FleetTask row that overlaps this actor's own) — mocking the unpacked `{rows: JSON-string}` shape
+        // reconcile()'s own unpackRecords() expects, one record holding every seeded row for that type.
         const match = /FROM (\w+)/.exec(parsed.sql);
+        const rows = queryRows[match?.[1]];
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ rows: 0, columns: ['rows'], data: [] }));
-        void match;
+        res.end(rows?.length ? JSON.stringify({ rows: rows.length, columns: ['rows'], data: [{ rows: JSON.stringify(rows) }] }) : JSON.stringify({ rows: 0, columns: ['rows'], data: [] }));
         return;
       }
       if (req.method === 'GET' && url.pathname === '/tokens/self') {
@@ -217,6 +221,117 @@ test('syncOnce never throws — no grid config degrades to a successful, advisor
   assert.equal(result.degraded, true);
   assert.equal(result.notConfigured, true);
   assert.match(result.summary, /not configured/);
+});
+
+// --- overlaps (G5.3): syncOnce's post-reconcile hook, GRID.md's pointer line, and the one-shot verb -------
+
+function peerFleetTask(overrides) {
+  return {
+    actor: 'peer-bob',
+    task_seq: 9,
+    task: 'peer overlapping work',
+    status: 'in-progress',
+    depends_on: [],
+    artifact: '',
+    files_declared: [],
+    symbols_declared: [],
+    branch: 'feat/peer',
+    purpose: 'grid_sync',
+    origin: 'human',
+    ...overrides,
+  };
+}
+
+test('syncOnce with no overlapping peer rows writes OVERLAPS.md as the explicit no-overlaps file, and GRID.md gets "none detected"', async () => {
+  await withFakeRelata({}, async () => {
+    const { repoDir } = setupRepo();
+    const spec = loadSpecFile(path.join(repoDir, 'fleet.yaml'));
+    const result = await syncOnce(spec, repoDir);
+
+    assert.equal(result.degraded, false);
+    assert.deepEqual(result.overlaps, []);
+    assert.ok(result.written.some((p) => p.endsWith('OVERLAPS.md')));
+
+    const overlapsMd = fs.readFileSync(path.join(repoDir, '_fleet', 'local', 'grid', 'OVERLAPS.md'), 'utf8');
+    assert.match(overlapsMd, /no overlaps detected as of/);
+
+    const gridMd = fs.readFileSync(path.join(repoDir, '_fleet', 'local', 'grid', 'GRID.md'), 'utf8');
+    assert.match(gridMd, /_Overlaps: none detected_/);
+  });
+});
+
+test('syncOnce detects an overlap against a seeded peer FleetTask row (same artifact as the local ledger), writes OVERLAPS.md and GRID.md\'s pointer', async () => {
+  const { repoDir } = setupRepo();
+  const repoId = resolveRepoId(repoDir);
+  // The local fixture's own task #2 (in-progress) declares this exact artifact — see ee/test/fixtures/projection/ledger.md.
+  const overlappingArtifact = 'handoffs/02-builder-to-reviewer.md';
+
+  await withFakeRelata({ queryRows: { FleetTask: [peerFleetTask({ repo_id: repoId, artifact: overlappingArtifact })] } }, async () => {
+    const spec = loadSpecFile(path.join(repoDir, 'fleet.yaml'));
+    const result = await syncOnce(spec, repoDir);
+
+    assert.equal(result.degraded, false);
+    assert.equal(result.overlaps.length, 1);
+    assert.equal(result.overlaps[0].kind, 'artifact');
+    assert.ok(result.overlaps[0].actors.includes('peer-bob'));
+
+    const overlapsMd = fs.readFileSync(path.join(repoDir, '_fleet', 'local', 'grid', 'OVERLAPS.md'), 'utf8');
+    assert.match(overlapsMd, new RegExp(overlappingArtifact.replace(/[/.]/g, '\\$&')));
+    assert.match(overlapsMd, /peer-bob/);
+
+    const gridMd = fs.readFileSync(path.join(repoDir, '_fleet', 'local', 'grid', 'GRID.md'), 'utf8');
+    assert.match(gridMd, /_Overlaps: 1 detected — see \[OVERLAPS\.md\]\(\.\/OVERLAPS\.md\)_/);
+  });
+});
+
+test('computeOverlaps (the "grid overlaps" one-shot verb) never throws when not configured (G3.6 parity)', async () => {
+  const { repoDir } = setupRepo();
+  const spec = loadSpecFile(path.join(repoDir, 'fleet.yaml'));
+  const result = await computeOverlaps(spec, repoDir);
+  assert.equal(result.degraded, true);
+  assert.equal(result.notConfigured, true);
+  assert.match(result.summary, /not configured/);
+});
+
+test('computeOverlaps runs a standalone pull+compute+render without pushing this actor\'s own state', async () => {
+  const { repoDir } = setupRepo();
+  const repoId = resolveRepoId(repoDir);
+  const overlappingArtifact = 'handoffs/02-builder-to-reviewer.md';
+
+  await withFakeRelata({ queryRows: { FleetTask: [peerFleetTask({ repo_id: repoId, artifact: overlappingArtifact })] } }, async (config, requests) => {
+    const spec = loadSpecFile(path.join(repoDir, 'fleet.yaml'));
+    const result = await computeOverlaps(spec, repoDir);
+
+    assert.equal(result.degraded, false);
+    assert.equal(result.overlaps.length, 1);
+    assert.match(result.summary, /grid overlaps:/);
+    assert.match(result.markdown, new RegExp(overlappingArtifact.replace(/[/.]/g, '\\$&')));
+    assert.ok(result.written.endsWith('OVERLAPS.md'));
+    assert.ok(!requests.some((r) => r.pathname === '/ingest'), 'computeOverlaps must not push — it only pulls and computes');
+    void config;
+  });
+});
+
+test('gridCliHandler: "overlaps" prints the summary and the rendered table, exits 0', async () => {
+  const { repoDir } = setupRepo();
+  const repoId = resolveRepoId(repoDir);
+  const overlappingArtifact = 'handoffs/02-builder-to-reviewer.md';
+  const cwd = process.cwd();
+  process.chdir(repoDir);
+  const originalLog = console.log;
+  const logs = [];
+  console.log = (m) => logs.push(m);
+  try {
+    await withFakeRelata({ queryRows: { FleetTask: [peerFleetTask({ repo_id: repoId, artifact: overlappingArtifact })] } }, async () => {
+      const exitCode = await gridCliHandler(['overlaps', 'fleet.yaml']);
+      assert.equal(exitCode, 0);
+    });
+  } finally {
+    console.log = originalLog;
+    process.chdir(cwd);
+  }
+  assert.ok(logs.some((l) => /grid overlaps:/.test(l)));
+  assert.ok(logs.some((l) => l.includes('## Declared overlaps')));
 });
 
 // --- run lifecycle hooks (onRunStart/onRunEnd) — provisioned, tested directly ----
