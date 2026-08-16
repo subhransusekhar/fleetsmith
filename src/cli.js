@@ -95,14 +95,32 @@ main();
  * fragility for a rare packaging bug in a dependency that fails loudly the
  * moment someone actually runs an enterprise command.
  */
+/**
+ * This module's own URL — or `null` inside the standalone binary.
+ *
+ * The binary is an esbuild CJS bundle (`scripts/bundle.mjs`), and esbuild
+ * cannot fill `import.meta` in for the `cjs` output format: it substitutes an
+ * empty object and emits an `empty-import-meta` warning at build time. So
+ * `import.meta.url` is `undefined` there, and every consumer has to cope
+ * rather than assume. Each one degrades to the answer that is actually true
+ * inside a single self-contained file — no sibling `package.json`, no sibling
+ * eval corpus, no `node_modules` to resolve `fleetsmith-ee` out of.
+ *
+ * Guarding here rather than at each call site would be nicer, but the three
+ * callers want three different degraded answers, so the flag is shared and
+ * the handling is local.
+ */
+const MODULE_URL = import.meta.url ?? null;
+
 async function loadEnterprise() {
-  const require = createRequire(import.meta.url);
   let mod;
   let meta = null;
   try {
     mod = await import('fleetsmith-ee');
     try {
-      meta = require('fleetsmith-ee/package.json');
+      // MODULE_URL is null in the standalone binary, where createRequire has no
+      // absolute path to anchor to and throws. Metadata is best-effort anyway.
+      if (MODULE_URL) meta = createRequire(MODULE_URL)('fleetsmith-ee/package.json');
     } catch {
       /* metadata is best-effort; --version simply omits the ee line */
     }
@@ -737,7 +755,8 @@ async function cmdEval(positional, flags) {
 
 /** The bundled eval fleets, when running inside a fleetsmith checkout. */
 function defaultFleetsDir() {
-  const bundled = fileURLToPath(new URL('../test/eval-fleets', import.meta.url));
+  if (!MODULE_URL) return null; // the standalone binary carries no test corpus beside it
+  const bundled = fileURLToPath(new URL('../test/eval-fleets', MODULE_URL));
   return fs.existsSync(bundled) ? bundled : null;
 }
 
@@ -837,8 +856,9 @@ function loadSpec(file) {
 }
 
 function readPkg() {
+  if (!MODULE_URL) return {}; // no sibling package.json inside the binary; __FLEETSMITH_VERSION__ covers it
   try {
-    return JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+    return JSON.parse(fs.readFileSync(new URL('../package.json', MODULE_URL), 'utf8'));
   } catch {
     return {};
   }

@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Quick start — Infinia Harness</title>
+    <meta
+      name="description"
+      content="Install fleetsmith and fleetsmith-ee with one command, then build and run your first agent fleet on Claude Code, opencode or goose. Full installer environment-variable reference included."
+    />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <link rel="canonical" href="https://infinia-harness.adid.dev/quickstart" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/site.css" />
+  </head>
+  <body>
+    <a href="#main" class="skip">Skip to content</a>
+
+    <nav>
+      <div class="wrap nav-inner">
+        <a href="/" class="nav-logo">
+          <svg viewBox="0 0 46 43" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M46.003 21.496L24.5224 43H8.76562L30.2462 21.496H34.4507L12.9621 0H24.5224L46.003 21.496Z" fill="#110b35"/>
+            <path d="M24.7284 21.4969L13.4495 32.7829H5.18525L16.4561 21.4969H11.2789L0 10.2109H13.4495L24.7284 21.4969Z" fill="#2563eb"/>
+          </svg>
+          <span class="nav-logo-text">
+            <span class="l1">INFINIA</span>
+            <span class="l2" aria-label="Harness"><i>H</i><i>a</i><i>r</i><i>n</i><i>e</i><i>s</i><i>s</i></span>
+          </span>
+        </a>
+        <ul class="nav-links">
+          <li><a href="/">Overview</a></li>
+          <li><a href="/architecture">Architecture</a></li>
+          <li><a href="/quickstart">Quick start</a></li>
+          <li><a href="/guide">User guide</a></li>
+        </ul>
+        <a href="#install" class="nav-cta">Install</a>
+      </div>
+    </nav>
+
+    <div class="wrap docs" id="main">
+      <aside class="docs-rail">
+        <div class="rail-title">Quick start</div>
+        <ul>
+          <li><a href="#prereq">Prerequisites</a></li>
+          <li><a href="#install">Install</a></li>
+          <li class="sub"><a href="#how-it-asks">How it asks</a></li>
+          <li class="sub"><a href="#env">Environment reference</a></li>
+          <li><a href="#first">Your first fleet</a></li>
+          <li><a href="#run">Running it</a></li>
+          <li><a href="#ee">Enterprise setup</a></li>
+          <li class="sub"><a href="#grid-first">First sync</a></li>
+          <li class="sub"><a href="#console">The console</a></li>
+          <li><a href="#trouble">Troubleshooting</a></li>
+          <li><a href="#uninstall">Uninstalling</a></li>
+        </ul>
+      </aside>
+
+      <article class="docs-body">
+        <h1>Quick start</h1>
+        <p class="page-lead">
+          From nothing to a running agent fleet. The open-source path needs one command and about
+          ten minutes; the enterprise path adds a cortex and one more.
+        </p>
+
+        <section id="prereq">
+          <h2>Prerequisites <a class="anchor" href="#prereq" aria-label="Link to this section">#</a></h2>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Thing</th><th>Needed for</th><th>If missing</th></tr></thead>
+              <tbody>
+                <tr><td><code>curl</code></td><td>The installer itself</td><td>Hard requirement</td></tr>
+                <tr><td>Node.js ≥ 18</td><td>The npm install path; required for enterprise</td><td>Installer falls back to the standalone binary</td></tr>
+                <tr><td><code>git</code></td><td>Identity detection and the meta-fleet scaffold</td><td>Both are skipped, nothing fails</td></tr>
+                <tr><td>Docker</td><td>Running a RelataDB cortex locally</td><td>Enterprise runs on the file backend instead</td></tr>
+                <tr><td>An agent CLI</td><td>Actually running the fleet</td><td>Claude Code, opencode or goose — at least one</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="warn-box">
+            <span class="label">Windows</span>
+            <p>
+              <code>fleetsmith</code> itself runs on Windows and ships a Windows binary. The
+              installer is POSIX shell, so run it under WSL2 or Git Bash. RelataDB is macOS and
+              Linux only — use Docker Desktop or WSL2 for the enterprise cortex.
+            </p>
+          </div>
+        </section>
+
+        <section id="install">
+          <h2>Install <a class="anchor" href="#install" aria-label="Link to this section">#</a></h2>
+
+          <div class="tabs" data-group="ed" role="tablist">
+            <button class="tab active" data-tab="oss" role="tab" aria-selected="true" type="button">Open source</button>
+            <button class="tab" data-tab="ee" role="tab" aria-selected="false" type="button">Enterprise</button>
+          </div>
+
+          <div data-panel-group="ed" data-panel="oss">
+            <div class="cmd">
+              <button class="copy-btn" data-copy="#q-oss" type="button">Copy</button>
+              <pre><code id="q-oss">curl -fsSL https://infinia-harness.adid.dev/install.sh | sh</code></pre>
+            </div>
+          </div>
+          <div data-panel-group="ed" data-panel="ee" hidden>
+            <div class="cmd">
+              <button class="copy-btn" data-copy="#q-ee" type="button">Copy</button>
+              <pre><code id="q-ee">curl -fsSL https://infinia-harness.adid.dev/install.sh | sh -s -- --edition ee</code></pre>
+            </div>
+          </div>
+
+          <p>Then load what it wrote:</p>
+          <pre><code>. ~/.fleetsmith/env.sh
+fleetsmith version</code></pre>
+
+          <p>The installer does five things, in this order:</p>
+          <ol>
+            <li>Detects your OS, architecture, Node version and whether Docker is running.</li>
+            <li>Installs <code>fleetsmith</code> — via npm if Node ≥ 18 is present, otherwise as a single self-contained binary.</li>
+            <li>Works out your identity on the grid from <code>git config user.email</code>.</li>
+            <li>For enterprise: installs <code>fleetsmith-ee</code> and optionally starts a RelataDB cortex in Docker.</li>
+            <li>Writes <code>~/.fleetsmith/env.sh</code> at mode 600 — it can hold a cortex token.</li>
+          </ol>
+
+          <div class="note">
+            <span class="label">Read it first if you like</span>
+            <p>
+              It is plain POSIX shell served from this site — <a href="/install.sh">read install.sh</a>.
+              <code>--dry-run</code> prints every action it would take and performs none of them.
+            </p>
+          </div>
+
+          <h3 id="how-it-asks">
+            How it asks <a class="anchor" href="#how-it-asks" aria-label="Link to this section">#</a>
+          </h3>
+          <p>Every decision can be answered three ways, in this order of precedence:</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>#</th><th>Way</th><th>Example</th></tr></thead>
+              <tbody>
+                <tr><td>1</td><td>Environment variable</td><td><code>FLEETSMITH_EDITION=ee sh install.sh</code></td></tr>
+                <tr><td>2</td><td>Command-line flag</td><td><code>sh install.sh --edition ee</code></td></tr>
+                <tr><td>3</td><td>A question with a safe default</td><td><code>Edition (oss or ee) [oss]:</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            When there is no terminal to ask on — a pipeline, CI, a Dockerfile — every question
+            silently takes its default and the run is fully non-interactive. The defaults are chosen
+            so the no-input path always produces a working open-source install and never writes
+            outside your home directory. <code>--yes</code> forces that behaviour even when a
+            terminal <em>is</em> available.
+          </p>
+
+          <h3 id="env">
+            Environment reference <a class="anchor" href="#env" aria-label="Link to this section">#</a>
+          </h3>
+
+          <h4>What to install</h4>
+          <div class="env-row">
+            <span class="k">FLEETSMITH_EDITION</span><span class="d">oss | ee — default: oss</span>
+            <p>Open source, or open source plus the enterprise Intelligence Grid.</p>
+          </div>
+          <div class="env-row">
+            <span class="k">FLEETSMITH_VERSION</span><span class="d">default: latest</span>
+            <p>A specific version, e.g. <code>0.7.0</code>. Applies to both packages.</p>
+          </div>
+          <div class="env-row">
+            <span class="k">FLEETSMITH_METHOD</span><span class="d">auto | npm | binary — default: auto</span>
+            <p>
+              <code>auto</code> picks npm when Node ≥ 18 and npm are present, otherwise the
+              standalone binary. Enterprise forces <code>npm</code>: it is a normal package that
+              core loads by module resolution, which a single-file binary cannot do.
+            </p>
+          </div>
+          <div class="env-row">
+            <span class="k">FLEETSMITH_PREFIX</span><span class="d">default: ~/.local/bin</span>
+            <p>Where the standalone binary lands. Ignored on the npm path.</p>
+          </div>
+
+          <h4>The cortex</h4>
+          <div class="env-row">
+            <span class="k">FLEETSMITH_CORTEX</span><span class="d">auto | docker | binary | existing | none</span>
+            <p>
+              <code>auto</code> resolves to <code>existing</code> if <code>RELATA_URL</code> is
+              already set, <code>docker</code> if Docker is running, otherwise <code>none</code>.
+              Always <code>none</code> for the open-source edition.
+            </p>
+            <p>
+              <code>binary</code> installs the signed v2.0.0 release tarball instead of a container.
+              <code>relatadb/RelataDB</code> is a private repository, so that path needs the GitHub
+              CLI authenticated as an account with access — the installer checks for it and points
+              you at Docker rather than attempting a download that cannot succeed.
+            </p>
+          </div>
+          <div class="env-row">
+            <span class="k">RELATA_URL</span><span class="d">e.g. http://127.0.0.1:9090</span>
+            <p>
+              An existing cortex to point at. Set together with <code>RELATA_TOKEN</code> — a lone
+              one of the pair is refused rather than half-applied, because it is almost always a
+              half-exported environment variable.
+            </p>
+          </div>
+          <div class="env-row">
+            <span class="k">RELATA_TOKEN</span><span class="d">bearer token</span>
+            <p>
+              Your own token, not a shared one, in production. On the Docker path the installer
+              generates one for you and writes it into the env file.
+            </p>
+          </div>
+          <div class="env-row">
+            <span class="k">RELATA_IMAGE</span><span class="d">default: openworkbench/relata-db:v2.0.0</span>
+            <p>Pinned on purpose. <code>latest</code> moving under a running grid is not a feature.</p>
+          </div>
+          <div class="env-row">
+            <span class="k">RELATA_PORT</span><span class="d">default: 9090</span>
+            <p>Host port for the container. The container always listens on 9090 internally.</p>
+          </div>
+          <div class="env-row">
+            <span class="k">RELATA_CONTAINER</span><span class="d">default: relata</span>
+            <p>
+              If a container of this name already exists, the installer reuses it and recovers its
+              bearer token rather than clobbering your data.
+            </p>
+          </div>
+          <div class="env-row">
+            <span class="k">RELATA_DATA</span><span class="d">default: ~/.relata</span>
+            <p>Host directory mounted at <code>/data</code>. Survives container recreation.</p>
+          </div>
+          <div class="env-row">
+            <span class="k">RELATA_PROFILE</span><span class="d">default: free</span>
+            <p>
+              <code>free</code> is one tenant and a 10 GB cap — right for evaluation and small
+              teams. <code>server</code> is the recommended default for one org doing real work and
+              needs a paid, node-hash-bound license.
+            </p>
+          </div>
+
+          <h4>Wiring</h4>
+          <div class="env-row">
+            <span class="k">FLEETSMITH_ACTOR</span><span class="d">default: local part of your git email</span>
+            <p>How your work is labelled for teammates. Local-only in the open-source edition.</p>
+          </div>
+          <div class="env-row">
+            <span class="k">FLEETSMITH_SCAFFOLD</span><span class="d">yes | no — default: no</span>
+            <p>
+              Copy the bundled meta-fleet into a project's <code>.claude/</code>, so you can say
+              <em>"build a harness for this project"</em> in Claude Code. Never overwrites an
+              existing <code>.claude/</code>.
+            </p>
+          </div>
+          <div class="env-row">
+            <span class="k">FLEETSMITH_PROJECT_DIR</span><span class="d">default: current directory</span>
+            <p>Where to scaffold.</p>
+          </div>
+          <div class="env-row">
+            <span class="k">FLEETSMITH_ENV_FILE</span><span class="d">default: ~/.fleetsmith/env.sh</span>
+            <p>Rewritten on every install. Written at mode 600.</p>
+          </div>
+          <div class="env-row">
+            <span class="k">FLEETSMITH_SHELL_RC</span><span class="d">yes | no — default: no</span>
+            <p>Append a line sourcing the env file to your shell rc. Off by default: it edits a file you own.</p>
+          </div>
+          <div class="env-row">
+            <span class="k">FLEETSMITH_ASSUME_YES</span><span class="d">default: no</span>
+            <p>Accept every default and ask nothing. Same as <code>--yes</code>.</p>
+          </div>
+          <div class="env-row">
+            <span class="k">FLEETSMITH_NONINTERACTIVE</span><span class="d">set to any value</span>
+            <p>Never open the terminal, even if one is available.</p>
+          </div>
+          <div class="env-row">
+            <span class="k">FLEETSMITH_DRY_RUN</span><span class="d">default: no</span>
+            <p>Print every action, take none. Same as <code>--dry-run</code>.</p>
+          </div>
+        </section>
+
+        <section id="first">
+          <h2>Your first fleet <a class="anchor" href="#first" aria-label="Link to this section">#</a></h2>
+
+          <div class="steps-list">
+            <div class="step-item">
+              <h4>Pick a pattern</h4>
+              <p>From the shape of your work, not from taste. If unsure, <code>pipeline</code>.</p>
+              <pre><code>fleetsmith patterns</code></pre>
+            </div>
+            <div class="step-item">
+              <h4>Scaffold a spec</h4>
+              <p>The domain string matters — it drives every generated agent's prompt.</p>
+              <pre><code>fleetsmith init review-fleet \
+  --pattern generate-verify \
+  --domain "reviewing pull requests in a Rust payments service"</code></pre>
+            </div>
+            <div class="step-item">
+              <h4>Edit and validate</h4>
+              <p>
+                Open <code>fleet.yaml</code> and make the roles real. The validator checks design
+                smells — parallel writers, skill descriptions that would silently truncate, phases
+                that split one context in two — not just the schema.
+              </p>
+              <pre><code>fleetsmith validate fleet.yaml</code></pre>
+            </div>
+            <div class="step-item">
+              <h4>Compile</h4>
+              <p>All three targets, or just the one you use.</p>
+              <pre><code>fleetsmith build fleet.yaml --target all
+# or: --target claude-code | opencode | goose</code></pre>
+            </div>
+            <div class="step-item">
+              <h4>Gate it</h4>
+              <p>
+                <code>qa</code> checks the compiled output, not the spec's intentions — handoff
+                graph against real files, capability leaks, loop bounds, drift.
+              </p>
+              <pre><code>fleetsmith qa fleet.yaml</code></pre>
+            </div>
+          </div>
+        </section>
+
+        <section id="run">
+          <h2>Running it <a class="anchor" href="#run" aria-label="Link to this section">#</a></h2>
+          <p>
+            Restart your agent CLI in the project directory so it picks up the generated files.
+          </p>
+
+          <div class="tabs" data-group="tool" role="tablist">
+            <button class="tab active" data-tab="cc" role="tab" aria-selected="true" type="button">Claude Code</button>
+            <button class="tab" data-tab="oc" role="tab" aria-selected="false" type="button">opencode</button>
+            <button class="tab" data-tab="gs" role="tab" aria-selected="false" type="button">goose</button>
+          </div>
+
+          <div data-panel-group="tool" data-panel="cc">
+            <p>
+              Your agents are in <code>.claude/agents/</code>, skills in
+              <code>.claude/skills/</code>, and the orchestration brief in <code>CLAUDE.md</code>.
+              Address an agent by name, or describe the work and let the orchestrator delegate.
+            </p>
+            <pre><code>claude
+&gt; review the diff on this branch using the fleet</code></pre>
+            <div class="warn-box">
+              <span class="label">Accept the trust dialog</span>
+              <p>
+                Project hooks — including the <code>SubagentStop</code> handover gate — do not run
+                until you accept Claude Code's "trust this folder" prompt. Until then the gate is
+                silently skipped and the fleet degrades to advisory instructions.
+              </p>
+            </div>
+          </div>
+
+          <div data-panel-group="tool" data-panel="oc" hidden>
+            <p>
+              Agents are in <code>.opencode/agents/</code>, with commands and skills alongside and
+              the handoff graph compiled into <code>opencode.json</code> as
+              <code>permission.task</code> maps. An agent with no edge to another cannot see it in
+              the task tool at all.
+            </p>
+            <pre><code>opencode
+&gt; @change-analyst review the diff on this branch</code></pre>
+            <div class="note">
+              <span class="label">subagent_depth</span>
+              <p>
+                opencode defaults it to <code>1</code>, which silently prevents a subagent from
+                delegating. The generated <code>opencode.json</code> raises it — that trap is closed
+                for you.
+              </p>
+            </div>
+          </div>
+
+          <div data-panel-group="tool" data-panel="gs" hidden>
+            <p>
+              Recipes are in <code>.goose/recipes/</code>, and <code>AGENTS.md</code> is read
+              first-class. Run the orchestrator recipe:
+            </p>
+            <pre><code>goose run --recipe .goose/recipes/orchestrator.yaml</code></pre>
+            <div class="note">
+              <span class="label">Parallelism is opt-in</span>
+              <p>
+                goose runs different sub-recipes sequentially unless the prompt asks for
+                parallelism, which quietly cost a fleet's declared parallel phases all their
+                concurrency. The generated orchestrator prompt asks.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section id="ee">
+          <h2>Enterprise setup <a class="anchor" href="#ee" aria-label="Link to this section">#</a></h2>
+          <p>
+            Nothing below is required to use Infinia Harness. A checkout with no
+            <code>RELATA_URL</code> and no <code>grid:</code> block behaves exactly like the
+            open-source edition. This is additive: pre-commit cross-developer awareness that would
+            otherwise wait for a pull request.
+          </p>
+
+          <h3>Stand up a cortex</h3>
+          <p>The installer will do it, or do it by hand:</p>
+          <pre><code>docker run -d \
+  --name relata \
+  --restart unless-stopped \
+  -p 9090:9090 \
+  -v ~/.relata:/data \
+  -e RELATA_PROFILE=free \
+  -e RELATA_BEARER_TOKEN="$(openssl rand -hex 24)" \
+  openworkbench/relata-db:v2.0.0</code></pre>
+          <p>Check it is up:</p>
+          <pre><code>curl -fsS http://127.0.0.1:9090/health</code></pre>
+
+          <h3>Point a checkout at it</h3>
+          <p>Two ways. The environment pair wins if both are set.</p>
+          <pre><code>export RELATA_URL=http://127.0.0.1:9090
+export RELATA_TOKEN=&lt;your own token&gt;</code></pre>
+          <p>Or commit the URL — never the token — in <code>fleet.yaml</code>:</p>
+          <pre><code>fleet:
+  name: my-fleet
+  grid:
+    url: http://your-cortex:9090
+    token_env: RELATA_TOKEN   # the NAME of the env var, not the token</code></pre>
+          <div class="warn-box">
+            <span class="label">A literal token in fleet.yaml is refused</span>
+            <p>
+              Not warned about — refused. <code>fleet.yaml</code> is meant to be committed, and a
+              token that lands there once is a permanent credential leak in git history, not a
+              linting problem to fix on the next commit.
+            </p>
+          </div>
+
+          <h3 id="grid-first">
+            First sync <a class="anchor" href="#grid-first" aria-label="Link to this section">#</a>
+          </h3>
+          <pre><code>fleetsmith grid init fleet.yaml    # once per checkout, per developer
+fleetsmith grid sync fleet.yaml</code></pre>
+          <div class="note">
+            <span class="label">Warnings on a brand-new cortex are normal</span>
+            <p>
+              Expect a handful on the very first sync in a fresh repo, and none of them mean
+              anything is broken. Grid ontology types self-register on their own first push, so a
+              type nobody has pushed yet reports "not registered in the schema" and simply has
+              nothing to pull. A repo with no fetched <code>origin/main</code> cannot run the
+              file-declaration enrichment step; push and pull both still work.
+            </p>
+          </div>
+          <p>
+            Once two developers have synced, each sees the other's in-flight work as read-only
+            files:
+          </p>
+          <pre><code>cat _fleet/local/grid/peers/alice/LEDGER.md
+cat _fleet/local/grid/GRID.md</code></pre>
+          <p>Then keep it running:</p>
+          <pre><code>fleetsmith grid sync --watch          # SSE doorbell + 5-minute fallback
+fleetsmith grid overlaps              # cross-developer file and task collisions
+fleetsmith grid overlaps --git-only   # the same question, no cortex, no network</code></pre>
+
+          <h3 id="console">
+            The console <a class="anchor" href="#console" aria-label="Link to this section">#</a>
+          </h3>
+          <p>
+            A stateless admin UI over the cortex — no second database, no sessions, no user table.
+            Every request carries the caller's own bearer token, so the engine's ACL and audit trail
+            always see the real principal.
+          </p>
+          <pre><code>RELATA_URL=http://127.0.0.1:9090 \
+CONSOLE_ADMINS=alice,bob \
+PORT=4173 \
+  node "$(npm root -g)/fleetsmith-ee/console/server/index.js"
+
+curl http://127.0.0.1:4173/api/health</code></pre>
+        </section>
+
+        <section id="trouble">
+          <h2>Troubleshooting <a class="anchor" href="#trouble" aria-label="Link to this section">#</a></h2>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Symptom</th><th>Cause and fix</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><code>fleetsmith: command not found</code> after installing</td>
+                  <td>The bin directory is not on this shell's PATH. Run <code>. ~/.fleetsmith/env.sh</code>, or re-run the installer with <code>--shell-rc</code>-style wiring by answering yes to the shell rc question.</td>
+                </tr>
+                <tr>
+                  <td>Agents ignore the handover gate</td>
+                  <td>The workspace is not trusted yet. Accept Claude Code's trust dialog — project hooks do not run until you do.</td>
+                </tr>
+                <tr>
+                  <td>A compiled agent is never delegated to</td>
+                  <td>It has no inbound edge, or its description does not discriminate. Run <code>fleetsmith qa</code> for the graph check and <code>fleetsmith eval</code> for trigger discrimination.</td>
+                </tr>
+                <tr>
+                  <td><code>RELATA_TOKEN is set but RELATA_URL is not</code></td>
+                  <td>Exactly what it says — set both or neither. A half-exported pair is refused rather than silently ignored.</td>
+                </tr>
+                <tr>
+                  <td>Enterprise commands are unknown</td>
+                  <td><code>fleetsmith-ee</code> is not installed, or was installed into a different npm prefix than <code>fleetsmith</code>. Core discovers it by module resolution, so both must share a prefix.</td>
+                </tr>
+                <tr>
+                  <td>Cortex exits shortly after starting</td>
+                  <td>A paid license is expired or its node hash no longer matches — the engine exits rather than continuing unlicensed. Your fleet degrades to the file backend and keeps working.</td>
+                </tr>
+                <tr>
+                  <td><code>docker pull</code> denied</td>
+                  <td>Use the Docker Hub image <code>openworkbench/relata-db</code>. The <code>ghcr.io/relatadb/relata</code> registry is access-gated.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="uninstall">
+          <h2>Uninstalling <a class="anchor" href="#uninstall" aria-label="Link to this section">#</a></h2>
+          <pre><code>curl -fsSL https://infinia-harness.adid.dev/install.sh | sh -s -- --uninstall</code></pre>
+          <p>
+            Removes both npm packages, the standalone binary, the cortex container and the env file.
+            Your cortex data in <code>~/.relata</code> is deliberately left alone — deleting a
+            team's accumulated knowledge is not something an uninstaller should decide.
+          </p>
+        </section>
+
+        <div class="pager">
+          <a href="/architecture" class="prev"><span class="dir">Back</span><span class="to">Architecture</span></a>
+          <a href="/guide" class="next"><span class="dir">Next</span><span class="to">User guide</span></a>
+        </div>
+      </article>
+    </div>
+
+    <footer>
+      <div class="wrap">
+        <div class="footer-logo">
+          <svg viewBox="0 0 46 43" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M46.003 21.496L24.5224 43H8.76562L30.2462 21.496H34.4507L12.9621 0H24.5224L46.003 21.496Z" fill="#110b35"/>
+            <path d="M24.7284 21.4969L13.4495 32.7829H5.18525L16.4561 21.4969H11.2789L0 10.2109H13.4495L24.7284 21.4969Z" fill="#2563eb"/>
+          </svg>
+          <span class="footer-logo-text">
+            <span class="l1">INFINIA</span>
+            <span class="l2" aria-label="Harness"><i>H</i><i>a</i><i>r</i><i>n</i><i>e</i><i>s</i><i>s</i></span>
+          </span>
+        </div>
+        <div class="footer-meta">
+          <p class="strong">© 2026 Infinia Technologies</p>
+          <p>fleetsmith is MIT · fleetsmith-ee is AGPL-3.0-only</p>
+          <div class="footer-links">
+            <a href="/architecture">Architecture</a>
+            <a href="/quickstart">Quick start</a>
+            <a href="/guide">User guide</a>
+            <a href="/install.sh">install.sh</a>
+            <a href="https://github.com/subhransusekhar/fleetsmith">GitHub</a>
+          </div>
+        </div>
+      </div>
+    </footer>
+
+    <script src="/site.js"></script>
+  </body>
+</html>

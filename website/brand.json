@@ -1,0 +1,94 @@
+{
+  "$comment": "Canonical Infinia design brand spec. `design` is byte-identical across every Infinia site repo — diff it, never fork it. See BRAND.md.",
+  "spec_version": "2.0.0",
+  "source_of_truth": "https://atlas.xailon.ai/",
+  "vendor": "Infinia Technologies",
+  "product": {
+    "name": "Infinia Harness",
+    "site": "https://infinia-harness.adid.dev/",
+    "published_via": "Cloudflare Pages"
+  },
+  "design": {
+    "theme": "infinia-light",
+    "ground": "light",
+    "colors": {
+      "ink": "#110b35",
+      "ink_2": "#2b1c8b",
+      "blue": "#2563eb",
+      "blue_deep": "#134678",
+      "violet": "#613bb3",
+      "cyan": "#00b4d8",
+      "cyan_pale": "#a9edff",
+      "glow_lilac": "#eaddff",
+      "glow_warm": "#f6e7ce",
+      "bg": "#ffffff",
+      "tint": "#f6faff",
+      "tint_2": "#edf2ff",
+      "card_a": "#e4f1ff",
+      "card_b": "#f3f9ff",
+      "rule": "#d3dff2",
+      "rule_2": "#e6eefb",
+      "text": "#0d0d0d",
+      "body": "#3a3a3a",
+      "muted": "#5b5b5b",
+      "faint": "#6e6a85",
+      "ok": "#0b7a44",
+      "ok_bright": "#0f9d58",
+      "warn": "#a06100",
+      "red": "#c5221f",
+      "horizon": "#288ef4",
+      "grid_line": "rgba(42,131,221,0.17)"
+    },
+    "gradients": {
+      "brand": "linear-gradient(90deg,#2b1c8b 0%,#2563eb 100%)",
+      "brand_nav": "linear-gradient(90deg,#613bb3 0%,#1999ea 100%)",
+      "card_soft": "linear-gradient(180deg,#e4f1ff 0%,#f3f9ff 100%)",
+      "horizon": "linear-gradient(180deg,#ffffff 0%,#e3efff 24%,#a8cdf7 52%,#57a3f2 74%,#288ef4 90%)"
+    },
+    "decorative_only": [
+      "cyan",
+      "cyan_pale",
+      "glow_lilac",
+      "glow_warm",
+      "violet",
+      "ok_bright"
+    ],
+    "radius": {
+      "card": "0",
+      "button": "4px",
+      "pill": "999px",
+      "island": "8px"
+    },
+    "shadow": {
+      "card_hover": "0 20px 45px -20px rgba(43,28,139,0.4)",
+      "button": "0 10px 24px -10px rgba(43,28,139,0.5)",
+      "island": "0 24px 55px -26px rgba(17,11,53,0.55)",
+      "nav_scrolled": "0 16px 48px -18px rgba(17,11,53,0.22)"
+    },
+    "layout": {
+      "container": "1013px",
+      "grid_cell": "39px",
+      "hero": "centered on the blue horizon band",
+      "nav": "floating pill; transparent at rest, rgba(255,255,255,0.82) once scrolled",
+      "section_rhythm": "alternate white and tint",
+      "cta": "closing section mirrors the hero horizon"
+    },
+    "fonts": {
+      "display": "Space Grotesk",
+      "sans": "Inter",
+      "mono": "SF Mono",
+      "google_fonts_query": "family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700"
+    },
+    "logo": {
+      "large_chevron_fill": "#110b35",
+      "small_chevron_fill": "#2563eb"
+    },
+    "dark_islands": [
+      "install / command box",
+      "ascii architecture diagram",
+      "numbered step markers",
+      "terminal transcripts"
+    ],
+    "dark_island_text": "#dde4ff"
+  }
+}

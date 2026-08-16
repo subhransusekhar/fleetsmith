@@ -1,0 +1,20 @@
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=(), interest-cohort=()
+  Content-Security-Policy: default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; script-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+
+# People pipe this into a shell, so they should also be able to read it in a
+# browser first. Served as plain text rather than as a download, and never
+# cached for long: an installer stuck in a CDN edge for a year is a support
+# ticket waiting to happen.
+/install.sh
+  Content-Type: text/x-shellscript; charset=utf-8
+  Cache-Control: public, max-age=300, must-revalidate
+
+/site.css
+  Cache-Control: public, max-age=3600
+
+/site.js
+  Cache-Control: public, max-age=3600
