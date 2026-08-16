@@ -34,10 +34,18 @@ none match.
 
 ## Revocation
 
-Revoking a token via the engine's own token-management surface takes effect immediately for new requests. For
-an already-open SSE watch connection specifically: the engine re-authenticates streams roughly every 15
-seconds, so a revoked token also kills that developer's live grid watch within about that window, not
-instantly — expect a short tail, not indefinite continued access.
+Revoking a token via the engine's own token-management surface takes effect immediately for new requests.
+
+**Correction (G9.1, superseding a claim made here at G7.1 time):** the paragraph above originally said the
+engine re-authenticates open SSE streams roughly every 15 seconds. G3.3 had already found, independently, that
+`/graph/changes` (the SSE changefeed) never emits a single frame on this engine profile at all — there is no
+live stream to re-authenticate on any interval, 15 seconds or otherwise. What actually happens on revocation:
+any REQUEST made with the revoked token (an ordinary `/query`/`/ingest` call, or a fresh SSE *connect*
+attempt) fails immediately (401), which `checkCortexReachable` reports as "cortex unreachable" the same as any
+other outage — see `docs/enterprise/degradation.md`'s Row 5. `watchGridChanges`'s reconnect-with-backoff loop
+keeps retrying the connect and keeps failing until the token is fixed; the mechanism that actually notices and
+recovers on a real schedule is the always-on interval-reconcile fallback (`startIntervalReconcile`,
+`DEFAULT_RECONCILE_INTERVAL_MS` = 5 minutes), not a stream re-auth window.
 
 ## Client-side enforcement (the operative control today)
 

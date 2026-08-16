@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 // import statement works during development in this one checkout too.
 import { assertValidItem, assertValidRecall, MemoryError } from 'fleetsmith/memory/port';
 import { resolveActor } from '../actor.js';
-import { RelataNetworkError, RelataHttpError, RelataToolError } from './errors.js';
+import { RelataNetworkError, RelataHttpError, RelataToolError, RelataMalformedResponseError } from './errors.js';
 import { RANKING_BOOST, isApprovedOrPublished } from '../grid/approval.js';
 
 /**
@@ -148,15 +148,25 @@ export async function request(config, { method = 'GET', path, query, body, token
 
   const raw = await res.text();
   let parsed = null;
+  let malformed = false;
   try {
     parsed = raw ? JSON.parse(raw) : null;
   } catch {
     parsed = null;
+    malformed = Boolean(raw); // an intentionally empty body is not malformed — only a non-empty, unparseable one is
   }
 
   if (!res.ok) {
+    // A non-2xx response's own raw text (even if not valid JSON) becomes the error's detail message — a real,
+    // classified RelataHttpError either way, so a malformed body here needs no special handling.
     const detail = parsed?.detail || parsed?.title || raw || res.statusText;
     throw new RelataHttpError(`RelataDB ${method} ${path} -> HTTP ${res.status}: ${detail}`, { status: res.status });
+  }
+  // G9.1: a 2xx response with a non-empty, unparseable body used to silently become `null` all the way down
+  // to whichever caller dereferenced its shape (e.g. `recall()`'s `result.rows`) — see
+  // `RelataMalformedResponseError`'s own doc comment for why that is a real gap, not a hypothetical one.
+  if (malformed) {
+    throw new RelataMalformedResponseError(`RelataDB ${method} ${path} -> HTTP ${res.status} with a non-JSON body: ${raw.slice(0, 200)}`);
   }
   return unwrapRelataResponse(parsed);
 }
