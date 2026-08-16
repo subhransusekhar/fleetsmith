@@ -13,7 +13,8 @@
  * <time>" statement, so a reader can tell "checked, found nothing" from "grid overlaps has never run here".
  */
 
-const OVERLAP_RESPONSE = {
+/** Exported (G8.2) so `ee/console/server/routes/board.js` can attach the SAME suggested-response text the CLI renders here — the console has its own overlaps panel with an acceptance criterion that it "matches `grid overlaps` CLI output for the same state," so this one map is the shared source of truth, not a second copy a future edit could drift from. */
+export const OVERLAP_RESPONSE = {
   artifact: 'coordinate on the shared artifact before either side finishes — whoever writes it second silently overwrites the first',
   'dependency-cycle': "break the cycle — restate one side's dependency; two tasks can't both wait on each other to finish",
   symbol: 'reuse the existing symbol instead of re-implementing it independently',
