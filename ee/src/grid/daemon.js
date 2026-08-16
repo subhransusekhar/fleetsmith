@@ -20,6 +20,7 @@ import { queryKnowledgeLive, queryKnowledgeDegraded, renderKnowledgeTable } from
 import { assertPushIdentity, rotateToken, IdentityError } from './identity.js';
 import { assertPurpose } from './purposes.js';
 import { proposeOrgDocument, approveOrgDocument, publishOrgDocument } from './approval.js';
+import { queryAuditEntries, explainItem, renderAuditTable, renderExplanation, queryLocalRunEvents } from './audit.js';
 
 /**
  * The `fleetsmith grid` CLI verb (G3.5): `init` (G3.1), `sync`, and `sync --watch` — the daemon that ties
@@ -382,6 +383,36 @@ export async function computeGridKnowledge(spec, cwd, query, opts = {}) {
   return { summary, markdown, rows: result.rows, degraded: result.degraded, purpose: result.purpose };
 }
 
+/**
+ * `fleetsmith grid audit [--actor a] [--since t] [--until t] [--purpose p] [--limit n] [--json]` or
+ * `grid audit --why <item-id>` (G7.4): the compliance answer as a CLI. Degrades to local run events
+ * (`_fleet/local/runs/`) with an explicit banner when no cortex is configured — `--why` has no degraded
+ * counterpart (there is nothing local to explain an item's cortex-side lineage from), matching G6.5's own
+ * `--as-recorded` precedent for a refinement with no local equivalent.
+ */
+export async function computeGridAudit(spec, cwd, opts = {}) {
+  const localDir = localDirFor(spec, cwd);
+  const rawConfig = resolveGridConfig(spec);
+  const config = rawConfig ? { ...rawConfig, fleetName: spec?.fleet?.name } : null;
+
+  if (opts.why) {
+    if (!config) {
+      return { summary: 'grid audit --why: not configured — no cortex to explain item lineage against', markdown: '', degraded: true };
+    }
+    const explanation = await explainItem(config, opts.why);
+    return { summary: `grid audit --why ${opts.why}`, markdown: renderExplanation(explanation, opts), degraded: false };
+  }
+
+  if (!config) {
+    const entries = queryLocalRunEvents(localDir, opts);
+    const banner = 'degraded (no cortex configured) — showing local run events only (_fleet/local/runs/); no purpose/recall/approval history exists without a cortex';
+    return { summary: `grid audit (degraded): ${entries.length} local run event(s)`, markdown: `> ${banner}\n\n${renderAuditTable(entries, opts)}`, degraded: true };
+  }
+
+  const entries = await queryAuditEntries(config, opts);
+  return { summary: `grid audit: ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}`, markdown: renderAuditTable(entries, opts), degraded: false };
+}
+
 // --- watch mode --------------------------------------------------------------------
 
 /**
@@ -575,18 +606,20 @@ export async function gridCliHandler(argv) {
   const { positional, flags } = parseGridArgs(argv);
   const [subcommand, fleetYamlPath = 'fleet.yaml'] = positional;
 
-  if (!subcommand || !['init', 'sync', 'overlaps', 'import', 'knowledge', 'token', 'propose', 'approve', 'publish'].includes(subcommand)) {
+  if (!subcommand || !['init', 'sync', 'overlaps', 'import', 'knowledge', 'token', 'propose', 'approve', 'publish', 'audit'].includes(subcommand)) {
     console.error(
       `error: unknown grid subcommand "${subcommand ?? ''}" — expected "init", "sync [--watch]", "overlaps [--git-only]", ` +
         '"import <path|dir> --kind meeting|discussion|decision|spec [--client <name>] [--date <YYYY-MM-DD>] [--apply]", ' +
         '"knowledge <query> [--as-of <YYYY-MM-DD>] [--as-recorded <YYYY-MM-DD>] [--purpose <p>] [--limit n]", ' +
-        '"token rotate", or "propose|approve|publish <content_hash>" ' +
+        '"token rotate", "propose|approve|publish <content_hash>", or ' +
+        '"audit [--actor a] [--since t] [--until t] [--purpose p] [--limit n] [--json] [--why <item-id>]" ' +
         '("overlaps --git-only" needs no cortex, no grid config, and no network access at all — the OSS answer, ' +
         'file-level overlaps synthesized straight from local git branches; "import" without --apply is a dry-run that ' +
         'touches no network either; "knowledge" degrades to filtering _fleet/shared/knowledge/ frontmatter directly ' +
         'when no cortex is configured; "token rotate" prints the new token — updating RELATA_TOKEN/token_env and ' +
         'restarting any running daemon is on you; "approve" requires being listed in grid.approvers — see ' +
-        'docs/enterprise/identity.md)'
+        'docs/enterprise/identity.md; "audit" degrades to local run events with no cortex configured — --why has ' +
+        'no degraded counterpart)'
     );
     return 1;
   }
@@ -702,6 +735,34 @@ export async function gridCliHandler(argv) {
       });
       console.log(result.summary);
       console.log(`\n${result.markdown}`);
+      return 0;
+    }
+
+    if (subcommand === 'audit') {
+      const limit = flags.limit !== undefined ? Number(flags.limit) : undefined;
+      if (limit !== undefined && (!Number.isInteger(limit) || limit <= 0)) {
+        console.error(`error: --limit must be a positive integer, got "${flags.limit}"`);
+        return 1;
+      }
+      if (flags.purpose !== undefined) {
+        try {
+          assertPurpose(flags.purpose, resolveGridConfig(spec)?.purposes ?? []);
+        } catch (e) {
+          console.error(`error: ${e.message}`);
+          return 1;
+        }
+      }
+      const result = await computeGridAudit(spec, process.cwd(), {
+        actor: flags.actor ?? undefined,
+        since: flags.since ?? undefined,
+        until: flags.until ?? undefined,
+        purpose: flags.purpose ?? undefined,
+        limit,
+        json: Boolean(flags.json),
+        why: flags.why ?? undefined,
+      });
+      console.log(result.summary);
+      if (result.markdown) console.log(`\n${result.markdown}`);
       return 0;
     }
 
