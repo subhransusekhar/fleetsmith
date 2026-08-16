@@ -18,6 +18,7 @@ import { tasksFromGitOnly, listCandidateBranches } from './git-only.js';
 import { planImport, applyImport } from './import.js';
 import { queryKnowledgeLive, queryKnowledgeDegraded, renderKnowledgeTable } from './knowledge.js';
 import { assertPushIdentity, rotateToken, IdentityError } from './identity.js';
+import { assertPurpose } from './purposes.js';
 
 /**
  * The `fleetsmith grid` CLI verb (G3.5): `init` (G3.1), `sync`, and `sync --watch` — the daemon that ties
@@ -663,6 +664,19 @@ export async function gridCliHandler(argv) {
       if (limit !== undefined && (!Number.isInteger(limit) || limit <= 0)) {
         console.error(`error: --limit must be a positive integer, got "${flags.limit}"`);
         return 1;
+      }
+      // G7.2: typo-proof a human-typed --purpose before touching anything else — the engine would also
+      // reject an unrecognized purpose eventually, but this is the one place on this milestone's CLI
+      // surface a human types a purpose string by hand, and a friendlier local error beats a network round
+      // trip away. The auto-derived defaults (no --purpose given) are trusted, hardcoded strings and never
+      // need this check.
+      if (flags.purpose !== undefined) {
+        try {
+          assertPurpose(flags.purpose, resolveGridConfig(spec)?.purposes ?? []);
+        } catch (e) {
+          console.error(`error: ${e.message}`);
+          return 1;
+        }
       }
       const result = await computeGridKnowledge(spec, process.cwd(), query, {
         asOf: flags['as-of'] ?? null,

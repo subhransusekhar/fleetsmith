@@ -673,6 +673,45 @@ test('gridCliHandler: "knowledge" queries the live cortex when grid is configure
   );
 });
 
+test('gridCliHandler: "knowledge --purpose" rejects an unknown purpose locally, before touching the network (G7.2)', async () => {
+  const { repoDir } = setupRepo();
+  const { exitCode, errors } = await runCliInDir(repoDir, ['knowledge', 'fleet.yaml', 'anything', '--purpose', 'produtc_context']);
+  assert.equal(exitCode, 1);
+  assert.ok(errors.some((e) => e.includes('unknown purpose') && e.includes('produtc_context')));
+  assert.ok(errors.some((e) => e.includes('grid_sync')), 'the error must list the known purposes, not just name the bad one');
+});
+
+test('gridCliHandler: "knowledge --purpose" accepts every standard purpose', async () => {
+  const { repoDir } = setupRepo();
+  fs.mkdirSync(path.join(repoDir, '_fleet', 'shared', 'knowledge'), { recursive: true });
+  const { exitCode } = await runCliInDir(repoDir, ['knowledge', 'fleet.yaml', 'anything', '--purpose', 'client_commitment']);
+  assert.equal(exitCode, 0);
+});
+
+test('gridCliHandler: "knowledge --purpose" accepts a fleet-declared extra purpose, not just the standard six', async () => {
+  const { repoDir } = setupRepo();
+  fs.writeFileSync(
+    path.join(repoDir, 'fleet.yaml'),
+    'fleet:\n  name: daemon-test-fleet\n  grid:\n    url: "http://127.0.0.1:1"\n    token_env: "FAKE_TOKEN_ENV_VAR_G7_2"\n    purposes: ["my_custom_purpose"]\n'
+  );
+  const cwd = process.cwd();
+  process.chdir(repoDir);
+  process.env.FAKE_TOKEN_ENV_VAR_G7_2 = 'fake-token';
+  const originalError = console.error;
+  const errors = [];
+  console.error = (m) => errors.push(m);
+  try {
+    // This will fail LATER (unreachable fake cortex at 127.0.0.1:1) — the point here is only that --purpose
+    // validation itself does not reject "my_custom_purpose" before that later, unrelated failure.
+    await gridCliHandler(['knowledge', 'fleet.yaml', 'anything', '--purpose', 'my_custom_purpose']);
+  } finally {
+    console.error = originalError;
+    delete process.env.FAKE_TOKEN_ENV_VAR_G7_2;
+    process.chdir(cwd);
+  }
+  assert.ok(!errors.some((e) => e.includes('unknown purpose')), 'a fleet-declared extra purpose must never be rejected by local validation');
+});
+
 test('gridCliHandler: "knowledge" mentions itself in the unknown-subcommand help text', async () => {
   const originalError = console.error;
   const errors = [];
