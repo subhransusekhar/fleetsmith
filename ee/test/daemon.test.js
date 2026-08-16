@@ -285,11 +285,14 @@ test('runWatch detects a run starting and ending via the CURRENT-<actor> marker,
       const actor = resolveActor();
       const markerPath = path.join(localDir, 'runs', `CURRENT-${actor}`);
       fs.writeFileSync(markerPath, 'test-run-id');
-      await sleep(300);
+      // 600ms, not 300ms: the debounce itself is only 30ms, but the chain it triggers (fs.watch event ->
+      // scheduleSync -> a full syncOnce() — two HTTP round trips to the fake server plus materialize()'s
+      // file I/O) occasionally exceeded a 300ms window under load, flaking this test.
+      await sleep(600);
       assert.ok(logs.some((l) => l.includes('run-start')));
 
       fs.rmSync(markerPath);
-      await sleep(300);
+      await sleep(600);
 
       assert.ok(logs.some((l) => l.includes('run-end')));
       const endedReq = requests.find((r) => r.pathname === '/ingest' && r.query.object_type === 'ActorPresence' && r.body.rows.some((row) => row.ended_at));
