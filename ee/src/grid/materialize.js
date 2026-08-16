@@ -99,9 +99,12 @@ export function renderHandoffsList(actor, pointers) {
  * `FleetTask.depends_on` for `@actor#seq` references. Deterministic ordering (actor name, then task/seq) so
  * successive `GRID.md`s diff meaningfully instead of churning on row order alone.
  */
-export function renderGridRollup({ actors, syncedAt, cortexReachable = true, staleTtlMs = DEFAULT_STALE_TTL_MS, now = Date.now() }) {
+export function renderGridRollup({ actors, syncedAt, cortexReachable = true, staleTtlMs = DEFAULT_STALE_TTL_MS, now = Date.now(), overlapCount = null }) {
   const sortedActors = [...actors].sort((a, b) => a.actor.localeCompare(b.actor));
   const lines = ['# Grid', '', `_Synced: ${syncedAt}_ · Cortex: ${cortexReachable ? 'reachable' : 'unreachable'} · Active actors: ${sortedActors.length}`, ''];
+  if (overlapCount !== null) {
+    lines.push(overlapCount > 0 ? `_Overlaps: ${overlapCount} detected — see [OVERLAPS.md](./OVERLAPS.md)_` : '_Overlaps: none detected_', '');
+  }
   const crossActorDeps = [];
 
   for (const { actor, tasks, presence } of sortedActors) {
@@ -189,7 +192,7 @@ export function materialize(newRows, localDir, opts = {}) {
     presence: presenceByActor.has(actor) ? latestByKey(presenceByActor.get(actor), () => 'only')[0] : null,
   }));
   const gridMdPath = path.join(localDir, 'grid', 'GRID.md');
-  atomicWrite(gridMdPath, renderGridRollup({ actors: rollupActors, syncedAt, cortexReachable, staleTtlMs, now }));
+  atomicWrite(gridMdPath, renderGridRollup({ actors: rollupActors, syncedAt, cortexReachable, staleTtlMs, now, overlapCount: opts.overlapCount ?? null }));
   written.push(gridMdPath);
 
   return { written };

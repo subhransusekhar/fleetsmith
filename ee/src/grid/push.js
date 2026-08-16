@@ -37,7 +37,7 @@ function readIfExists(filePath) {
   }
 }
 
-function resolveBranch(repoDir) {
+export function resolveBranch(repoDir) {
   try {
     return execFileSync('git', ['branch', '--show-current'], { cwd: repoDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || 'HEAD';
   } catch {
@@ -88,7 +88,7 @@ export function assertOwnRow(typeName, row, actor) {
   }
 }
 
-function collectLedgerTasks(localDir, repoDir, ctx, warnings) {
+export function collectLedgerTasks(localDir, repoDir, ctx, warnings) {
   const ledgerPath = path.join(localDir, 'LEDGER.md');
   const content = readIfExists(ledgerPath);
   if (content === null) return [];
