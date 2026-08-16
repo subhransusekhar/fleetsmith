@@ -133,7 +133,10 @@ test('handoffToPointer digest is stable across whitespace-only changes outside t
 test('handoffToPointer falls back to a whole-file digest when there is no Acceptance criteria section', () => {
   const content = read('02-builder-to-reviewer.md');
   const pointer = handoffToPointer('02-builder-to-reviewer.md', content, ctx);
-  assert.equal(pointer.criteria_digest, createHash('sha256').update(content.trim()).digest('hex'));
+  // Normalized the same way handoffToPointer() itself does before hashing — a Windows checkout's
+  // core.autocrlf gives `content` real \r\n bytes that must be normalized identically here, or this
+  // assertion diverges from the function under test purely by platform, not by any real behavior difference.
+  assert.equal(pointer.criteria_digest, createHash('sha256').update(content.replace(/\r\n/g, '\n').trim()).digest('hex'));
 });
 
 test('handoffToPointer throws ProjectionError on a filename that does not match the naming convention', () => {
