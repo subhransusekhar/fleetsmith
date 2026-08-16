@@ -11,7 +11,8 @@
     ".": "./src/index.js",
     "./adapters": "./src/adapters/index.js",
     "./spec": "./src/spec/index.js",
-    "./opencode": "./src/opencode.js"
+    "./opencode": "./src/opencode.js",
+    "./memory/port": "./src/memory/port.js"
   },
   "files": [
     "src/",
@@ -19,12 +20,13 @@
     "LICENSE"
   ],
   "scripts": {
+    "pretest": "node scripts/ee-selflink.mjs",
     "test": "node --test",
     "bundle": "node scripts/bundle.mjs",
     "build:binary": "node scripts/bundle.mjs && node scripts/build-binary.mjs",
     "build:binary:macos-x64": "node scripts/bundle.mjs && node scripts/build-binary.mjs --arch x64",
     "build:example": "node src/cli.js build fleet.example.yaml --target all --out ./dist-example",
-    "prepublishOnly": "node --test"
+    "prepublishOnly": "npm test"
   },
   "keywords": [
     "agents",
