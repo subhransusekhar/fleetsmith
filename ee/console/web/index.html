@@ -1,0 +1,174 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>fleetsmith grid — board</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 0; padding: 1.5rem; max-width: 960px; margin-inline: auto; line-height: 1.4; }
+  h1 { font-size: 1.1rem; margin: 0 0 1rem; }
+  h2 { font-size: 0.95rem; margin: 1.75rem 0 0.5rem; }
+  code { font-size: 0.85em; }
+  form#connect { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  form#connect input { flex: 1 1 220px; padding: 0.35rem 0.5rem; }
+  form#connect button { padding: 0.35rem 0.75rem; }
+  #status { font-size: 0.85rem; color: #666; margin-bottom: 1rem; }
+  .actor-card { border: 1px solid #ccc; border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 0.75rem; }
+  .actor-head { display: flex; align-items: baseline; gap: 0.6rem; }
+  .actor-name { font-weight: 600; }
+  .chip { font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; border: 1px solid; }
+  .chip.active { color: #0a7a2e; border-color: #0a7a2e; }
+  .chip.stale { color: #a15c00; border-color: #a15c00; }
+  .chip.none { color: #888; border-color: #888; }
+  .task { margin: 0.35rem 0; font-size: 0.9rem; }
+  .task .declared { color: #666; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  th, td { border: 1px solid #ccc; padding: 0.35rem 0.5rem; text-align: left; vertical-align: top; }
+  tr.sev-0 { background: rgba(200, 40, 40, 0.08); }
+  tr.sev-1 { background: rgba(200, 120, 20, 0.08); }
+  .empty { color: #888; font-style: italic; }
+  .note { font-size: 0.8rem; color: #888; }
+</style>
+</head>
+<body>
+<h1>fleetsmith grid — board</h1>
+
+<!--
+  Everything below is OBSERVED, never edited from here — the board has no mutation affordance by design
+  (G8.2's own acceptance criterion). "Connect" only tells THIS PAGE which repo/token to poll with; it is
+  stored in this browser's localStorage, never sent anywhere but this console's own /api/board.
+-->
+<form id="connect">
+  <input id="remote" placeholder="git remote URL (e.g. git@github.com:acme/widgets.git)" required />
+  <input id="token" placeholder="bearer token" type="password" required />
+  <button type="submit">Connect</button>
+</form>
+<div id="status">not connected</div>
+
+<div id="board" hidden>
+  <h2>Actors</h2>
+  <div id="actors"></div>
+
+  <h2>Overlaps</h2>
+  <div id="overlaps"></div>
+
+  <h2>Cross-actor dependencies</h2>
+  <div id="deps"></div>
+</div>
+
+<script>
+  const POLL_MS = 15000; // 10-30s per the issue's own spec — no SSE in v1, the daemon already smooths freshness
+  const STORAGE_KEY = 'fleetsmith-console-board-connection';
+
+  let pollTimer = null;
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function renderActors(actors) {
+    const el = document.getElementById('actors');
+    if (actors.length === 0) {
+      el.innerHTML = '<p class="empty">no active actors observed</p>';
+      return;
+    }
+    el.innerHTML = actors.map((a) => {
+      const chip = !a.presence
+        ? '<span class="chip none">no presence data</span>'
+        : a.presence.stale
+        ? `<span class="chip stale">stale — last seen ${escapeHtml(a.presence.heartbeat_at)}</span>`
+        : `<span class="chip active">active — last seen ${escapeHtml(a.presence.heartbeat_at)}</span>`;
+      const branch = a.presence?.branch ? ` on <code>${escapeHtml(a.presence.branch)}</code>` : '';
+      const inProgress = a.tasks.filter((t) => t.status === 'in-progress');
+      const tasksHtml = inProgress.length
+        ? inProgress
+            .map((t) => {
+              const files = (t.files_declared ?? []).join(', ');
+              const symbols = (t.symbols_declared ?? []).join(', ');
+              const declared = [files && `files: ${escapeHtml(files)}`, symbols && `symbols: ${escapeHtml(symbols)}`].filter(Boolean).join('; ');
+              return `<div class="task">#${t.task_seq}: ${escapeHtml(t.task)}${declared ? ` <span class="declared">(${declared})</span>` : ''}</div>`;
+            })
+            .join('')
+        : '<p class="empty">no in-progress tasks</p>';
+      return `<div class="actor-card"><div class="actor-head"><span class="actor-name">${escapeHtml(a.actor)}</span>${chip}${branch}</div>${tasksHtml}</div>`;
+    }).join('');
+  }
+
+  function renderOverlaps(overlaps, risks, risksNote) {
+    const el = document.getElementById('overlaps');
+    const parts = [];
+    if (overlaps.length === 0) {
+      parts.push('<p class="empty">no overlaps detected</p>');
+    } else {
+      parts.push(
+        '<table><thead><tr><th>Kind</th><th>Severity</th><th>Actors</th><th>Tasks</th><th>Evidence</th><th>Suggested response</th></tr></thead><tbody>',
+        overlaps
+          .map((o) => `<tr class="sev-${o.severity}"><td>${escapeHtml(o.kind)}</td><td>${o.severity}</td><td>${escapeHtml(o.actors.join(', '))}</td><td>${escapeHtml(o.tasks.join(', '))}</td><td>${escapeHtml(o.evidence.join(', '))}</td><td>${escapeHtml(o.response ?? '-')}</td></tr>`)
+          .join(''),
+        '</tbody></table>'
+      );
+    }
+    if (risks.length) {
+      parts.push('<h3>Merge risks</h3><table><thead><tr><th>Kind</th><th>Actors</th><th>Branches</th><th>Files</th><th>Suggested response</th></tr></thead><tbody>',
+        risks.map((r) => `<tr class="sev-1"><td>${escapeHtml(r.kind)}</td><td>${escapeHtml(r.actors.join(', '))}</td><td>${escapeHtml(r.branches.join(', '))}</td><td>${escapeHtml(r.files.join(', '))}</td><td>${escapeHtml(r.response ?? '-')}</td></tr>`).join(''),
+        '</tbody></table>');
+    } else if (risksNote) {
+      parts.push(`<p class="note">${escapeHtml(risksNote)}</p>`);
+    }
+    el.innerHTML = parts.join('');
+  }
+
+  function renderDeps(deps) {
+    const el = document.getElementById('deps');
+    el.innerHTML = deps.length ? `<ul>${deps.map((d) => `<li><code>${escapeHtml(d)}</code></li>`).join('')}</ul>` : '<p class="empty">none</p>';
+  }
+
+  async function poll(remote, token) {
+    const statusEl = document.getElementById('status');
+    try {
+      const res = await fetch(`/api/board?remote=${encodeURIComponent(remote)}`, { headers: { Authorization: `Bearer ${token}` } });
+      const body = await res.json();
+      if (!res.ok) {
+        statusEl.textContent = `error: ${body.error ?? res.status}`;
+        return;
+      }
+      statusEl.textContent = `synced: ${body.syncedAt}`;
+      document.getElementById('board').hidden = false;
+      renderActors(body.actors);
+      renderOverlaps(body.overlaps, body.risks ?? [], body.risksNote);
+      renderDeps(body.crossActorDeps ?? []);
+    } catch (e) {
+      statusEl.textContent = `error: ${e.message}`;
+    }
+  }
+
+  function startPolling(remote, token) {
+    if (pollTimer) clearInterval(pollTimer);
+    poll(remote, token);
+    pollTimer = setInterval(() => poll(remote, token), POLL_MS);
+  }
+
+  document.getElementById('connect').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const remote = document.getElementById('remote').value.trim();
+    const token = document.getElementById('token').value.trim();
+    if (!remote || !token) return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ remote, token }));
+    startPolling(remote, token);
+  });
+
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) {
+    try {
+      const { remote, token } = JSON.parse(saved);
+      document.getElementById('remote').value = remote ?? '';
+      document.getElementById('token').value = token ?? '';
+      if (remote && token) startPolling(remote, token);
+    } catch {
+      /* ignore a corrupt saved value */
+    }
+  }
+</script>
+</body>
+</html>

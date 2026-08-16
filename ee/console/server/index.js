@@ -2,6 +2,7 @@
 import http from 'node:http';
 import { resolveConsoleConfig } from './config.js';
 import { buildApp } from './app.js';
+import { serveStatic } from './static.js';
 
 /**
  * The single deployable (G8.1): `node ee/console/server/index.js`, config from the environment
@@ -10,22 +11,29 @@ import { buildApp } from './app.js';
  * static route table and `routes/tokens.js`'s explicitly-documented, explicitly-non-authoritative in-memory
  * "created this process" list. Restarting loses nothing but in-flight requests, per the acceptance criteria.
  *
- * Static web-UI serving (the `ee/console/web/` build, G8.2 onward) is deliberately not wired here yet — this
- * task's own file list is `ee/console/server/` only; a later task adds the static-file fallback once there is
- * a build to serve.
+ * Static web-UI serving (`ee/console/web/`, wired G8.2): any request under `/api/` goes to the JSON router;
+ * everything else falls through to `serveStatic` (the board page and its assets), so the whole console is one
+ * deployable on one port, per the issue's own requirement.
  */
 export function createServer(env = process.env) {
   const consoleConfig = resolveConsoleConfig(env);
   const router = buildApp();
   const server = http.createServer((req, res) => {
-    router.dispatch(req, res, consoleConfig).catch((e) => {
-      // A handler or the dispatcher itself throwing OUTSIDE dispatch's own try/catch is a real server bug,
-      // not a caller-input problem — the one place this file does not reuse router.js's error->status mapping.
-      if (!res.headersSent) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: `unhandled server error: ${e.message}` }));
-      }
-    });
+    if (req.url.startsWith('/api/')) {
+      router.dispatch(req, res, consoleConfig).catch((e) => {
+        // A handler or the dispatcher itself throwing OUTSIDE dispatch's own try/catch is a real server bug,
+        // not a caller-input problem — the one place this file does not reuse router.js's error->status mapping.
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `unhandled server error: ${e.message}` }));
+        }
+      });
+      return;
+    }
+    if (!serveStatic(req, res)) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('not found');
+    }
   });
   return { server, consoleConfig };
 }
