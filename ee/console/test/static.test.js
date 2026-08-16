@@ -77,3 +77,30 @@ test('/api/ paths are never handled by static serving, even for a bogus one', as
     assert.match(text, /^\s*{/, 'an /api/ 404 must still be JSON, from the router, not the static fallback');
   });
 });
+
+// --- G8.4's two new pages ----------------------------------------------------------------------------------
+
+test('GET /knowledge.html serves the knowledge screen, with real mutation affordances targeting only /api/knowledge routes', async () => {
+  await withServer(async (url) => {
+    const { status, text } = await fetchText(`${url}/knowledge.html`);
+    assert.equal(status, 200);
+    assert.match(text, /fleetsmith grid — knowledge/);
+    // Unlike the board/audit pages, mutation IS the point here — but every mutating call must stay scoped to
+    // /api/knowledge, never wander into another screen's routes.
+    for (const m of text.matchAll(/api\(`([^`]*)`/g)) {
+      assert.match(m[1], /^\/api\/knowledge/, `unexpected API target in the knowledge page: ${m[1]}`);
+    }
+  });
+});
+
+test('GET /procedures.html serves a read-only page — no mutating fetch anywhere, only /api/procedures reads', async () => {
+  await withServer(async (url) => {
+    const { status, text } = await fetchText(`${url}/procedures.html`);
+    assert.equal(status, 200);
+    assert.match(text, /fleetsmith grid — procedures/);
+    assert.doesNotMatch(text, /method:\s*['"](POST|PUT|DELETE)['"]/i);
+    for (const m of text.matchAll(/fetch\(([^)]*)\)/g)) {
+      assert.match(m[1], /\/api\/procedures/, `unexpected fetch target in the procedures page: ${m[1]}`);
+    }
+  });
+});

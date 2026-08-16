@@ -1,0 +1,79 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>fleetsmith grid — procedures</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 0; padding: 1.5rem; max-width: 960px; margin-inline: auto; line-height: 1.4; }
+  h1 { font-size: 1.1rem; margin: 0 0 1rem; }
+  nav { font-size: 0.85rem; margin-bottom: 0.75rem; }
+  nav a { margin-right: 1rem; }
+  nav a.current { font-weight: 600; text-decoration: none; }
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+  form input { flex: 1 1 auto; padding: 0.35rem 0.5rem; }
+  #status, .note { font-size: 0.85rem; color: #888; margin-bottom: 0.75rem; }
+  .item { border: 1px solid #ccc; border-radius: 6px; padding: 0.6rem 0.9rem; margin-bottom: 0.6rem; font-size: 0.9rem; }
+  .item .counters { font-size: 0.75rem; color: #666; }
+  .empty { color: #888; font-style: italic; }
+  .error { color: #a11; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<nav><a href="/">Board</a><a href="/audit.html">Audit</a><a href="/knowledge.html">Knowledge</a><a class="current" href="/procedures.html">Procedures</a></nav>
+<h1>fleetsmith grid — procedures</h1>
+
+<p class="note">
+  Read-only. Procedures are ACE playbook lessons (<code>lesson</code>-kind memory items) — there is no
+  distinct "ProcedureMemory" type on this engine with first-class fields for an approval state or a queryable
+  version chain (see <code>ee/src/grid/approval.js</code>'s own doc comment); building either here would mean
+  faking state inside an opaque content string. Search below is a real recall query, not a browse — RelataDB's
+  <code>recall</code> requires a non-empty query server-side.
+</p>
+
+<form id="connect">
+  <input id="token" placeholder="bearer token" type="password" required />
+  <input id="query" placeholder="search query (required)" required />
+  <button type="submit">Search</button>
+</form>
+
+<div id="status"></div>
+<div id="items"></div>
+
+<script>
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  document.getElementById('connect').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const token = document.getElementById('token').value.trim();
+    const query = document.getElementById('query').value.trim();
+    const statusEl = document.getElementById('status');
+    const itemsEl = document.getElementById('items');
+    if (!token || !query) return;
+    try {
+      const res = await fetch(`/api/procedures?q=${encodeURIComponent(query)}`, { headers: { Authorization: `Bearer ${token}` } });
+      const body = await res.json();
+      if (!res.ok) {
+        statusEl.innerHTML = `<span class="error">${escapeHtml(body.error ?? res.status)}</span>`;
+        itemsEl.innerHTML = '';
+        return;
+      }
+      statusEl.textContent = `${body.items.length} result(s)`;
+      itemsEl.innerHTML = body.items.length
+        ? body.items
+            .map(
+              (it) =>
+                `<div class="item"><div>${escapeHtml(it.text)}</div><div class="counters">origin: ${escapeHtml(it.origin)}${it.counters ? ` — +${it.counters.helpful}/-${it.counters.harmful}` : ''}</div></div>`
+            )
+            .join('')
+        : '<p class="empty">no results</p>';
+    } catch (err) {
+      statusEl.innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
+    }
+  });
+</script>
+</body>
+</html>

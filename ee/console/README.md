@@ -37,11 +37,13 @@ node ee/console/server/index.js
 | GET | `/api/board?remote=` | member | G8.2 |
 | GET | `/api/audit?actor=&since=&until=&purpose=&limit=` | member (self-only, forced) / admin (any actor) | G8.3 |
 | GET | `/api/audit/why?id=` | member | G8.3 |
-| GET | `/api/knowledge?remote=&q=&purpose=&asOf=&asRecorded=&limit=` | member | G8.4 |
+| GET | `/api/knowledge?q=&purpose=&asOf=&asRecorded=&limit=` | member | G8.4 (search) |
+| GET | `/api/knowledge/documents` | member | G8.4 (browse, metrics, review queue) |
 | GET | `/api/procedures?q=&purpose=&limit=` | member | G8.4 (read-only — see `routes/knowledge.js`) |
 | POST | `/api/knowledge/:contentHash/propose` | member | G8.4 |
-| POST | `/api/knowledge/:contentHash/approve` | **admin** | G8.4 |
+| POST | `/api/knowledge/:contentHash/approve` | **admin** | G8.4 (returns `diff` against the currently-published same title+chunk_index, if one exists) |
 | POST | `/api/knowledge/:contentHash/publish` | member | G8.4 |
+| POST | `/api/knowledge/:contentHash/reject` | **admin** | G8.4 (body: `{note}`, required) |
 | GET | `/api/equip/:fleet/:agent?remote=` | member | G8.5 |
 | PUT | `/api/equip/:fleet/:agent?remote=` | **admin** | G8.5 |
 | GET | `/api/tokens` | **admin** | G8.6 |
@@ -67,5 +69,11 @@ discoverable principal at all is refused (403), not silently shown zero rows or 
 - `POST /tokens` and `DELETE /tokens/:id` require a distinct admin credential the ordinary per-developer
   bearer token cannot satisfy; `GET /tokens` (list-all) does not exist at all (`405`, `Allow: POST`) — see
   `server/routes/tokens.js`'s module doc comment for the full probe trail.
-- There is no distinct "ProcedureMemory" type with real, approval-worthy fields — `/api/procedures` is
-  read-only for exactly this reason (see `server/routes/knowledge.js`).
+- There is no distinct "ProcedureMemory" type with real, approval-worthy fields, nor a queryable `supersedes`
+  chain — `/api/procedures` is read-only for exactly this reason (see `server/routes/knowledge.js`). RelataDB's
+  real `consolidate` MCP tool is schema-documented to supersede one item by id, but that shape was read off
+  `GET /mcp/tools`, never independently round-tripped in this project — not a basis this console builds a
+  mutation on.
+- `reject` (G8.4) is the one transition that moves backward (`proposed` -> `draft`) and the one that requires
+  a note — `ee/src/grid/approval.js`'s `rejectOrgDocument`, a new sibling to G7.3's forward-only
+  `assertValidTransition` machinery, not a case bolted onto it.

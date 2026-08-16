@@ -34,6 +34,17 @@ import { ingestRows } from './ontology.js';
  * (`grid.approvers` in `fleet.yaml`, or `GRID_APPROVERS`, G7.3's addition to `ee/src/config.js`) checked
  * against the locally-resolved actor. This is CLIENT-SIDE ONLY, exactly like G7.1's identity check — it is
  * the operative control today, not a stand-in for a server-side one that does not exist.
+ *
+ * --- G8.4: reject — the one transition that moves backward, and the one that needs a note ------------------
+ *
+ * The console's review-queue screen needs a real "send this back for revision" action, not just the one-way
+ * propose->approve->publish ladder G7.3 shipped. `rejectOrgDocument` below is deliberately a SEPARATE function
+ * from `transitionOrgDocument`'s forward-only machinery, not a case bolted onto `assertValidTransition` (which
+ * stays exactly as strict as G7.3 left it: forward, one step, full stop) — reject only ever fires from
+ * `proposed` (rejecting a `draft` or an already-`approved`/`published` row makes no sense: nothing is pending
+ * review), moves straight back to `draft`, and REQUIRES a non-empty note, enforced here before any network
+ * call. The note becomes a real, queryable field (`rejection_note`) on the re-ingested row — auditable through
+ * the same `grid audit`/`explainItem` path every other OrgDocument field already is, not a side channel.
  */
 
 export class ApprovalError extends Error {}
@@ -117,4 +128,37 @@ export async function approveOrgDocument(config, contentHash, actor) {
 
 export async function publishOrgDocument(config, contentHash, actor) {
   return transitionOrgDocument(config, contentHash, 'published', actor);
+}
+
+/**
+ * Sends a `proposed` row back to `draft`, requiring an approver (the same reviewer gate `approve` already
+ * has) and a non-empty `note` — both checked before any network call. Re-ingests the same `content_hash` key
+ * with `approval: 'draft'` and `rejected_by`/`rejected_at`/`rejection_note` set, the same bi-temporal-
+ * supersession shape every other transition here already uses. Unlike `approved_at`/`approved_by`, which
+ * `transitionOrgDocument` clears back to empty on a later re-approval attempt, a rejection's fields are left
+ * as the historical record of THIS rejection — a later re-propose/re-approve cycle re-ingests the row again
+ * with fresh `approval`/`approved_*` values, but the prior `rejected_*` fields stay exactly as they were
+ * written, since `grid audit`/`explainItem` reads whichever version is current and a genuinely new rejection
+ * would overwrite them again at that point anyway.
+ */
+export async function rejectOrgDocument(config, contentHash, actor, note) {
+  if (!note || !note.trim()) {
+    throw new ApprovalError('rejecting requires a non-empty note — a reviewer sending work back must say why, and that note is the auditable record of this decision.');
+  }
+  assertApprover(config, actor);
+  const current = await fetchLatestOrgDocument(config, contentHash);
+  const fromState = current.approval ?? 'draft';
+  if (fromState !== 'proposed') {
+    throw new ApprovalError(`cannot reject from "${fromState}" — only a "proposed" row is pending review; nothing to send back.`);
+  }
+
+  const updated = {
+    ...current,
+    approval: 'draft',
+    rejected_by: actor,
+    rejected_at: new Date().toISOString(),
+    rejection_note: note.trim(),
+  };
+  await ingestRows(config, 'OrgDocument', [updated]);
+  return updated;
 }
