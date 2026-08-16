@@ -47,7 +47,7 @@ function setupRepo() {
   return { repoDir, localDir };
 }
 
-function fakeRelata({ failInit = false, queryRows = {}, tokensSelf = { present: false }, rotateResponse = { token: 'rotated-token' } } = {}) {
+function fakeRelata({ failInit = false, queryRows = {}, tokensSelf = { present: false }, rotateResponse = { token: 'rotated-token' }, auditResponse = { entries: [] } } = {}) {
   const requests = [];
   const server = http.createServer((req, res) => {
     let body = '';
@@ -91,6 +91,11 @@ function fakeRelata({ failInit = false, queryRows = {}, tokensSelf = { present: 
       if (req.method === 'GET' && url.pathname === '/graph/changes') {
         res.writeHead(200, { 'Content-Type': 'text/event-stream', Connection: 'keep-alive' });
         return; // never emits — matches the real, verified engine behavior (G3.3)
+      }
+      if (req.method === 'GET' && url.pathname === '/audit/entries') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(auditResponse));
+        return;
       }
 
       res.writeHead(404, { 'Content-Type': 'application/json' });
@@ -405,6 +410,103 @@ test('gridCliHandler: "propose|approve|publish" are documented in the unknown-su
     console.error = originalError;
   }
   assert.ok(errors.some((e) => e.includes('propose|approve|publish')));
+});
+
+// --- grid audit (G7.4) --------------------------------------------------------------
+
+test('gridCliHandler: "audit" degrades to local run events with no grid config, and labels itself', async () => {
+  const { repoDir, localDir } = setupRepo();
+  fs.mkdirSync(path.join(localDir, 'runs', 'someone-run'), { recursive: true });
+  fs.writeFileSync(path.join(localDir, 'runs', 'someone-run', 'events.jsonl'), '{"ts":"2026-01-01T00:00:00Z","event":"run_start"}\n');
+
+  const { exitCode, logs } = await runCliInDir(repoDir, ['audit', 'fleet.yaml']);
+  assert.equal(exitCode, 0);
+  assert.ok(logs.some((l) => l.includes('grid audit (degraded):')));
+  assert.ok(logs.some((l) => l.includes('degraded (no cortex configured)')));
+  assert.ok(logs.some((l) => l.includes('someone-run')));
+});
+
+test('gridCliHandler: "audit" queries the live cortex when grid is configured, threading filters through', async () => {
+  const { repoDir } = setupRepo();
+  await withFakeRelata({ auditResponse: { entries: [{ ts: '2026-01-01T00:00:00Z', actor: 'alice', action: 'recall', purpose: 'product_context', object: 'org:hash1' }] } }, async (config, requests) => {
+    const { exitCode, logs } = await runCliInDir(repoDir, ['audit', 'fleet.yaml', '--actor', 'alice', '--purpose', 'product_context']);
+    assert.equal(exitCode, 0);
+    assert.ok(logs.some((l) => /grid audit: 1 entry/.test(l)));
+    assert.ok(logs.some((l) => l.includes('org:hash1')));
+    const req = requests.find((r) => r.pathname === '/audit/entries');
+    assert.equal(req.query.actor, 'alice');
+    assert.equal(req.query.purpose, 'product_context');
+    void config;
+  });
+});
+
+test('gridCliHandler: "audit --json" emits raw JSON instead of a table', async () => {
+  const { repoDir } = setupRepo();
+  await withFakeRelata({ auditResponse: { entries: [{ actor: 'alice' }] } }, async () => {
+    const { exitCode, logs } = await runCliInDir(repoDir, ['audit', 'fleet.yaml', '--json']);
+    assert.equal(exitCode, 0);
+    const jsonLine = logs.find((l) => l.trim().startsWith('['));
+    assert.ok(jsonLine);
+    assert.deepEqual(JSON.parse(jsonLine), [{ actor: 'alice' }]);
+  });
+});
+
+test('gridCliHandler: "audit --why" explains an OrgDocument\'s lineage', async () => {
+  const { repoDir } = setupRepo();
+  const orgDoc = {
+    repo_id: 'r'.repeat(64),
+    content_hash: 'hash1',
+    kind: 'meeting',
+    title: 'Q1 Doc',
+    client: 'acme',
+    chunk_text: 'roadmap text',
+    source_file: 'notes.md',
+    imported_by: 'alice',
+    imported_at: '2026-01-01T00:00:00.000Z',
+    valid_from: '2026-01-01',
+    approval: 'approved',
+    approved_by: 'bob',
+    approved_at: '2026-01-05T00:00:00.000Z',
+  };
+  await withFakeRelata({ queryRows: { OrgDocument: [orgDoc] } }, async () => {
+    const { exitCode, logs } = await runCliInDir(repoDir, ['audit', 'fleet.yaml', '--why', 'org:hash1']);
+    assert.equal(exitCode, 0);
+    assert.ok(logs.some((l) => l.includes('org_document')));
+    assert.ok(logs.some((l) => l.includes('approved (by bob at 2026-01-05T00:00:00.000Z)')));
+  });
+});
+
+test('gridCliHandler: "audit --why" with no grid config reports degraded, not an error — there is nothing local to explain cortex lineage from', async () => {
+  const { repoDir } = setupRepo();
+  const { exitCode, logs } = await runCliInDir(repoDir, ['audit', 'fleet.yaml', '--why', 'org:hash1']);
+  assert.equal(exitCode, 0);
+  assert.ok(logs.some((l) => l.includes('not configured')));
+});
+
+test('gridCliHandler: "audit --limit" rejects a non-positive-integer value', async () => {
+  const { repoDir } = setupRepo();
+  const { exitCode, errors } = await runCliInDir(repoDir, ['audit', 'fleet.yaml', '--limit', 'not-a-number']);
+  assert.equal(exitCode, 1);
+  assert.ok(errors.some((e) => e.includes('--limit')));
+});
+
+test('gridCliHandler: "audit --purpose" rejects an unknown purpose locally', async () => {
+  const { repoDir } = setupRepo();
+  const { exitCode, errors } = await runCliInDir(repoDir, ['audit', 'fleet.yaml', '--purpose', 'produtc_context']);
+  assert.equal(exitCode, 1);
+  assert.ok(errors.some((e) => e.includes('unknown purpose')));
+});
+
+test('gridCliHandler: "audit" is documented in the unknown-subcommand help text', async () => {
+  const originalError = console.error;
+  const errors = [];
+  console.error = (m) => errors.push(m);
+  try {
+    await gridCliHandler(['bogus']);
+  } finally {
+    console.error = originalError;
+  }
+  assert.ok(errors.some((e) => e.includes('"audit')));
 });
 
 // --- overlaps (G5.3): syncOnce's post-reconcile hook, GRID.md's pointer line, and the one-shot verb -------
