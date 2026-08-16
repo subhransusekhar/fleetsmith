@@ -72,7 +72,11 @@ export function fakeRelata({
 
       if (req.method === 'GET' && url.pathname === '/audit/entries') {
         if (!goodTokens.includes(token)) return json(401, { title: 'Unauthorized', status: 401 });
-        return json(200, { entries: auditEntries });
+        // Real filtering (not a passthrough) — lets a test prove the console's own actor-forcing is REAL,
+        // not merely forwarded-and-hoped-for: a request carrying ?actor=mallory while the console has
+        // overwritten it server-side to the caller's real principal only ever sees THAT actor's rows here.
+        const filtered = url.searchParams.get('actor') ? auditEntries.filter((e) => e.actor === url.searchParams.get('actor')) : auditEntries;
+        return json(200, { entries: filtered });
       }
 
       if (req.method === 'GET' && url.pathname.startsWith('/memory/justify/')) {

@@ -152,14 +152,21 @@ test('GET /api/board without ?remote is a 400, not a crash', async () => {
 // --- audit (G8.3) -----------------------------------------------------------------------------------------
 
 test('GET /api/audit forwards filters and returns the cortex\'s entries', async () => {
-  await withConsole({}, { auditEntries: [{ timestamp: 't', actor: 'ada', action: 'recall', purpose: 'p', object: 'o' }] }, async ({ consoleUrl, requests }) => {
-    const { status, body } = await fetchJson(`${consoleUrl}/api/audit?actor=ada&limit=5`, AUTH('member-token'));
-    assert.equal(status, 200);
-    assert.equal(body.entries.length, 1);
-    const auditReq = requests.find((r) => r.pathname === '/audit/entries');
-    assert.equal(auditReq.query.actor, 'ada');
-    assert.equal(auditReq.query.limit, '5');
-  });
+  // A member's own principal must be discoverable AND match the ?actor= filter here — G8.3's self-only
+  // enforcement (routes/audit.js) otherwise overwrites it; that behavior has its own dedicated coverage in
+  // audit.test.js, this test is only about filter/limit forwarding.
+  await withConsole(
+    {},
+    { auditEntries: [{ timestamp: 't', actor: 'ada', action: 'recall', purpose: 'p', object: 'o' }], tokensSelf: (t) => (t === 'member-token' ? { present: true, principal: 'ada' } : { present: false }) },
+    async ({ consoleUrl, requests }) => {
+      const { status, body } = await fetchJson(`${consoleUrl}/api/audit?actor=ada&limit=5`, AUTH('member-token'));
+      assert.equal(status, 200);
+      assert.equal(body.entries.length, 1);
+      const auditReq = requests.find((r) => r.pathname === '/audit/entries');
+      assert.equal(auditReq.query.actor, 'ada');
+      assert.equal(auditReq.query.limit, '5');
+    }
+  );
 });
 
 test('GET /api/audit/why requires ?id', async () => {
