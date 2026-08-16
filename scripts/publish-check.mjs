@@ -15,8 +15,13 @@ function readJson(relPath) {
   return JSON.parse(readFileSync(path.join(REPO_ROOT, relPath), 'utf8'));
 }
 
+// On Windows, `npm` on PATH is a `.cmd` shim — execFileSync needs either that exact extension or `shell:
+// true` to resolve it; the bare name alone throws ENOENT there (caught by this project's own Windows
+// release-binary CI run, not written defensively up front).
+const NPM_CMD = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+
 function packFileList(cwd) {
-  const raw = execFileSync('npm', ['pack', '--dry-run', '--json'], { cwd, encoding: 'utf8' });
+  const raw = execFileSync(NPM_CMD, ['pack', '--dry-run', '--json'], { cwd, encoding: 'utf8' });
   const [entry] = JSON.parse(raw);
   return entry.files.map((f) => f.path);
 }
