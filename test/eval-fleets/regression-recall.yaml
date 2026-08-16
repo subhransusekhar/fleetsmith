@@ -1,0 +1,95 @@
+# Held-out fixture (G5.4): proves an agent given a seeded past lesson about a file actually recalls and
+# cites it before finalizing an artifact touching that same file, per grid-awareness's new pre-handoff
+# regression check step.
+#
+# The lesson is seeded directly into _fleet/shared/playbooks/ by the eval harness
+# (test/regression-recall-eval-exec.test.js) — NOT compiled into this spec — exactly like grid-two-actor.yaml
+# (G4.4) pre-seeds GRID.md rather than compiling it. No `fleet.grid:` block here at all: the regression
+# check runs through the memory port (file backend by default), independent of whether grid is configured —
+# this fixture IS the "identical instruction works degraded, with no grid config" proof from the issue's own
+# acceptance criteria, not a separate scenario.
+fleet:
+  name: regression-recall-fixture
+  domain: "small utility functions for an internal reports module"
+  pattern: pipeline
+
+agents:
+  - name: utility-writer
+    role: Writes small utility functions for the reports module.
+    goal: A utility that does exactly what was asked, informed by any past lessons about the files it touches.
+    capabilities: { read: true, edit: true }
+    skills: [grid-awareness]
+    handoff:
+      to: []
+      artifact: utility.md
+
+skills:
+  - name: grid-awareness
+    description: >
+      Methodology for reading `_fleet/local/grid/GRID.md` (multi-developer sync) and
+      responding to another developer's in-flight work before claiming a task, and for
+      recalling past lessons and failures about a file before finalizing an artifact
+      that touches it. Use whenever GRID.md lists a peer actor working on overlapping
+      files or symbols, before creating a new utility or helper that might already
+      exist on a peer's branch, or before finalizing a handoff to check whether anyone
+      has already run into trouble with the same file.
+    evals:
+      - query: >
+          Add a token-bucket rate limiter utility at src/utils/rate-limiter.js,
+          exporting a RateLimiter class with a consume() method. Follow your
+          grid-awareness skill's pre-handoff regression check before finalizing —
+          recall past lessons about this file first, and cite anything relevant.
+          When you are done, write a handoff file at
+          _fleet/local/handoffs/01-utility-writer-to-reviewer.md, following the
+          template at _fleet/local/handoffs/HANDOFF.template.md, and add or
+          update your row in _fleet/local/LEDGER.md. This is the whole task —
+          do not do anything beyond it.
+        expect:
+          mentions: ["setinterval"]
+    body: |
+      # Grid awareness
+
+      Multi-developer sync (the "grid") projects every other developer's in-flight
+      work into `_fleet/local/grid/` before anyone commits. Read it before claiming
+      work; it tells you who else is touching what, right now.
+
+      ## Reading GRID.md
+
+      `_fleet/local/grid/GRID.md` has three parts:
+
+      | Section | What it tells you |
+      |---|---|
+      | Header | Sync timestamp, cortex reachability, active actor count |
+      | Per-actor (`## <actor>`) | Their in-progress tasks, declared files/symbols, staleness |
+      | Cross-actor dependencies | Every `@<actor>#<seq>` reference found in any ledger |
+
+      - If GRID.md does not exist at all, proceed exactly as if you were the only
+        developer — grid state is advisory, never a blocker.
+
+      ## Pre-handoff regression check
+
+      Before finalizing your artifact, for each file it touches: one recall,
+      naming the file path and its key symbols as the query, `purpose:
+      regression_check`, `limit: 5`. This is the honest version of "anticipate
+      future bugs" — it does not predict anything, it surfaces what already went
+      wrong here before.
+
+      - On the RelataDB backend this spans team lessons, past run failures, and
+        org decisions touching the file — ranked by the engine's confidence x
+        recency.
+      - On the file backend (no grid configured) the identical call degrades to
+        token-overlap search over `_fleet/shared/playbooks/` — same instruction,
+        a smaller corpus, still useful.
+
+      Cite any hit naming the same file or symbol in your handoff's Context
+      digest or Failed approaches section — quote or closely paraphrase what
+      went wrong before, not just "see recall results." If nothing relevant
+      comes back, write "regression check: clean" in the Context digest anyway:
+      the step must stay visible whether or not it found something, or a
+      reviewer cannot tell a real clean bill of health from a skipped step.
+
+expect:
+  agents: 1
+  pattern: pipeline
+  emits:
+    - .claude/skills/grid-awareness/SKILL.md

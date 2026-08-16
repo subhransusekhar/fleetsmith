@@ -114,8 +114,10 @@ skills:
       when checking whether someone else is already touching a file or symbol,
       before creating a new utility or helper that might already exist on a peer's
       branch, when deciding whether to depend on another actor's task (the
-      `depends on: @<actor>#<task-seq>` ledger notation), or when interpreting a
-      `(stale)` actor or an `unreachable` grid header.
+      `depends on: @<actor>#<task-seq>` ledger notation), when interpreting a
+      `(stale)` actor or an `unreachable` grid header, or before finalizing an
+      artifact to check whether anyone has already run into trouble with the
+      same file.
     triggers:
       should:
         - "GRID.md shows bob already has an in-progress task touching the same files as mine — what should I do?"
@@ -123,6 +125,7 @@ skills:
         - "is anyone else's fleet currently touching the same file as me?"
         - "how do I declare a dependency on another actor's task using the @actor#seq notation"
         - "alice's presence in GRID.md is marked stale — does that still count as an overlap?"
+        - "before finalizing this handoff, recall any past lessons or failures tied to the files it touches"
       shouldNot:
         - "enumerate the API surface and map it to OWASP API Top 10 attack classes"
         - "implement rate limiting and input validation for this endpoint"
@@ -192,6 +195,28 @@ skills:
       existing implementation found" if recall returned nothing. Skipping this
       step is how two developers end up maintaining two slightly-different date
       parsers.
+
+      ## Pre-handoff regression check
+
+      Before finalizing your artifact, for each file it touches: one recall,
+      naming the file path and its key symbols as the query, `purpose:
+      regression_check`, `limit: 5`. This is the honest version of "anticipate
+      future bugs" — it does not predict anything, it surfaces what already went
+      wrong here before.
+
+      - On the RelataDB backend this spans team lessons, past run failures, and
+        org decisions touching the file — ranked by the engine's confidence x
+        recency.
+      - On the file backend (no grid configured) the identical call degrades to
+        token-overlap search over `_fleet/shared/playbooks/` — same instruction,
+        a smaller corpus, still useful.
+
+      Cite any hit naming the same file or symbol in your handoff's Context
+      digest or Failed approaches section — quote or closely paraphrase what
+      went wrong before, not just "see recall results." If nothing relevant
+      comes back, write "regression check: clean" in the Context digest anyway:
+      the step must stay visible whether or not it found something, or a
+      reviewer cannot tell a real clean bill of health from a skipped step.
 
 orchestrator:
   name: run-api-hardening
