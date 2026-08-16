@@ -1,0 +1,68 @@
+name: contract-pin
+
+# G9.3: pin the engine surface `ee/` depends on, against a real RelataDB instance, independent of `ci.yml`'s
+# own triggers — a separate workflow so its weekly schedule (the acceptance criterion's own words: "runs on a
+# schedule (weekly) as well as on ee PRs") doesn't also fire the whole 3-OS x 3-Node matrix and the other live
+# suites every week. Scoped to `ee/**` changes on pull requests, since this suite only exercises `ee/` code.
+#
+# Same registry-access gap as `ci.yml`'s `relatadb-live` job (see that job's own comment and
+# `ee/test/fixtures/relata-compose.yml`'s header): `ghcr.io/relatadb/relata` is access-gated, so this job only
+# does anything once RELATA_REGISTRY_TOKEN is configured as a repo secret by someone with real access —
+# absent that secret it exits 0 having done nothing, rather than going red for a credential this repo doesn't
+# hold. Every assertion in `ee/test/contract-pin.test.js` was independently verified live against a real,
+# licensed v1.5.7 instance while writing that file (2026-08-16) — this job is how the SAME suite gets a real,
+# reproducible run once registry access exists, not the first time it was ever exercised for real.
+#
+# As of 2026-08-16 the `ci` workflow is disabled at the GitHub level (`gh workflow disable ci`, a standing,
+# reversible, explicit user decision to save runner time — see the fleetsmith-v0.7.0-intelligence-grid-plan
+# project note) — this workflow is written the same way regardless, ready for the day both are re-enabled.
+on:
+  pull_request:
+    paths:
+      - 'ee/**'
+  schedule:
+    - cron: '0 6 * * 1' # every Monday, 06:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  contract-pin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Bring up the pinned RelataDB (skips cleanly without registry access)
+        id: relata
+        env:
+          RELATA_REGISTRY_TOKEN: ${{ secrets.RELATA_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "$RELATA_REGISTRY_TOKEN" ]; then
+            echo "RELATA_REGISTRY_TOKEN not set — skipping the contract-pin suite (see ee/test/fixtures/relata-compose.yml)."
+            echo "started=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "$RELATA_REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker compose -p relata-contract-pin -f ee/test/fixtures/relata-compose.yml up -d
+          echo "started=true" >> "$GITHUB_OUTPUT"
+      - name: Wait for health
+        if: steps.relata.outputs.started == 'true'
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:9090/health >/dev/null && exit 0
+            sleep 2
+          done
+          echo "RelataDB never became healthy" >&2
+          exit 1
+      - name: Contract-pin suite
+        if: steps.relata.outputs.started == 'true'
+        env:
+          RELATA_TEST_URL: http://127.0.0.1:9090
+          # Deliberately NOT setting RELATA_TEST_ALLOW_ROTATE: this compose fixture runs RELATA_AUTH_MODE=none
+          # (no auth enforced at all), so contract 5's rotation/revocation assertions would have nothing real
+          # to exercise here regardless — see contract-pin.test.js's own gating comment for that contract.
+        run: node --test ee/test/contract-pin.test.js
+      - name: Tear down
+        if: always() && steps.relata.outputs.started == 'true'
+        run: docker compose -p relata-contract-pin -f ee/test/fixtures/relata-compose.yml down -v
