@@ -23,6 +23,7 @@ const backends = new Map();
 const commands = new Map();
 const HOOK_EVENTS = ['run_start', 'run_end'];
 const hooks = Object.fromEntries(HOOK_EVENTS.map((e) => [e, []]));
+const healthSources = [];
 
 /** `factory(config) -> backend`, where backend implements the five-verb port shape (`src/memory/port.js`). */
 export function registerMemoryBackend(name, factory) {
@@ -73,12 +74,41 @@ export async function runDaemonHooks(event, ...args) {
   }
 }
 
+/**
+ * `fn(spec, localDir) -> RunEventSummary-shaped row[]` (G7.5). Advisory like the daemon hooks above: a health
+ * report must be identical whether zero or several sources are registered, so `collectHealthSources` (not
+ * this function) is what enforces fail-soft behavior at call time. Unlike `registerMemoryBackend`, sources are
+ * a list, not a name→factory map — `src/health/index.js` merges whatever every registered source returns, it
+ * never selects one by name.
+ */
+export function registerHealthSource(fn) {
+  healthSources.push(fn);
+}
+
+/**
+ * Calls every registered health source with `(spec, localDir)` and concatenates their rows. A throwing source
+ * is logged and skipped, never propagated — the same fail-soft contract `runDaemonHooks` gives daemon hooks.
+ */
+export function collectHealthSources(spec, localDir) {
+  const collected = [];
+  for (const fn of healthSources) {
+    try {
+      const rows = fn(spec, localDir);
+      if (Array.isArray(rows)) collected.push(...rows);
+    } catch (e) {
+      console.error(`health source failed: ${e.message}`);
+    }
+  }
+  return collected;
+}
+
 /** Names only — for `fleetsmith --version` display and tests. Never exposes factories or handlers. */
 export function listRegistered() {
   return {
     backends: [...backends.keys()],
     commands: [...commands.keys()],
     hooks: Object.fromEntries(Object.entries(hooks).map(([event, fns]) => [event, fns.length])),
+    healthSources: healthSources.length,
   };
 }
 
@@ -91,4 +121,5 @@ export function _resetForTests() {
   backends.clear();
   commands.clear();
   for (const event of HOOK_EVENTS) hooks[event] = [];
+  healthSources.length = 0;
 }
