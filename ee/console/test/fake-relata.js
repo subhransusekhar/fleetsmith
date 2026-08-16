@@ -23,6 +23,8 @@ export function fakeRelata({
   recognizeResult = null,
   recallRows = [],
   health = { status: 'ok', profile: 'free', license_tier: 'server' },
+  engineStatus = { profile: 'free', node_id: 'node-1', role: 'coordinator', active_connections: 0, query_quota: 10000, ingested_rows: 0, uptime_secs: 100 },
+  metricsText = '# HELP relata_store_total_stored_bytes Total stored bytes (hot + spilled) — free-tier cap is metered against this.\n# TYPE relata_store_total_stored_bytes gauge\nrelata_store_total_stored_bytes 0\n',
 } = {}) {
   const requests = [];
   const server = http.createServer((req, res) => {
@@ -41,6 +43,17 @@ export function fakeRelata({
       };
 
       if (req.method === 'GET' && url.pathname === '/health') return json(200, health);
+
+      if (req.method === 'GET' && url.pathname === '/status') {
+        if (!goodTokens.includes(token)) return json(401, { title: 'Unauthorized', status: 401, detail: 'Bearer token missing or invalid.' });
+        return json(200, engineStatus);
+      }
+      if (req.method === 'GET' && url.pathname === '/metrics') {
+        if (!goodTokens.includes(token)) return json(401, { title: 'Unauthorized', status: 401, detail: 'Bearer token missing or invalid.' });
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end(metricsText);
+        return;
+      }
 
       if (req.method === 'POST' && url.pathname === '/query') {
         if (!goodTokens.includes(token)) return json(401, { title: 'Unauthorized', status: 401, detail: 'unauthorized' });

@@ -61,5 +61,12 @@ export function resolveConsoleConfig(env = process.env) {
     adminToken: env.RELATA_ADMIN_TOKEN || null,
     admins: readCsvEnv(env, 'CONSOLE_ADMINS'),
     port: Number.parseInt(env.PORT ?? '4173', 10),
+    // G8.7: license expiry is not retrievable through ANY HTTP endpoint on this engine — /health, /status,
+    // /metrics, /license, /admin/license were all checked directly against a real instance; the expiry
+    // (`valid_until`) lives only in the node's own local license file (~/.relata/node.dat), which a remote
+    // console has no access to. This lets an operator who DOES know their own expiry (from that same local
+    // file) opt into the day-countdown warning `routes/health.js` computes — an ISO 8601 timestamp, matching
+    // `new Date(node.dat's valid_until * 1000).toISOString()`. Absent by default; nothing is faked.
+    licenseExpiresAt: env.RELATA_LICENSE_EXPIRES_AT || null,
   };
 }

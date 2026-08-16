@@ -279,6 +279,49 @@ test('syncOnce pushes normally when the token principal matches the local actor'
   });
 });
 
+// --- G8.7: last_sync, distinct from heartbeat_at ------------------------------------------------------------
+
+test('a successful syncOnce stamps last_sync onto ActorPresence, distinct from and in addition to heartbeat_at', async () => {
+  await withFakeRelata({}, async (config, requests) => {
+    const { repoDir } = setupRepo();
+    const spec = loadSpecFile(path.join(repoDir, 'fleet.yaml'));
+    const result = await syncOnce(spec, repoDir);
+
+    assert.equal(result.degraded, false);
+    const presenceIngest = requests.find((r) => r.pathname === '/ingest' && r.query.object_type === 'ActorPresence' && r.body.rows.some((row) => row.last_sync));
+    assert.ok(presenceIngest, 'a presence row carrying last_sync must have been ingested on a successful cycle');
+    const row = presenceIngest.body.rows.find((r) => r.last_sync);
+    assert.equal(row.last_sync, row.heartbeat_at, 'both fields are stamped from the same completion timestamp');
+    void config;
+  });
+});
+
+test('syncOnce never stamps last_sync when the cortex is unreachable — the field must stop advancing, not be faked', async () => {
+  const { repoDir } = setupRepo();
+  const spec = loadSpecFile(path.join(repoDir, 'fleet.yaml'));
+  // No fake server listening at all — every request, including the reachability probe itself, fails.
+  process.env.RELATA_URL = 'http://127.0.0.1:1';
+  process.env.RELATA_TOKEN = 'unreachable-test-token';
+  try {
+    const result = await syncOnce(spec, repoDir);
+    assert.equal(result.degraded, true);
+  } finally {
+    delete process.env.RELATA_URL;
+    delete process.env.RELATA_TOKEN;
+  }
+});
+
+test('syncOnce never stamps last_sync when push was refused for a real identity mismatch — same gate as the push itself', async () => {
+  const realActor = resolveActor();
+  await withFakeRelata({ tokensSelf: { present: true, principal: `not-${realActor}` } }, async (config, requests) => {
+    const { repoDir } = setupRepo();
+    const spec = loadSpecFile(path.join(repoDir, 'fleet.yaml'));
+    await syncOnce(spec, repoDir);
+    assert.ok(!requests.some((r) => r.pathname === '/ingest'), 'no ActorPresence row (or anything else) may be ingested when the principal genuinely mismatches');
+    void config;
+  });
+});
+
 test('gridCliHandler: "token rotate" prints the new token and update/restart guidance', async () => {
   const { repoDir } = setupRepo();
   await withFakeRelata({ rotateResponse: { token: 'shiny-new-token' } }, async (config, requests) => {

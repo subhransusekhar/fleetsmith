@@ -19,7 +19,7 @@
     }
   },
   "ActorPresence": {
-    "description": "One row per developer per repo — is their fleet running right now, on which branch, since when. `ended_at` (G3.5, additive) is set on a run_end supersession — the row is never deleted, only re-ingested with `ended_at` populated; a bare SELECT * still returns every version ever ingested (verified — RelataDB has no server-side dedup), so materialize()'s last-write-wins resolution (G3.4) sees the ended state without any row ever being removed.",
+    "description": "One row per developer per repo — is their fleet running right now, on which branch, since when. `ended_at` (G3.5, additive) is set on a run_end supersession — the row is never deleted, only re-ingested with `ended_at` populated; a bare SELECT * still returns every version ever ingested (verified — RelataDB has no server-side dedup), so materialize()'s last-write-wins resolution (G3.4) sees the ended state without any row ever being removed. `last_sync` (G8.7, additive) is a DIFFERENT signal than `heartbeat_at`: heartbeat reflects only that the daemon PROCESS is alive (a separate timer in runWatch), while `last_sync` is stamped by daemon.js's syncOnce() only on a cycle that actually completes a full push/pull/materialize round trip — an actor whose cortex connectivity is failing keeps heartbeating (the process is fine) while `last_sync` silently stops advancing, which is exactly the degradation the console's health screen (G8.7) surfaces.",
     "key": ["repo_id", "actor"],
     "fields": {
       "repo_id": "string",
@@ -29,6 +29,7 @@
       "started_at": "string",
       "heartbeat_at": "string",
       "ended_at": "string",
+      "last_sync": "string",
       "purpose": "string",
       "origin": "string"
     }
