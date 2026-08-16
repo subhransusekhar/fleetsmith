@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { request } from '../../../src/memory/relatadb.js';
 import { RelataHttpError } from '../../../src/memory/errors.js';
+import { rotateToken, IdentityError } from '../../../src/grid/identity.js';
 
 /**
  * G8.6 — tokens & members, one-time-visible credentials. Real, verified engine constraints (probed directly
@@ -30,6 +31,23 @@ import { RelataHttpError } from '../../../src/memory/errors.js';
  *     `rotateToken()` (G7.1) already does for its own likewise-unverified response shape). This console never
  *     stores that value anywhere past the single response it arrives in — "one-time-visible" is enforced by
  *     construction (no second database to have kept it in), not by a policy this code has to remember to obey.
+ *
+ * --- `ttl` (G8.6): passed through, best-effort, never independently verified -------------------------------
+ *
+ * The one earlier probe against `POST /tokens` (see point 3) only established that `id` is the one required
+ * field — nothing was probed about an optional expiry, since that would have meant a second real create
+ * attempt against the primary instance with no admin token available to clean it up. `createToken` below
+ * forwards `body.ttlSeconds` under the field name `ttl_seconds` if given (a plausible, conventional name, not
+ * a confirmed one) and reports back whatever `expires_at`-shaped field the response carries, defensively —
+ * the same "assumed, documented as such" tier as `queryAuditEntries`'s filter params. If a live instance ever
+ * confirms a different real shape, fixing this is a finding worth having, not a reason this waited to ship.
+ *
+ * --- Self-service rotation (G8.6) reuses G7.1's `rotateToken`, unchanged -------------------------------------
+ *
+ * `postRotateSelf` is the one token-admin-adjacent route that is NOT admin-gated and does NOT use
+ * `consoleConfig.adminToken` — `POST /tokens/self/rotate` (G7.1's `rotateToken`) is a per-developer,
+ * self-service action on the CALLER's OWN token, forwarded as-is, exactly like every other non-token-CRUD
+ * route in this console.
  */
 
 export class TokenAdminError extends Error {}
@@ -45,11 +63,16 @@ function requireAdminToken(consoleConfig) {
   }
 }
 
+/** Raw data, for `routes/members.js` to fold into its own view — `listTokens` (below) is the HTTP-shaped route handler; this is the same underlying list, undecorated. */
+export function listTokensCreatedThisProcess() {
+  return createdThisProcess;
+}
+
 export async function listTokens(_ctx, consoleConfig) {
   return {
     status: 200,
     body: {
-      tokens: createdThisProcess.map((t) => ({ id: t.id, owner: t.owner, prefix: t.prefix, createdAt: t.createdAt, createdBy: t.createdBy })),
+      tokens: createdThisProcess.map((t) => ({ id: t.id, owner: t.owner, prefix: t.prefix, createdAt: t.createdAt, expiresAt: t.expiresAt ?? null, createdBy: t.createdBy })),
       note: 'this engine has no list-all-tokens endpoint (verified: GET /tokens -> 405) — this is only what THIS console process has created since it last started, not an authoritative org-wide list',
       tokenAdminConfigured: Boolean(consoleConfig.adminToken),
     },
@@ -65,10 +88,14 @@ export async function createToken(ctx, consoleConfig) {
     throw err;
   }
   const owner = typeof ctx.body.owner === 'string' ? ctx.body.owner : '';
+  const ttlSeconds = Number.isInteger(ctx.body.ttlSeconds) && ctx.body.ttlSeconds > 0 ? ctx.body.ttlSeconds : null;
 
   let result;
   try {
-    result = await request({ url: consoleConfig.url, token: consoleConfig.adminToken }, { method: 'POST', path: '/tokens', body: { id, ...(owner ? { owner } : {}) } });
+    result = await request(
+      { url: consoleConfig.url, token: consoleConfig.adminToken },
+      { method: 'POST', path: '/tokens', body: { id, ...(owner ? { owner } : {}), ...(ttlSeconds ? { ttl_seconds: ttlSeconds } : {}) } }
+    );
   } catch (e) {
     if (e instanceof RelataHttpError) {
       const err = new TokenAdminError(`token creation refused by the cortex: ${e.message}`);
@@ -78,9 +105,34 @@ export async function createToken(ctx, consoleConfig) {
     throw e;
   }
   const value = result?.token ?? result?.value ?? result?.secret ?? null;
-  createdThisProcess.push({ id, owner, prefix: value ? value.slice(0, 8) : '(unknown)', createdAt: new Date().toISOString(), createdBy: ctx.principal ?? '(unknown)' });
+  const expiresAt = result?.expires_at ?? result?.expiresAt ?? null;
+  createdThisProcess.push({ id, owner, prefix: value ? value.slice(0, 8) : '(unknown)', createdAt: new Date().toISOString(), expiresAt, createdBy: ctx.principal ?? '(unknown)' });
 
-  return { status: 201, body: { id, owner, token: value, warning: value ? 'this value is shown exactly once — it is not retrievable again through this console' : 'the engine\'s response carried no recognizable token field under any known name (token/value/secret) — see this route\'s module doc comment' } };
+  return {
+    status: 201,
+    body: {
+      id,
+      owner,
+      token: value,
+      expiresAt,
+      warning: value ? 'this value is shown exactly once — it is not retrievable again through this console' : 'the engine\'s response carried no recognizable token field under any known name (token/value/secret) — see this route\'s module doc comment',
+    },
+  };
+}
+
+/** Self-service — no admin gate, no `consoleConfig.adminToken`. Wraps G7.1's `rotateToken`, forwarding the caller's OWN token, same as every non-token-CRUD route in this console. */
+export async function postRotateSelf(ctx, consoleConfig) {
+  try {
+    const { token } = await rotateToken({ url: consoleConfig.url, token: ctx.token });
+    return { status: 200, body: { token, warning: 'this value is shown exactly once — it is not retrievable again through this console; update wherever your own RELATA_TOKEN/token_env is configured, then restart any running grid daemon' } };
+  } catch (e) {
+    if (e instanceof IdentityError) {
+      const err = new TokenAdminError(e.message);
+      err.status = 502;
+      throw err;
+    }
+    throw e;
+  }
 }
 
 export async function revokeToken(ctx, consoleConfig) {

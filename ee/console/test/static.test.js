@@ -117,3 +117,20 @@ test('GET /equip.html serves the equip screen, with every API call scoped to /ap
     }
   });
 });
+
+// --- G8.6's members page -------------------------------------------------------------------------------------
+
+test('GET /members.html serves the members/tokens screen, with every API call scoped to /api/members or /api/tokens', async () => {
+  await withServer(async (url) => {
+    const { status, text } = await fetchText(`${url}/members.html`);
+    assert.equal(status, 200);
+    assert.match(text, /fleetsmith grid — members/);
+    let apiCallCount = 0;
+    for (const m of text.matchAll(/api\((?:`([^`]*)`|'([^']*)'|"([^"]*)")/g)) {
+      const target = m[1] ?? m[2] ?? m[3];
+      apiCallCount++;
+      assert.match(target, /^\/api\/(members|tokens)/, `unexpected API target in the members page: ${target}`);
+    }
+    assert.ok(apiCallCount >= 4, 'expected members/create/rotate/revoke calls to all be present');
+  });
+});

@@ -1,0 +1,181 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>fleetsmith grid — members</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 0; padding: 1.5rem; max-width: 960px; margin-inline: auto; line-height: 1.4; }
+  h1 { font-size: 1.1rem; margin: 0 0 1rem; }
+  h2 { font-size: 0.95rem; margin: 1.5rem 0 0.5rem; }
+  nav { font-size: 0.85rem; margin-bottom: 0.75rem; }
+  nav a { margin-right: 1rem; }
+  nav a.current { font-weight: 600; text-decoration: none; }
+  form#connect { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  form#connect input { flex: 1 1 200px; padding: 0.35rem 0.5rem; }
+  #status { font-size: 0.85rem; color: #666; margin-bottom: 1rem; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; margin-bottom: 1rem; }
+  th, td { border: 1px solid #ccc; padding: 0.35rem 0.5rem; text-align: left; vertical-align: top; }
+  .chip { font-size: 0.75rem; padding: 0.05rem 0.4rem; border-radius: 999px; border: 1px solid; }
+  .chip.active { color: #0a7a2e; border-color: #0a7a2e; }
+  .chip.stale { color: #a15c00; border-color: #a15c00; }
+  .chip.none { color: #888; border-color: #888; }
+  .create-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+  .create-row input { padding: 0.3rem; }
+  .error { color: #a11; font-size: 0.85rem; }
+  .note { font-size: 0.8rem; color: #888; }
+  dialog { border: 1px solid #ccc; border-radius: 8px; padding: 1.25rem; max-width: 480px; }
+  dialog .value { font-family: ui-monospace, monospace; background: rgba(0,0,0,0.06); padding: 0.5rem 0.75rem; border-radius: 4px; word-break: break-all; margin: 0.75rem 0; }
+  dialog .warning { color: #a15c00; font-weight: 600; }
+</style>
+</head>
+<body>
+<nav><a href="/">Board</a><a href="/audit.html">Audit</a><a href="/knowledge.html">Knowledge</a><a href="/procedures.html">Procedures</a><a href="/equip.html">Equip</a><a class="current" href="/members.html">Members</a></nav>
+<h1>fleetsmith grid — members</h1>
+
+<form id="connect">
+  <input id="token" placeholder="bearer token" type="password" required />
+  <input id="remote" placeholder="git remote URL" required />
+  <button type="submit">Load</button>
+</form>
+
+<div id="content" hidden>
+  <div id="status"></div>
+
+  <h2>Members</h2>
+  <p class="note">Known actors from grid activity (presence) and tokens created through this console — see this page's own note in <code>routes/members.js</code> for why these are a union of two independent signals, not one authoritative roster.</p>
+  <table>
+    <thead><tr><th>Name</th><th>Role</th><th>Last seen</th><th>Tokens</th><th></th></tr></thead>
+    <tbody id="members"></tbody>
+  </table>
+
+  <h2>Create a token (admin)</h2>
+  <div class="create-row">
+    <input id="new-id" placeholder="token id" />
+    <input id="new-owner" placeholder="owner (actor name)" />
+    <input id="new-ttl" type="number" min="1" placeholder="TTL seconds (optional)" />
+    <button type="button" id="create">Create</button>
+  </div>
+  <div id="create-error" class="error"></div>
+
+  <h2>Rotate my own token</h2>
+  <button type="button" id="rotate-self">Rotate</button>
+</div>
+
+<dialog id="reveal-dialog">
+  <p class="warning">This value is shown exactly once. It will not be retrievable again through this console.</p>
+  <div class="value" id="reveal-value"></div>
+  <button type="button" id="copy">Copy</button>
+  <button type="button" id="close-dialog">Close</button>
+</dialog>
+
+<script>
+  let token = null;
+  let remote = null;
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  async function api(path, opts) {
+    const res = await fetch(path, { ...opts, headers: { ...(opts?.headers ?? {}), Authorization: `Bearer ${token}` } });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+    return body;
+  }
+
+  function showOnceDialog(value) {
+    document.getElementById('reveal-value').textContent = value;
+    document.getElementById('reveal-dialog').showModal();
+  }
+  document.getElementById('copy').addEventListener('click', () => navigator.clipboard?.writeText(document.getElementById('reveal-value').textContent));
+  document.getElementById('close-dialog').addEventListener('click', () => document.getElementById('reveal-dialog').close());
+
+  function renderMembers(members) {
+    document.getElementById('members').innerHTML = members
+      .map((m) => {
+        const seen = !m.lastSeen
+          ? '<span class="chip none">no activity observed</span>'
+          : m.lastSeen.stale
+          ? `<span class="chip stale">stale — ${escapeHtml(m.lastSeen.heartbeatAt)}</span>`
+          : `<span class="chip active">active — ${escapeHtml(m.lastSeen.heartbeatAt)}</span>`;
+        const tokens = m.tokens.length
+          ? m.tokens.map((t) => `${escapeHtml(t.prefix)}… (created ${escapeHtml(t.createdAt)}${t.expiresAt ? `, expires ${escapeHtml(t.expiresAt)}` : ''})`).join('<br>')
+          : '<span class="note">none created here</span>';
+        const revokeButtons = m.tokens.map((t) => `<button type="button" class="revoke" data-id="${escapeHtml(t.id)}">Revoke ${escapeHtml(t.prefix)}…</button>`).join(' ');
+        return `<tr><td>${escapeHtml(m.name)}</td><td>${escapeHtml(m.role)}</td><td>${seen}</td><td>${tokens}</td><td>${revokeButtons}</td></tr>`;
+      })
+      .join('');
+
+    document.querySelectorAll('button.revoke').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        // "immediate, irreversible" — the confirm dialog names the actual consequence, not a generic warning.
+        if (!confirm('Revoking this token is immediate and irreversible. Any daemon still using it will stop syncing as soon as it next tries to authenticate. Continue?')) return;
+        try {
+          await api(`/api/tokens/${encodeURIComponent(btn.dataset.id)}`, { method: 'DELETE' });
+          load();
+        } catch (e) {
+          document.getElementById('status').textContent = `error: ${e.message}`;
+        }
+      });
+    });
+  }
+
+  async function load() {
+    const statusEl = document.getElementById('status');
+    try {
+      const body = await api(`/api/members?remote=${encodeURIComponent(remote)}`);
+      statusEl.textContent = `${body.members.length} known member(s)`;
+      renderMembers(body.members);
+    } catch (e) {
+      statusEl.innerHTML = `<span class="error">${escapeHtml(e.message)}</span>`;
+    }
+  }
+
+  document.getElementById('connect').addEventListener('submit', (e) => {
+    e.preventDefault();
+    token = document.getElementById('token').value.trim();
+    remote = document.getElementById('remote').value.trim();
+    if (!token || !remote) return;
+    document.getElementById('content').hidden = false;
+    load();
+  });
+
+  document.getElementById('create').addEventListener('click', async () => {
+    const id = document.getElementById('new-id').value.trim();
+    const owner = document.getElementById('new-owner').value.trim();
+    const ttl = document.getElementById('new-ttl').value.trim();
+    const errorEl = document.getElementById('create-error');
+    errorEl.textContent = '';
+    if (!id) {
+      errorEl.textContent = 'token id is required';
+      return;
+    }
+    try {
+      const body = await api('/api/tokens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, owner: owner || undefined, ttlSeconds: ttl ? Number(ttl) : undefined }),
+      });
+      document.getElementById('new-id').value = '';
+      document.getElementById('new-owner').value = '';
+      document.getElementById('new-ttl').value = '';
+      showOnceDialog(body.token ?? body.warning);
+      load();
+    } catch (e) {
+      errorEl.textContent = e.message;
+    }
+  });
+
+  document.getElementById('rotate-self').addEventListener('click', async () => {
+    try {
+      const body = await api('/api/tokens/self/rotate', { method: 'POST' });
+      showOnceDialog(body.token);
+    } catch (e) {
+      document.getElementById('status').textContent = `error: ${e.message}`;
+    }
+  });
+</script>
+</body>
+</html>

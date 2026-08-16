@@ -16,6 +16,7 @@ export function fakeRelata({
   goodTokens = ['member-token', 'admin-token'],
   adminToken = 'admin-token',
   tokensSelf = () => ({ present: false }),
+  rotateResponse = (token) => ({ token: `rotated-${token}` }),
   queryRows = {},
   auditEntries = [],
   justifyResult = null,
@@ -54,10 +55,14 @@ export function fakeRelata({
         return json(200, tokensSelf(token));
       }
 
+      if (req.method === 'POST' && url.pathname === '/tokens/self/rotate') {
+        if (!goodTokens.includes(token)) return json(401, { title: 'Unauthorized', status: 401 });
+        return json(200, rotateResponse(token));
+      }
       if (req.method === 'POST' && url.pathname === '/tokens') {
         if (token !== adminToken) return json(403, { title: 'Forbidden', status: 403, detail: 'admin token required' });
         if (!parsed?.id) return json(422, { title: 'Unprocessable Entity', status: 422, detail: 'missing field `id`' });
-        return json(201, { id: parsed.id, token: `secret-${parsed.id}` });
+        return json(201, { id: parsed.id, token: `secret-${parsed.id}`, ...(parsed.ttl_seconds ? { expires_at: new Date(Date.now() + parsed.ttl_seconds * 1000).toISOString() } : {}) });
       }
       if (req.method === 'DELETE' && url.pathname.startsWith('/tokens/')) {
         if (token !== adminToken) return json(403, { title: 'Forbidden', status: 403, detail: 'admin token required' });
