@@ -21,7 +21,17 @@ await build({
   // which has no package.json on disk beside it.
   define: {
     __FLEETSMITH_VERSION__: JSON.stringify(version),
+    // esbuild cannot fill `import.meta` in for the cjs format — it substitutes
+    // an empty object, so `import.meta.url` silently becomes undefined and, in
+    // v0.7.0, took `createRequire(undefined)` down with it on EVERY command.
+    // Defining it explicitly makes that substitution a stated contract rather
+    // than a build warning nobody reads; `MODULE_URL` in src/cli.js is the one
+    // place that reads it, and every consumer branches off that.
+    'import.meta.url': 'undefined',
   },
+  // A new `import.meta` use that is NOT routed through MODULE_URL is a bug of
+  // exactly the shape above, so fail the build rather than warn about it.
+  logOverride: { 'empty-import-meta': 'error' },
 });
 
 console.log('bundled -> dist/fleetsmith.cjs');
