@@ -85,7 +85,7 @@ export function buildGoose(spec, options = {}) {
 
   out.add(`${spec.handover.dir}/HANDOFF.template.md`, handoffTemplate());
   if (spec.handover.ledger) {
-    out.add(`${spec.fleet.local}/LEDGER.md`, ledgerTemplate(spec.fleet.name));
+    out.add(`${spec.fleet.local}/LEDGER.md`, ledgerTemplate(spec.fleet.name, Boolean(spec.fleet.grid)));
   }
   out.add(
     `${spec.fleet.shared}/CHANGELOG.md`,

@@ -2,7 +2,7 @@ import { FileSet } from '../lib/fs-utils.js';
 import { mdWithFrontmatter } from '../lib/md.js';
 import { compileAgentBody, title } from '../compile/agent-prompt.js';
 import { handoffTemplate, ledgerTemplate, changelogTemplate } from '../handover/protocol.js';
-import { compileOrchestratorBody } from '../compile/orchestrator.js';
+import { compileOrchestratorBody, gridStatusScript, GRID_STATUS_SCRIPT_PATH } from '../compile/orchestrator.js';
 import { agentsMdPointer } from '../compile/pointers.js';
 import { skillEvals, evalsReadme } from '../compile/evals.js';
 import { logEventScript, TELEMETRY_PATH } from '../compile/telemetry.js';
@@ -71,7 +71,7 @@ export function buildOpencode(spec, options = {}) {
 
   out.add(`${spec.handover.dir}/HANDOFF.template.md`, handoffTemplate());
   if (spec.handover.ledger) {
-    out.add(`${spec.fleet.local}/LEDGER.md`, ledgerTemplate(spec.fleet.name));
+    out.add(`${spec.fleet.local}/LEDGER.md`, ledgerTemplate(spec.fleet.name, Boolean(spec.fleet.grid)));
   }
   out.add(
     `${spec.fleet.shared}/CHANGELOG.md`,
@@ -79,6 +79,9 @@ export function buildOpencode(spec, options = {}) {
     { preserve: true }
   );
   out.add(`${spec.fleet.local}/${TELEMETRY_PATH}`, logEventScript(spec));
+  if (spec.fleet.grid) {
+    out.add(`${spec.fleet.local}/${GRID_STATUS_SCRIPT_PATH}`, gridStatusScript(spec));
+  }
 
   if (options.agentsMd !== false) {
     out.add('AGENTS.md', agentsMdPointer(spec));
@@ -228,6 +231,14 @@ function statusCommand(spec) {
     '',
   ];
   if (ledger) body.push('Ledger:', '', `@${ledger}`, '');
+  if (spec.fleet.grid) {
+    // A shell-computed one-line summary, not `@${gridPath}` (inlining the whole file, as the ledger does
+    // above): GRID.md can list many actors, and a status report should stay a glance, not grow with team
+    // size. Node, not POSIX sh, computes it (src/compile/orchestrator.js's gridStatusScript) — this needs
+    // real date arithmetic, and Node is already a hard requirement for this whole toolchain, unlike
+    // log-event.sh's dependency-free POSIX sh (a hot-path hook, not an interactive command).
+    body.push(`!\`node ${spec.fleet.local}/${GRID_STATUS_SCRIPT_PATH} 2>/dev/null\``, '');
+  }
   body.push(
     'From that state: say which phase the fleet is in, which agents have finished, what is outstanding, and anything that looks stalled or contradictory. Do not start any fleet work — this is a status report.'
   );
