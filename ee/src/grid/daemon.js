@@ -14,6 +14,7 @@ import { materialize } from './materialize.js';
 import { findOverlaps } from './overlaps.js';
 import { mergeRisks } from './merge-risk.js';
 import { renderOverlaps } from './overlaps-render.js';
+import { tasksFromGitOnly, listCandidateBranches } from './git-only.js';
 
 /**
  * The `fleetsmith grid` CLI verb (G3.5): `init` (G3.1), `sync`, and `sync --watch` — the daemon that ties
@@ -311,6 +312,40 @@ export async function computeOverlaps(spec, cwd = process.cwd()) {
   return { summary, warnings, overlaps, risks, markdown, written, degraded: false };
 }
 
+const GIT_ONLY_BANNER = 'git-only mode — file-level overlaps from fetched branches; task metadata unavailable';
+
+/**
+ * `fleetsmith grid overlaps --git-only` (G5.5): the OSS answer for overlap detection with no cortex at all —
+ * rule 3 of this milestone ("nothing is ee-only") applied to the overlap engine specifically. Needs no grid
+ * config, no network access, and no RelataDB: it synthesizes minimal task rows straight from local git state
+ * (`tasksFromGitOnly`, G5.5) over every local/remote-tracking branch this checkout already knows about, and
+ * runs the SAME `findOverlaps()` (G5.1) every grid-backed path uses. File-kind overlaps only —
+ * `artifact`/`symbol`/`dependency-cycle` are structurally absent, since none of that is derivable from git
+ * alone (no merge-risk analysis here either; that needs real branch names this function already has, but is
+ * out of this task's scope — see #55). Never throws: a git failure anywhere degrades to fewer/no synthesized
+ * rows, surfaced via `warnings`, never a blocked command.
+ *
+ * Deliberately does NOT exclude the currently checked-out branch from the candidate list: the primary real
+ * use case is "does my own in-progress work collide with a peer's branch I already fetched," and excluding
+ * the current branch would make that undetectable — `listCandidateBranches`' own `currentBranch` exclusion
+ * option exists for callers that want it, this one just does not.
+ */
+export function computeGitOnlyOverlaps(spec, cwd = process.cwd()) {
+  const localDir = localDirFor(spec, cwd);
+  const branches = listCandidateBranches(cwd, {});
+  const { tasks, warnings } = tasksFromGitOnly(cwd, branches);
+
+  const overlaps = findOverlaps(tasks);
+  const markdown = renderOverlaps(overlaps, [], { syncedAt: nowIso(), warnings, banner: GIT_ONLY_BANNER });
+  const overlapsPath = path.join(localDir, 'grid', 'OVERLAPS.md');
+  atomicWrite(overlapsPath, markdown);
+
+  const summary = `grid overlaps --git-only: ${overlaps.length} overlap(s) across ${tasks.length} branch(es)${
+    warnings.length ? `, ${warnings.length} warning(s)` : ''
+  }`;
+  return { summary, warnings, overlaps, risks: [], markdown, written: overlapsPath, degraded: false, gitOnly: true };
+}
+
 // --- watch mode --------------------------------------------------------------------
 
 /**
@@ -492,7 +527,11 @@ export async function gridCliHandler(argv) {
   const [subcommand, fleetYamlPath = 'fleet.yaml'] = positional;
 
   if (!subcommand || !['init', 'sync', 'overlaps'].includes(subcommand)) {
-    console.error(`error: unknown grid subcommand "${subcommand ?? ''}" — expected "init", "sync [--watch]", or "overlaps"`);
+    console.error(
+      `error: unknown grid subcommand "${subcommand ?? ''}" — expected "init", "sync [--watch]", or "overlaps [--git-only]" ` +
+        '("overlaps --git-only" needs no cortex, no grid config, and no network access at all — the OSS answer, ' +
+        'file-level overlaps synthesized straight from local git branches)'
+    );
     return 1;
   }
 
@@ -528,7 +567,7 @@ export async function gridCliHandler(argv) {
     }
 
     if (subcommand === 'overlaps') {
-      const result = await computeOverlaps(spec);
+      const result = flags['git-only'] ? computeGitOnlyOverlaps(spec) : await computeOverlaps(spec);
       console.log(result.summary);
       if (result.markdown) console.log(`\n${result.markdown}`);
       for (const w of result.warnings) console.error(`warning: ${w}`);

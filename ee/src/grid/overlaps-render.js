@@ -40,16 +40,19 @@ function riskRow(r) {
  * `.risks` array, already severity-ranked. `opts.syncedAt`: an ISO timestamp supplied by the caller (defaults
  * to `new Date().toISOString()` only as a last resort — every real call site passes one explicitly).
  * `opts.warnings`: merge-risk warnings (e.g. an unresolvable branch, a too-old git) worth surfacing in the
- * file itself, not just the CLI's stderr.
+ * file itself, not just the CLI's stderr. `opts.banner` (G5.5): a one-line advisory rendered right under the
+ * title — e.g. git-only degraded mode's "task metadata unavailable" notice — so a reader opening the file
+ * cold knows which mode produced it, not just what it found.
  */
 export function renderOverlaps(overlaps, risks, opts = {}) {
   const syncedAt = opts.syncedAt ?? new Date().toISOString();
+  const bannerLines = opts.banner ? [`> ${opts.banner}`, ''] : [];
 
   if (overlaps.length === 0 && risks.length === 0) {
-    return `# Overlaps\n\nno overlaps detected as of ${syncedAt}\n`;
+    return [`# Overlaps`, '', ...bannerLines, `no overlaps detected as of ${syncedAt}`, ''].join('\n');
   }
 
-  const lines = ['# Overlaps', '', `_Computed: ${syncedAt}_`, '', '## Declared overlaps', ''];
+  const lines = ['# Overlaps', '', ...bannerLines, `_Computed: ${syncedAt}_`, '', '## Declared overlaps', ''];
 
   if (overlaps.length === 0) {
     lines.push('(none)', '');

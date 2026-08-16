@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { runInit, syncOnce, runWatch, gridCliHandler, loadSpecFile, onRunStart, onRunEnd, computeOverlaps, DaemonError } from '../src/grid/daemon.js';
+import { runInit, syncOnce, runWatch, gridCliHandler, loadSpecFile, onRunStart, onRunEnd, computeOverlaps, computeGitOnlyOverlaps, DaemonError } from '../src/grid/daemon.js';
 import { request } from '../src/memory/relatadb.js';
 import { resolveActor } from '../src/actor.js';
 import { resolveRepoId } from '../src/grid/ontology.js';
@@ -310,6 +310,102 @@ test('computeOverlaps runs a standalone pull+compute+render without pushing this
     assert.ok(!requests.some((r) => r.pathname === '/ingest'), 'computeOverlaps must not push — it only pulls and computes');
     void config;
   });
+});
+
+// --- git-only degraded mode (G5.5): zero grid config, zero network access -----------
+
+test('computeGitOnlyOverlaps detects a real overlap between two local peer branches — no grid config, no fake server, no network at all', () => {
+  const { repoDir } = setupRepo();
+  const baseSha = git(['rev-parse', 'HEAD'], repoDir).trim();
+
+  // `add shared.js` explicitly, never `-A` — this repo's fleet.yaml/_fleet/local live UNTRACKED in the
+  // working tree (setupRepo()'s own convention), and `-A` would sweep them into this branch's commit,
+  // making them vanish from the working tree the moment a later checkout lands on a branch that doesn't
+  // have them tracked.
+  git(['checkout', '-q', '-b', 'feat/alice-thing', baseSha], repoDir);
+  fs.writeFileSync(path.join(repoDir, 'shared.js'), 'ALICE\n');
+  git(['add', 'shared.js'], repoDir);
+  git(['commit', '-q', '-m', 'alice work'], repoDir);
+
+  git(['checkout', '-q', '-b', 'feat/bob-thing', baseSha], repoDir);
+  fs.writeFileSync(path.join(repoDir, 'shared.js'), 'BOB\n');
+  git(['add', 'shared.js'], repoDir);
+  git(['commit', '-q', '-m', 'bob work'], repoDir);
+  // stays checked out on feat/bob-thing — computeGitOnlyOverlaps must still find feat/alice-thing as a candidate
+
+  const spec = loadSpecFile(path.join(repoDir, 'fleet.yaml'));
+  // No RELATA_URL/RELATA_TOKEN set anywhere, no fake server listening — the strongest possible proof this
+  // path makes no network call of any kind.
+  const result = computeGitOnlyOverlaps(spec, repoDir);
+
+  assert.equal(result.degraded, false);
+  assert.equal(result.gitOnly, true);
+  assert.equal(result.overlaps.length, 1);
+  assert.equal(result.overlaps[0].kind, 'file');
+  assert.deepEqual(result.overlaps[0].evidence, ['shared.js']);
+  assert.deepEqual(result.risks, []);
+
+  const overlapsMd = fs.readFileSync(path.join(repoDir, '_fleet', 'local', 'grid', 'OVERLAPS.md'), 'utf8');
+  assert.match(overlapsMd, /git-only mode/);
+  assert.match(overlapsMd, /shared\.js/);
+});
+
+test('gridCliHandler: "overlaps --git-only" works with no RELATA_URL/RELATA_TOKEN configured at all', async () => {
+  const { repoDir } = setupRepo();
+  const baseSha = git(['rev-parse', 'HEAD'], repoDir).trim();
+
+  // `add shared.js` explicitly, never `-A` — this repo's fleet.yaml/_fleet/local live UNTRACKED in the
+  // working tree (setupRepo()'s own convention), and `-A` would sweep them into this branch's commit,
+  // making them vanish from the working tree the moment a later checkout lands on a branch that doesn't
+  // have them tracked.
+  git(['checkout', '-q', '-b', 'feat/alice-thing', baseSha], repoDir);
+  fs.writeFileSync(path.join(repoDir, 'shared.js'), 'ALICE\n');
+  git(['add', 'shared.js'], repoDir);
+  git(['commit', '-q', '-m', 'alice work'], repoDir);
+
+  git(['checkout', '-q', '-b', 'feat/bob-thing', baseSha], repoDir);
+  fs.writeFileSync(path.join(repoDir, 'shared.js'), 'BOB\n');
+  git(['add', 'shared.js'], repoDir);
+  git(['commit', '-q', '-m', 'bob work'], repoDir);
+
+  const cwd = process.cwd();
+  process.chdir(repoDir);
+  const originalLog = console.log;
+  const logs = [];
+  console.log = (m) => logs.push(m);
+  try {
+    assert.equal(process.env.RELATA_URL, undefined, 'fixture precondition: no grid config in the environment');
+    const exitCode = await gridCliHandler(['overlaps', 'fleet.yaml', '--git-only']);
+    assert.equal(exitCode, 0);
+  } finally {
+    console.log = originalLog;
+    process.chdir(cwd);
+  }
+  assert.ok(logs.some((l) => /grid overlaps --git-only:/.test(l)));
+  assert.ok(logs.some((l) => l.includes('git-only mode')));
+});
+
+test('gridCliHandler: "overlaps" without --git-only still needs grid config (degrades, does not error)', async () => {
+  const { repoDir } = setupRepo();
+  const cwd = process.cwd();
+  process.chdir(repoDir);
+  try {
+    assert.equal(await gridCliHandler(['overlaps', 'fleet.yaml']), 0);
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
+test('gridCliHandler: "overlaps" mentions --git-only in its own unknown-subcommand help text', async () => {
+  const originalError = console.error;
+  const errors = [];
+  console.error = (m) => errors.push(m);
+  try {
+    await gridCliHandler(['bogus']);
+  } finally {
+    console.error = originalError;
+  }
+  assert.ok(errors.some((e) => e.includes('--git-only')));
 });
 
 test('gridCliHandler: "overlaps" prints the summary and the rendered table, exits 0', async () => {
