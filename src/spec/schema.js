@@ -105,6 +105,11 @@ export function normalizeSpec(raw) {
   spec.fleet.schedule = normalizeSchedule(spec.fleet.schedule);
 
   spec.fleet.mcp = normalizeMcp(spec.fleet.mcp);
+  // v0.7.0 G1.1: an optional passthrough for the enterprise RelataDB adapter.
+  // Core checks only "is this a plain object" — ee/src/config.js owns every
+  // other rule (URL shape, token_env vs. a literal token, purposes).
+  const grid = spec.fleet.grid;
+  spec.fleet.grid = grid && typeof grid === 'object' && !Array.isArray(grid) ? grid : null;
   // Escape hatch for the single-writer rule: authors who genuinely coordinate
   // concurrent writers (disjoint paths, worktrees) opt out explicitly.
   spec.fleet.allowParallelWrites = spec.fleet.allowParallelWrites === true;
