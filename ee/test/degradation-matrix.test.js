@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { syncOnce, loadSpecFile } from '../src/grid/daemon.js';
 import { withDegradation } from '../src/memory/degrade.js';
@@ -143,7 +144,10 @@ function capturingOnDegrade() {
 // --- gate isolation, reaffirmed here so this file's own "gates behave identically" claim is self-contained ---
 
 test('gate isolation (reaffirmed): no file under ee/src/ references validate-handoff — the structural proof every row below relies on', () => {
-  const srcDir = path.join(path.dirname(path.dirname(new URL(import.meta.url).pathname)), 'src');
+  // fileURLToPath(), not new URL(...).pathname — the latter leaves a leading "/" before a Windows drive
+  // letter ("/D:/a/..."), which path.join() then mangles into a doubled drive ("D:\D:\a\...", a real bug
+  // caught by this exact test failing on Windows CI, not a hypothetical).
+  const srcDir = path.join(path.dirname(path.dirname(fileURLToPath(import.meta.url))), 'src');
   const offenders = [];
   const walk = (dir) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

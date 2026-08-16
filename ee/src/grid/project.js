@@ -161,6 +161,13 @@ function extractSection(content, headingName) {
  * rule: pointers and digests only, since server-side cell ACL isn't fully wired). Falls back to a digest of
  * the whole trimmed file when no such section exists, so a hand-written handoff missing the heading still
  * gets a real, comparable digest rather than none.
+ *
+ * Line endings are normalized to `\n` before hashing — a real cross-platform bug, not a hypothetical one:
+ * a Windows developer's own git checkout (`core.autocrlf`'s default) saves this same file with `\r\n`, and
+ * without normalizing, semantically-identical criteria text would hash DIFFERENTLY across platforms, making
+ * every push look like a real change and defeating the digest's whole purpose (skip a push when nothing
+ * meaningful changed). Caught by this project's own Windows release-binary CI run, not written defensively
+ * up front.
  */
 export function handoffToPointer(filename, content, ctx) {
   const match = HANDOFF_FILENAME.exec(filename);
@@ -170,7 +177,7 @@ export function handoffToPointer(filename, content, ctx) {
   const [, seqStr, fromAgent, toAgent] = match;
 
   const section = extractSection(content, 'Acceptance criteria');
-  const digestSource = (section ?? content).trim();
+  const digestSource = (section ?? content).replace(/\r\n/g, '\n').trim();
 
   return {
     ...rowDefaults(ctx),

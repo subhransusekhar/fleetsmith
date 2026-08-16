@@ -995,14 +995,17 @@ test('runWatch triggers a push-carrying sync when the local ledger changes, debo
     const logs = [];
     const controller = runWatch(spec, repoDir, { log: (m) => logs.push(m), debounceMs: 30, heartbeatMs: 100_000, reconcileIntervalMs: 100_000 });
     try {
-      await sleep(200); // let the startup sync land
+      await sleep(400); // let the startup sync land — widened from 200ms, which flaked on a loaded/slower Windows CI runner
       requests.length = 0;
 
       // A change that actually alters a row's content — appending whitespace alone wouldn't change any
       // parsed row's digest, and push.js correctly makes zero /ingest calls for unchanged content.
       const ledgerPath = path.join(localDir, 'LEDGER.md');
       fs.writeFileSync(ledgerPath, fs.readFileSync(ledgerPath, 'utf8').replace('| 1 | analyze requirements | analyst | - | done |', '| 1 | analyze requirements | analyst | - | blocked |'));
-      await sleep(300);
+      // 600ms, not 300ms — the same fs.watch -> scheduleSync -> full syncOnce() chain the sibling
+      // run-start/run-end test below already documents needing 600ms for, on the same grounds (a loaded CI
+      // runner, not just this local machine).
+      await sleep(600);
 
       assert.ok(logs.some((l) => l.includes('local-ledger-change')));
       assert.ok(requests.some((r) => r.pathname === '/ingest'));
@@ -1052,7 +1055,7 @@ test('runWatch.stop() halts everything — no further requests after stopping', 
     const spec = loadSpecFile(path.join(repoDir, 'fleet.yaml'));
     const controller = runWatch(spec, repoDir, { log: () => {}, debounceMs: 30, heartbeatMs: 50, reconcileIntervalMs: 100_000 });
     try {
-      await sleep(150);
+      await sleep(300); // widened from 150ms — see below, same "loaded CI runner" margin this whole block already accounts for
     } finally {
       controller.stop();
     }
@@ -1062,10 +1065,12 @@ test('runWatch.stop() halts everything — no further requests after stopping', 
     // resetting `requests` immediately after `stop()` races that in-flight request's arrival, occasionally
     // counting it as "after stop" when it was really "before, just slow to land" — worse odds once syncOnce's
     // chain grew a real extra round trip (G7.1's identity check). Settling first, THEN resetting, keeps the
-    // assertion about what it actually means: no request INITIATED after stop.
-    await sleep(100);
-    requests.length = 0;
+    // assertion about what it actually means: no request INITIATED after stop. Widened once more (100/200ms
+    // -> 200/400ms) after this exact test flaked on Windows CI — a shared, slower runner needs more margin
+    // than this local dev machine does for the same "already in flight, not new" settle window.
     await sleep(200);
+    requests.length = 0;
+    await sleep(400);
     assert.equal(requests.length, 0);
   });
 });
