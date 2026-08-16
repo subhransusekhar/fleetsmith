@@ -12,3 +12,6 @@ _fleet/*
 # data dir when its cwd is this repo root — never real fleetsmith data, but
 # real database WAL/segment files that must never land in git regardless.
 /data/
+# Scratch workspace for the G4.4 live-exec eval scenario (test/grid-eval-exec.test.js)
+# — the test deletes this itself in a finally block, this is only a safety net.
+/.grid-eval-scratch/

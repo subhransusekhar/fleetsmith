@@ -1,0 +1,104 @@
+# Held-out fixture (G4.4): a grid-enabled fleet proving an agent actually surfaces a
+# peer's overlapping in-flight work rather than silently duplicating it.
+#
+# GRID.md is pre-seeded by the eval harness that drives the live exec scenario
+# (test/grid-eval-exec.test.js) — it is NOT compiled into this spec. The daemon
+# that would normally materialize GRID.md at runtime lives in ee/ (AGPL), which
+# this fixture (core, MIT, part of the deterministic regression corpus) never
+# depends on; core only ever reads the file, exactly like a real checkout would.
+fleet:
+  name: grid-two-actor
+  domain: "small utility functions for an internal reports module"
+  pattern: pipeline
+  grid:
+    url: "https://relata.example.internal"
+    token_env: "RELATA_TOKEN"
+
+agents:
+  - name: utility-writer
+    role: Writes small utility functions for the reports module.
+    goal: A utility that does exactly what was asked, reusing a peer's existing in-flight work instead of duplicating it.
+    capabilities: { read: true, edit: true }
+    skills: [grid-awareness]
+    handoff:
+      to: []
+      artifact: utility.md
+
+skills:
+  - name: grid-awareness
+    description: >
+      Methodology for reading `_fleet/local/grid/GRID.md` (multi-developer sync) and
+      responding to another developer's in-flight work before claiming a task. Use
+      whenever GRID.md lists a peer actor working on overlapping files or symbols,
+      when checking whether someone else is already touching a file or symbol,
+      before creating a new utility or helper that might already exist on a peer's
+      branch, when deciding whether to depend on another actor's task (the
+      `depends on: @<actor>#<task-seq>` ledger notation), or when interpreting a
+      `(stale)` actor or an `unreachable` grid header.
+    evals:
+      - query: >
+          Read _fleet/local/grid/GRID.md first, per your grid-awareness skill —
+          it shows what your teammates are doing right now. Then: add a small
+          utility function that formats a date as YYYY-MM-DD, for use in the
+          reports export. When you are done, write a handoff file at
+          _fleet/local/handoffs/01-utility-writer-to-reviewer.md, following the
+          template at _fleet/local/handoffs/HANDOFF.template.md, and add or
+          update your row in _fleet/local/LEDGER.md. This is the whole task —
+          do not do anything beyond it.
+        expect:
+          mentions: ["mallory"]
+    body: |
+      # Grid awareness
+
+      Multi-developer sync (the "grid") projects every other developer's in-flight
+      work into `_fleet/local/grid/` before anyone commits. Read it before claiming
+      work; it tells you who else is touching what, right now.
+
+      ## Reading GRID.md
+
+      `_fleet/local/grid/GRID.md` has three parts:
+
+      | Section | What it tells you |
+      |---|---|
+      | Header | Sync timestamp, cortex reachability, active actor count |
+      | Per-actor (`## <actor>`) | Their in-progress tasks, declared files/symbols, staleness |
+      | Cross-actor dependencies | Every `@<actor>#<seq>` reference found in any ledger |
+
+      - An actor marked `(stale — last seen <time>)` has probably gone idle — treat
+        their declared work as unlikely to still be in flight, not as gone for good.
+      - If the header reads `⚠ unreachable since <time>`, or GRID.md does not exist
+        at all: proceed exactly as if you were the only developer.
+
+      ## Overlap response protocol
+
+      Before claiming a task, compare its declared files/symbols against every
+      active peer's in-progress entries in GRID.md.
+
+      | Overlap kind | What to do |
+      |---|---|
+      | Same file(s), different symbols | Mention it in your handoff's Context digest and consider narrowing your own scope. |
+      | Same symbol name | Do not implement it yet. Prefer depending on the peer's artifact over re-implementing. If it genuinely does not cover your need, say so in your handoff and proceed. |
+
+      Never silently duplicate a symbol a peer has already declared — that is
+      exactly the wasted work the grid exists to prevent.
+
+      ## Cross-actor dependency notation
+
+      Declare a dependency on another actor's in-progress task in your OWN ledger
+      row's `Depends on` column:
+
+      ```
+      depends on: @<actor>#<task-seq>
+      ```
+
+      Example: `depends on: @mallory#3` means "this task depends on mallory's task #3."
+
+      This is advisory, not a lock: mallory is not notified, and it binds only
+      once the work reaches the staging merge.
+
+expect:
+  agents: 1
+  pattern: pipeline
+  emits:
+    - .claude/skills/grid-awareness/SKILL.md
+    - _fleet/local/scripts/grid-status.mjs
