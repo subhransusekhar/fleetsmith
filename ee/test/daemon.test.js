@@ -515,6 +515,85 @@ test('gridCliHandler: "import" mentions itself in the unknown-subcommand help te
   assert.ok(errors.some((e) => e.includes('import <path|dir>')));
 });
 
+// --- grid knowledge (G6.5) -----------------------------------------------------------
+
+test('gridCliHandler: "knowledge" degrades to the file-backend path with no grid config, and labels itself', async () => {
+  const { repoDir } = setupRepo();
+  fs.mkdirSync(path.join(repoDir, '_fleet', 'shared', 'knowledge'), { recursive: true });
+  fs.writeFileSync(
+    path.join(repoDir, '_fleet', 'shared', 'knowledge', 'notes.md'),
+    ['---', 'kind: meeting', 'client: acme', 'date: 2026-01-10', 'source: notes.md', '---', '', '# Notes', '', 'roadmap discussion text', ''].join('\n')
+  );
+
+  const { exitCode, logs } = await runCliInDir(repoDir, ['knowledge', 'fleet.yaml', 'roadmap discussion']);
+  assert.equal(exitCode, 0);
+  assert.ok(logs.some((l) => /grid knowledge \(degraded\):/.test(l)));
+  assert.ok(logs.some((l) => l.includes('degraded (file-backend) mode')));
+});
+
+test('gridCliHandler: "knowledge" requires a <query> argument', async () => {
+  const { repoDir } = setupRepo();
+  const { exitCode, errors } = await runCliInDir(repoDir, ['knowledge', 'fleet.yaml']);
+  assert.equal(exitCode, 1);
+  assert.ok(errors.some((e) => e.includes('<query>')));
+});
+
+test('gridCliHandler: "knowledge --limit" rejects a non-positive-integer value', async () => {
+  const { repoDir } = setupRepo();
+  const { exitCode, errors } = await runCliInDir(repoDir, ['knowledge', 'fleet.yaml', 'anything', '--limit', 'not-a-number']);
+  assert.equal(exitCode, 1);
+  assert.ok(errors.some((e) => e.includes('--limit')));
+});
+
+test('gridCliHandler: "knowledge" queries the live cortex when grid is configured, threading --as-of through', async () => {
+  const { repoDir } = setupRepo();
+  const repoId = resolveRepoId(repoDir);
+
+  await withFakeRelata(
+    {
+      queryRows: {
+        OrgDocument: [
+          {
+            repo_id: repoId,
+            content_hash: 'h1',
+            kind: 'meeting',
+            title: 'a meeting',
+            client: 'acme',
+            chunk_index: 0,
+            chunk_text: 'roadmap discussion text',
+            source_file: 'notes.md',
+            imported_by: 'alice',
+            valid_from: '2026-01-01',
+            imported_at: '2026-01-01T00:00:00.000Z',
+            purpose: 'product_context',
+            origin: 'human',
+          },
+        ],
+      },
+    },
+    async (config, requests) => {
+      const { exitCode, logs } = await runCliInDir(repoDir, ['knowledge', 'fleet.yaml', 'roadmap discussion', '--as-of', '2026-06-01']);
+      assert.equal(exitCode, 0);
+      assert.ok(logs.some((l) => /grid knowledge:/.test(l) && !l.includes('degraded')));
+      assert.ok(logs.some((l) => l.includes('notes.md (meeting, acme, 2026-01-01)')));
+      assert.ok(requests.some((r) => r.pathname === '/query' && /HYBRID_SEARCH FROM OrgDocument/.test(r.body?.sql ?? '')));
+      void config;
+    }
+  );
+});
+
+test('gridCliHandler: "knowledge" mentions itself in the unknown-subcommand help text', async () => {
+  const originalError = console.error;
+  const errors = [];
+  console.error = (m) => errors.push(m);
+  try {
+    await gridCliHandler(['bogus']);
+  } finally {
+    console.error = originalError;
+  }
+  assert.ok(errors.some((e) => e.includes('knowledge <query>')));
+});
+
 // --- run lifecycle hooks (onRunStart/onRunEnd) — provisioned, tested directly ----
 
 test('onRunStart/onRunEnd no-op silently when ctx.spec is absent', async () => {

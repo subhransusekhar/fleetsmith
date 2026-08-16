@@ -309,6 +309,24 @@ test('applyImport records repo_id on every ingested row', async () => {
   });
 });
 
+test('applyImport stamps imported_at (client-side wall-clock, G6.5) on every ingested row, distinct from valid_from', async () => {
+  await withFakeIngestServer(async (config, requests) => {
+    const dir = tmpDir();
+    writeFile(dir, 'notes.md', '# X\n\nbody');
+    // A deliberately backdated business date — imported_at must still reflect NOW, not this date.
+    const { plan } = planImport(dir, { kind: 'spec', actor: 'alice', repoDir: dir, date: '2020-01-01' });
+    const localDir = path.join(dir, '_fleet', 'local');
+
+    await applyImport(config, plan, { localDir, repoId: 'r'.repeat(64) });
+    const ingestReq = requests.find((r) => r.pathname === '/ingest');
+    for (const row of ingestReq.body.rows) {
+      assert.match(row.imported_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+      assert.equal(row.valid_from, '2020-01-01');
+      assert.notEqual(row.imported_at.slice(0, 10), row.valid_from);
+    }
+  });
+});
+
 // --- optional embeddings via the customer-run sidecar (G6.2) ------------------------
 
 test('applyImport omits _emb_text entirely, and reports text-only (BM25) mode, when no accelEndpoint is configured', async () => {

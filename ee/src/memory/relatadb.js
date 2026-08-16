@@ -317,11 +317,21 @@ function orgDocumentToItem(row) {
  * vs. hybrid based on whether `_emb_text` was populated at import time, not at query time. Follows this
  * task's own specification literally, per the module doc comment's standing convention: stated as the
  * expected behavior, not independently re-confirmed against a live instance this session.
+ *
+ * Exported (unlike the rest of this module's org-document plumbing) so `ee/src/grid/knowledge.js` (G6.5) can
+ * reuse the exact same query construction and response unpacking while working with the RAW rows — `_
+ * valid_from`/`imported_at` included — that `recall()`'s own `MemoryItem`-mapped shape below deliberately
+ * discards. `purpose` is an explicit param here, not always `config.purposes?.[0]`, since G6.5's CLI lets a
+ * caller declare a specific audited purpose per query.
  */
-async function recallOrgDocuments(config, query, limit) {
+export async function queryOrgDocuments(config, query, limit, purpose = config.purposes?.[0] ?? DEFAULT_WRITE_PURPOSE) {
   const sql = `HYBRID_SEARCH FROM OrgDocument QUERY '${escapeSqlString(query)}' LIMIT ${limit}`;
-  const result = await request(config, { method: 'POST', path: '/query', body: { sql, purpose: config.purposes?.[0] ?? DEFAULT_WRITE_PURPOSE } });
-  return unpackQueryRows(result).map(orgDocumentToItem);
+  const result = await request(config, { method: 'POST', path: '/query', body: { sql, purpose } });
+  return unpackQueryRows(result);
+}
+
+async function recallOrgDocuments(config, query, limit) {
+  return (await queryOrgDocuments(config, query, limit)).map(orgDocumentToItem);
 }
 
 function stripScore({ _score, ...item }) {
