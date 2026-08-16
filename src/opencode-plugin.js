@@ -6,6 +6,7 @@ import { validateSpec } from './spec/validate.js';
 import { ADAPTERS, buildAll } from './adapters/index.js';
 import { ARCHETYPES, archetype } from './patterns/index.js';
 import { planInstall, detectTools } from './install.js';
+import { gridStatusLine } from './compile/orchestrator.js';
 
 /**
  * opencode plugin core — dependency-free.
@@ -232,14 +233,29 @@ function compactionHook(ctx, options = {}) {
     'experimental.session.compacting': async (_input, output) => {
       try {
         const ledger = path.resolve(projectDir, workspace, 'local', 'LEDGER.md');
-        if (!fs.existsSync(ledger)) return;
-        const content = fs.readFileSync(ledger, 'utf8').slice(0, 8000);
-        output.context = [
-          ...(output.context ?? []),
-          `Fleet state (${workspace}/local/LEDGER.md) — preserve this across compaction; it is the run's source of truth for what is done and what is outstanding:\n\n${content}`,
-        ];
+        if (fs.existsSync(ledger)) {
+          const content = fs.readFileSync(ledger, 'utf8').slice(0, 8000);
+          output.context = [
+            ...(output.context ?? []),
+            `Fleet state (${workspace}/local/LEDGER.md) — preserve this across compaction; it is the run's source of truth for what is done and what is outstanding:\n\n${content}`,
+          ];
+        }
       } catch {
         /* best-effort: compaction proceeds without the ledger */
+      }
+
+      // Grid awareness (G4.3): a separate try, not an `else`/early-return chained onto the ledger block
+      // above — an absent or unreadable ledger must not suppress this, and vice versa.
+      try {
+        const gridMdPath = path.resolve(projectDir, workspace, 'local', 'grid', 'GRID.md');
+        if (fs.existsSync(gridMdPath)) {
+          const overlapsMdPath = path.resolve(projectDir, workspace, 'local', 'grid', 'OVERLAPS.md');
+          const overlapsMdContent = fs.existsSync(overlapsMdPath) ? fs.readFileSync(overlapsMdPath, 'utf8') : null;
+          const line = gridStatusLine(fs.readFileSync(gridMdPath, 'utf8'), { overlapsMdContent });
+          if (line) output.context = [...(output.context ?? []), line];
+        }
+      } catch {
+        /* best-effort: compaction proceeds without the grid summary */
       }
     },
   };

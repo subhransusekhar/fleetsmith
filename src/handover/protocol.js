@@ -58,7 +58,7 @@ When context is compacted, preserve this section.}
 `;
 }
 
-export function ledgerTemplate(fleetName) {
+export function ledgerTemplate(fleetName, gridEnabled = false) {
   return `# ${fleetName} — Task Ledger
 
 Single source of truth for fleet progress. The orchestrator updates this
@@ -70,7 +70,16 @@ after every phase; agents append rows for work they spawn.
 
 Status values: pending / in-progress / done / blocked / dropped.
 Never delete rows — mark them dropped with a reason.
-`;
+${
+  gridEnabled
+    ? `
+Depends on: a same-fleet task \`#\`, or \`@<actor>#<task-seq>\` for a dependency on
+another developer's in-progress task surfaced via GRID.md (multi-developer sync).
+Advisory only — the referenced actor is not notified, and it binds only once the
+work reaches the staging merge.
+`
+    : ''
+}`;
 }
 
 /**
