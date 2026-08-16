@@ -4,6 +4,7 @@ import path from 'node:path';
 import { request } from '../memory/relatadb.js';
 import { ontologyMigrate } from './ontology.js';
 import { resolveActor } from '../actor.js';
+import { aclPolicyStatus } from './identity.js';
 
 /**
  * `fleetsmith grid init` (G3.1): the one-time (and always safe to re-run) setup a checkout needs before the
@@ -104,7 +105,8 @@ export async function gridInit(config, { localDir = '_fleet/local', actor = reso
   const migration = await ontologyMigrate(config);
   const purposeSeed = seedPurposes(config);
   const tokenSanity = await checkTokenSanity(config, actor);
+  const aclPolicy = aclPolicyStatus(); // G7.1 — always a template-only notice; see identity.js's own doc comment for why
   const skeleton = writeSkeleton(localDir);
 
-  return { migration, purposeSeed, tokenSanity, skeleton };
+  return { migration, purposeSeed, tokenSanity, aclPolicy, skeleton };
 }

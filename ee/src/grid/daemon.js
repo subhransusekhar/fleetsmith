@@ -17,6 +17,7 @@ import { renderOverlaps } from './overlaps-render.js';
 import { tasksFromGitOnly, listCandidateBranches } from './git-only.js';
 import { planImport, applyImport } from './import.js';
 import { queryKnowledgeLive, queryKnowledgeDegraded, renderKnowledgeTable } from './knowledge.js';
+import { assertPushIdentity, rotateToken, IdentityError } from './identity.js';
 
 /**
  * The `fleetsmith grid` CLI verb (G3.5): `init` (G3.1), `sync`, and `sync --watch` — the daemon that ties
@@ -200,7 +201,7 @@ export async function runInit(spec, cwd = process.cwd()) {
   const result = await gridInit(config, { localDir, actor: resolveActor() });
   const summary = `grid init: migrate ${result.migration.engineMigrationRan ? 'ran' : 'skipped (no admin token)'}, token ${result.tokenSanity.authenticated ? 'ok' : 'FAILED'}${
     result.tokenSanity.mismatch ? ` (principal mismatch: ${result.tokenSanity.note})` : ''
-  }, skeleton at ${result.skeleton.gridDir}`;
+  }, ACL policy ${result.aclPolicy.applied ? 'applied' : 'NOT applied (template only — ' + result.aclPolicy.note + ')'}, skeleton at ${result.skeleton.gridDir}`;
   return { summary, result };
 }
 
@@ -235,7 +236,21 @@ export async function syncOnce(spec, cwd = process.cwd()) {
   const actor = resolveActor();
   const repoId = resolveRepoId(cwd);
   const branch = resolveBranch(cwd);
-  const pushResult = await pushOnce(config, cwd, { localDir, actor, repoId, branch });
+
+  // G7.1: refuse to push (not the whole cycle — pull/materialize proceed regardless, reading peers is
+  // always allowed) when a REAL, discoverable token principal mismatches the resolved local actor. When no
+  // principal is discoverable at all (the common bearer-mode case — see identity.js's own doc comment),
+  // nothing was actually verified, so the push proceeds; a thrown IdentityError is the only case that skips it.
+  let pushResult = { pushed: [], skipped: [], warnings: [] };
+  const identityWarnings = [];
+  try {
+    await assertPushIdentity(config, actor);
+    pushResult = await pushOnce(config, cwd, { localDir, actor, repoId, branch });
+  } catch (e) {
+    if (!(e instanceof IdentityError)) throw e;
+    identityWarnings.push(`push skipped: ${e.message}`);
+  }
+
   const pullResult = await pullOnce(config, cwd, { localDir, repoId, actor });
 
   // Reuses this cycle's already-fetched `pullResult.newRows` rather than a fresh reconcile() — reconcile()
@@ -252,7 +267,7 @@ export async function syncOnce(spec, cwd = process.cwd()) {
   written.push(path.join(localDir, 'grid', 'OVERLAPS.md'));
 
   const actorsSeen = new Set(pullResult.newRows.map((r) => r.row.actor));
-  const warnings = [...pushResult.warnings, ...pullResult.warnings, ...overlapWarnings];
+  const warnings = [...identityWarnings, ...pushResult.warnings, ...pullResult.warnings, ...overlapWarnings];
   const summary = `grid sync: pushed ${pushResult.pushed.length} row(s), pulled ${pullResult.newRows.length} row(s) from ${actorsSeen.size} actor(s), wrote ${written.length} file(s), ${overlaps.length} overlap(s)${
     warnings.length ? `, ${warnings.length} warning(s)` : ''
   }`;
@@ -558,15 +573,17 @@ export async function gridCliHandler(argv) {
   const { positional, flags } = parseGridArgs(argv);
   const [subcommand, fleetYamlPath = 'fleet.yaml'] = positional;
 
-  if (!subcommand || !['init', 'sync', 'overlaps', 'import', 'knowledge'].includes(subcommand)) {
+  if (!subcommand || !['init', 'sync', 'overlaps', 'import', 'knowledge', 'token'].includes(subcommand)) {
     console.error(
       `error: unknown grid subcommand "${subcommand ?? ''}" — expected "init", "sync [--watch]", "overlaps [--git-only]", ` +
-        '"import <path|dir> --kind meeting|discussion|decision|spec [--client <name>] [--date <YYYY-MM-DD>] [--apply]", or ' +
-        '"knowledge <query> [--as-of <YYYY-MM-DD>] [--as-recorded <YYYY-MM-DD>] [--purpose <p>] [--limit n]" ' +
+        '"import <path|dir> --kind meeting|discussion|decision|spec [--client <name>] [--date <YYYY-MM-DD>] [--apply]", ' +
+        '"knowledge <query> [--as-of <YYYY-MM-DD>] [--as-recorded <YYYY-MM-DD>] [--purpose <p>] [--limit n]", or ' +
+        '"token rotate" ' +
         '("overlaps --git-only" needs no cortex, no grid config, and no network access at all — the OSS answer, ' +
         'file-level overlaps synthesized straight from local git branches; "import" without --apply is a dry-run that ' +
         'touches no network either; "knowledge" degrades to filtering _fleet/shared/knowledge/ frontmatter directly ' +
-        'when no cortex is configured)'
+        'when no cortex is configured; "token rotate" prints the new token — updating RELATA_TOKEN/token_env and ' +
+        'restarting any running daemon is on you)'
     );
     return 1;
   }
@@ -583,6 +600,19 @@ export async function gridCliHandler(argv) {
     if (subcommand === 'init') {
       const { summary } = await runInit(spec);
       console.log(summary);
+      return 0;
+    }
+
+    if (subcommand === 'token') {
+      const tokenSubcommand = positional[2];
+      if (tokenSubcommand !== 'rotate') {
+        console.error(`error: unknown \`grid token\` subcommand "${tokenSubcommand ?? ''}" — expected "rotate"`);
+        return 1;
+      }
+      const config = resolveConfigOrThrow(spec);
+      const { token } = await rotateToken(config);
+      console.log(`grid token rotate: new token issued — ${token}`);
+      console.log('update RELATA_TOKEN (or the env var fleet.grid.token_env names) with this value, then restart any already-running `grid sync --watch` daemon to pick it up.');
       return 0;
     }
 

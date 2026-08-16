@@ -469,7 +469,7 @@ The enterprise tier answers what git-mediated sharing cannot: **multiple develop
 
 The governing rule extends the handover protocol verbatim: **the grid is a doorbell network; local files remain the payload and the authority.** Grid state is advisory, staleness-marked, may never gate an agent, and every capability degrades to the file backend + git with one warning. Everything ships under [`ee/`](ee/) (AGPL-3.0-only, separate `fleetsmith-ee` package) behind a plugin registry — core stays MIT and `rm -rf ee/` restores OSS behavior exactly.
 
-Read: [`docs/architecture/intelligence-grid.md`](docs/architecture/intelligence-grid.md) (architecture + load-bearing decisions) · [`docs/milestones/v0.7.0-intelligence-grid.md`](docs/milestones/v0.7.0-intelligence-grid.md) (milestone) · [`docs/milestones/v0.7.0-tasks.md`](docs/milestones/v0.7.0-tasks.md) (task breakdown).
+Read: [`docs/architecture/intelligence-grid.md`](docs/architecture/intelligence-grid.md) (architecture + load-bearing decisions) · [`docs/milestones/v0.7.0-intelligence-grid.md`](docs/milestones/v0.7.0-intelligence-grid.md) (milestone) · [`docs/milestones/v0.7.0-tasks.md`](docs/milestones/v0.7.0-tasks.md) (task breakdown) · [`docs/enterprise/identity.md`](docs/enterprise/identity.md) (per-developer tokens, rotation, client-side enforcement, the ACL policy template's current status).
 
 ## Design notes
 

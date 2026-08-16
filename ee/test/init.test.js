@@ -80,6 +80,13 @@ test('gridInit runs migrate, seeds purposes locally, checks token sanity, and wr
     assert.equal(result.tokenSanity.principal, null);
     assert.equal(result.tokenSanity.mismatch, false);
 
+    // G7.1: the ACL policy is always a reviewable template, never actually applied — no engine-side
+    // mechanism exists to apply it against, regardless of admin-token configuration.
+    assert.equal(result.aclPolicy.applied, false);
+    assert.equal(result.aclPolicy.policy.version, 1);
+    assert.ok(Array.isArray(result.aclPolicy.policy.rules) && result.aclPolicy.policy.rules.length > 0);
+    assert.match(result.aclPolicy.note, /not yet wired/);
+
     assert.ok(fs.existsSync(path.join(localDir, 'grid', 'peers')));
     assert.ok(fs.existsSync(path.join(localDir, 'grid', 'cursor')));
     assert.ok(fs.existsSync(path.join(localDir, 'grid', 'pushed.json')));
