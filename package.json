@@ -12,7 +12,8 @@
     "./adapters": "./src/adapters/index.js",
     "./spec": "./src/spec/index.js",
     "./opencode": "./src/opencode.js",
-    "./memory/port": "./src/memory/port.js"
+    "./memory/port": "./src/memory/port.js",
+    "./memory/file": "./src/memory/file.js"
   },
   "files": [
     "src/",
