@@ -1,0 +1,8 @@
+{"ts":"2026-08-16T10:00:00Z","run_id":"alice-20260816T100000Z","event":"run_start","agent":"","detail":""}
+{"ts":"2026-08-16T10:01:00Z","run_id":"alice-20260816T100000Z","event":"invoke_agent","agent":"analyst","detail":""}
+{"ts":"2026-08-16T10:02:00Z","run_id":"alice-20260816T100000Z","event":"gate_pass","agent":"analyst","detail":""}
+{"ts":"2026-08-16T10:03:00Z","run_id":"alice-20260816T100000Z","event":"gate_block","agent":"builder","detail":"missing acceptance criteria"}
+{"ts":"2026-08-16T10:04:00Z","run_id":"alice-20260816T100000Z","event":"execute_tool_error","agent":"builder","detail":"npm test failed"}
+{"ts":"2026-08-16T10:05:00Z","run_id":"alice-20260816T100000Z","event":"gate_pass","agent":"builder","detail":""}
+this-is-not-json-and-should-be-skipped
+{"ts":"2026-08-16T10:06:00Z","run_id":"alice-20260816T100000Z","event":"run_end","agent":"","detail":"done"}
