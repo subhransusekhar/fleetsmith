@@ -120,7 +120,7 @@ test('aclPolicyStatus always reports applied:false, regardless of anything about
   assert.equal(status.policy, ACL_POLICY);
 });
 
-test('ACL_POLICY is a real, reviewable template naming both a client-side-only rule and a not-yet-enforceable one', () => {
+test('ACL_POLICY is a real, reviewable template — both rules are client-side-only enforced today, no server-side equivalent for either', () => {
   assert.equal(ACL_POLICY.version, 1);
   assert.match(ACL_POLICY.status, /aspirational/);
   const ruleIds = ACL_POLICY.rules.map((r) => r.id);

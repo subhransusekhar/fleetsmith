@@ -40,6 +40,7 @@ test('env pair resolves when both are set', () => {
       token: 'secret-abc',
       purposes: [],
       accelEndpoint: null,
+      approvers: [],
     });
   });
 });
@@ -138,5 +139,26 @@ test('accel_endpoint passes through from the spec block, defaulting to null', ()
       fleet: { grid: { url: 'https://spec.example.com', token_env: 'MY_TOKEN_VAR' } },
     });
     assert.equal(withoutAccel.accelEndpoint, null);
+  });
+});
+
+test('approvers passes through from the spec block, defaulting to an empty array, non-strings dropped', () => {
+  withEnv({ MY_TOKEN_VAR: 'x' }, () => {
+    const withApprovers = resolveGridConfig({
+      fleet: { grid: { url: 'https://spec.example.com', token_env: 'MY_TOKEN_VAR', approvers: ['alice', 42, 'bob'] } },
+    });
+    assert.deepEqual(withApprovers.approvers, ['alice', 'bob']);
+
+    const withoutApprovers = resolveGridConfig({
+      fleet: { grid: { url: 'https://spec.example.com', token_env: 'MY_TOKEN_VAR' } },
+    });
+    assert.deepEqual(withoutApprovers.approvers, []);
+  });
+});
+
+test('GRID_APPROVERS env var parses as a comma-separated list, trimmed, empties dropped', () => {
+  withEnv({ RELATA_URL: 'https://cortex.example.com', RELATA_TOKEN: 'secret-abc', GRID_APPROVERS: ' alice, bob ,, carol' }, () => {
+    const cfg = resolveGridConfig({ fleet: {} });
+    assert.deepEqual(cfg.approvers, ['alice', 'bob', 'carol']);
   });
 });

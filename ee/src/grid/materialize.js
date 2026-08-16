@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import fs from 'node:fs';
 import path from 'node:path';
+import { isApprovedOrPublished } from './approval.js';
 
 /**
  * Materializers (G3.4): turn `reconcile()`'s (G3.3) `newRows` into the plain files agents actually read —
@@ -93,18 +94,27 @@ export function renderHandoffsList(actor, pointers) {
   ].join('\n');
 }
 
+/** Distinct titles among approved/published `OrgDocument` rows (G7.3) — deduped first by `content_hash` (last-write-wins; each chunk of one document is its own row) then by `title` (every chunk of one document shares it), sorted for a stable render. */
+function approvedOrgTitles(orgDocumentRows) {
+  const latest = latestByKey(orgDocumentRows, (r) => r.content_hash);
+  return [...new Set(latest.filter(isApprovedOrPublished).map((r) => r.title))].sort();
+}
+
 /**
- * The rollup: header (sync timestamp, cortex reachability, active actor count), per-actor in-progress tasks
- * with truncated declared work and a staleness marker, and a cross-actor dependencies section scanning every
+ * The rollup: header (sync timestamp, cortex reachability, active actor count), an "Org-approved" section
+ * (G7.3) listing approved/published org-knowledge titles, per-actor in-progress tasks with truncated
+ * declared work and a staleness marker, and a cross-actor dependencies section scanning every
  * `FleetTask.depends_on` for `@actor#seq` references. Deterministic ordering (actor name, then task/seq) so
  * successive `GRID.md`s diff meaningfully instead of churning on row order alone.
  */
-export function renderGridRollup({ actors, syncedAt, cortexReachable = true, staleTtlMs = DEFAULT_STALE_TTL_MS, now = Date.now(), overlapCount = null }) {
+export function renderGridRollup({ actors, syncedAt, cortexReachable = true, staleTtlMs = DEFAULT_STALE_TTL_MS, now = Date.now(), overlapCount = null, orgApprovedTitles = [] }) {
   const sortedActors = [...actors].sort((a, b) => a.actor.localeCompare(b.actor));
   const lines = ['# Grid', '', `_Synced: ${syncedAt}_ · Cortex: ${cortexReachable ? 'reachable' : 'unreachable'} · Active actors: ${sortedActors.length}`, ''];
   if (overlapCount !== null) {
     lines.push(overlapCount > 0 ? `_Overlaps: ${overlapCount} detected — see [OVERLAPS.md](./OVERLAPS.md)_` : '_Overlaps: none detected_', '');
   }
+  const sortedTitles = [...orgApprovedTitles].sort();
+  lines.push('## Org-approved', '', ...(sortedTitles.length ? sortedTitles.map((t) => `- ${t}`) : ['(none)']), '');
   const crossActorDeps = [];
 
   for (const { actor, tasks, presence } of sortedActors) {
@@ -145,9 +155,11 @@ export function renderGridRollup({ actors, syncedAt, cortexReachable = true, sta
 /**
  * Writes every file this module knows how to produce from one reconcile cycle's `newRows`
  * (`{typeName, row}[]`, exactly `reconcile()`'s shape). Per-actor files are upsert-only per the module doc
- * comment; `GRID.md` is fully rebuilt. `RunEventSummary` rows are received but have no materialized file
- * surface in this task — a deliberate scope decision (nothing in G3.4's file list calls for one), not a
- * silent drop.
+ * comment; `GRID.md` is fully rebuilt, including its "Org-approved" section (G7.3), which only ever reads
+ * `OrgDocument` rows already present in THIS cycle's `newRows` — the same "fully rebuilt every call, not an
+ * accumulated history" rule as everything else in `GRID.md`. `RunEventSummary` rows are received but have no
+ * materialized file surface in this task — a deliberate scope decision (nothing in G3.4's file list calls
+ * for one), not a silent drop.
  */
 export function materialize(newRows, localDir, opts = {}) {
   const now = opts.now ?? Date.now();
@@ -156,7 +168,7 @@ export function materialize(newRows, localDir, opts = {}) {
   const cortexReachable = opts.cortexReachable ?? true;
   const peersDir = path.join(localDir, 'grid', 'peers');
 
-  const byType = { FleetTask: [], ActorPresence: [], HandoffPointer: [], RunEventSummary: [] };
+  const byType = { FleetTask: [], ActorPresence: [], HandoffPointer: [], RunEventSummary: [], OrgDocument: [] };
   for (const entry of newRows) {
     if (byType[entry.typeName]) byType[entry.typeName].push(entry.row);
   }
@@ -192,7 +204,10 @@ export function materialize(newRows, localDir, opts = {}) {
     presence: presenceByActor.has(actor) ? latestByKey(presenceByActor.get(actor), () => 'only')[0] : null,
   }));
   const gridMdPath = path.join(localDir, 'grid', 'GRID.md');
-  atomicWrite(gridMdPath, renderGridRollup({ actors: rollupActors, syncedAt, cortexReachable, staleTtlMs, now, overlapCount: opts.overlapCount ?? null }));
+  atomicWrite(
+    gridMdPath,
+    renderGridRollup({ actors: rollupActors, syncedAt, cortexReachable, staleTtlMs, now, overlapCount: opts.overlapCount ?? null, orgApprovedTitles: approvedOrgTitles(byType.OrgDocument) })
+  );
   written.push(gridMdPath);
 
   return { written };

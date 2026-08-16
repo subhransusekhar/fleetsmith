@@ -60,8 +60,8 @@ here; the mismatch check exists for that case too, not only as a no-op.
 ## Server-side ACL: a template today, not an enforced policy
 
 `ee/src/grid/fixtures/acl-policy.json` expresses the desired access-control policy, in fleetsmith's own
-vocabulary — every grid-row write must come from its own declared actor; an org-approval mutation (G7.3, not
-yet built) must come from an approver role. **This is not currently enforceable against the real engine.**
+vocabulary — every grid-row write must come from its own declared actor; an org-approval mutation (G7.3, see
+below) must come from an approver role. **This is not currently enforceable against the real engine.**
 RelataDB's own conditional/cell-level ACL enforcement is not yet wired into every call site upstream (tracked
 as RelataDB issues #3118/#3125/#3126) — the project's own architecture doc already calls this out as a known
 gap, not an assumption made here: cell-level ACL is explicitly framed as *defense in depth*, not the sole
@@ -72,6 +72,16 @@ against a real instance. `fleetsmith grid init` therefore always reports the ACL
 template, not applied** — regardless of whether an admin token happens to be configured — rather than
 attempting a call against a guessed endpoint. When RelataDB ships real conditional-ACL enforcement, this file
 is what an admin (or a future fleetsmith version) applies it from.
+
+**The org-approved channel (G7.3)** — `fleetsmith grid propose|approve|publish <content_hash>`, moving an
+`OrgDocument` row through `draft` → `proposed` → `approved` → `published` — hits the exact same gap:
+"approve requires an approver role" has no engine-side role concept to check. `grid approve` therefore checks
+`grid.approvers` (a fleet-configured list in `fleet.yaml`'s `grid:` block, or `GRID_APPROVERS`, comma-separated)
+against the locally-resolved actor — the same client-side-only shape as the push-identity check above, applied
+to a different question. An approved/published document ranks higher in recall (a fixed 1.5× score multiplier,
+`ee/src/grid/approval.js`'s `RANKING_BOOST`) and lists by title in `GRID.md`'s "Org-approved" section — but
+approval never writes to `_fleet/local` or `_fleet/shared`; the PR ladder remains the only path into the
+committed tier.
 
 ## OIDC / JWKS (documented, not implemented)
 

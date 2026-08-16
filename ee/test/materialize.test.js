@@ -134,6 +134,14 @@ test('renderGridRollup shows "(none)" when there are no cross-actor dependencies
   assert.match(md, /## Cross-actor dependencies\n\(none\)/);
 });
 
+test('renderGridRollup shows "(none)" for Org-approved when no titles are given, and lists sorted titles when they are (G7.3)', () => {
+  const empty = renderGridRollup({ actors: [], syncedAt: 's', now: NOW });
+  assert.match(empty, /## Org-approved\n\n\(none\)/);
+
+  const withTitles = renderGridRollup({ actors: [], syncedAt: 's', now: NOW, orgApprovedTitles: ['Zebra Doc', 'Alpha Doc'] });
+  assert.match(withTitles, /## Org-approved\n\n- Alpha Doc\n- Zebra Doc/);
+});
+
 // --- materialize: orchestration, upsert semantics, determinism -----------------
 
 test('materialize writes LEDGER.md/presence.json/handoffs.md per actor plus one GRID.md, and reports every path written', () => {
@@ -222,4 +230,24 @@ test('materialize handles an actor known only via HandoffPointer/RunEventSummary
 test('materialize receives RunEventSummary rows without error, even though they have no materialized file surface in this task', () => {
   const localDir = tempLocalDir();
   assert.doesNotThrow(() => materialize([row('RunEventSummary', { actor: 'bob', run_id: 'r1', gate_pass: 1, gate_block: 0, execute_tool_error: 0 })], localDir, { now: NOW }));
+});
+
+test('materialize renders GRID.md\'s Org-approved section from OrgDocument rows, deduped by content_hash then by title (G7.3)', () => {
+  const localDir = tempLocalDir();
+  const orgDocRow = (fields) => row('OrgDocument', { content_hash: 'h1', kind: 'meeting', title: 'Q1 Doc', client: 'acme', chunk_index: 0, chunk_text: 'x', source_file: 'f.md', imported_by: 'alice', valid_from: '2026-01-01', ...fields });
+
+  materialize(
+    [
+      orgDocRow({ content_hash: 'h1', title: 'Q1 Doc' }), // still draft (implicit)
+      orgDocRow({ content_hash: 'h1', title: 'Q1 Doc', approval: 'approved' }), // supersedes the draft version above, same key
+      orgDocRow({ content_hash: 'h2', title: 'Q1 Doc', chunk_index: 1, approval: 'approved' }), // a second chunk of the SAME document — same title
+      orgDocRow({ content_hash: 'h3', title: 'Unapproved Doc' }), // never approved — must not appear
+    ],
+    localDir,
+    { now: NOW }
+  );
+
+  const gridMd = fs.readFileSync(path.join(localDir, 'grid', 'GRID.md'), 'utf8');
+  assert.match(gridMd, /## Org-approved\n\n- Q1 Doc\n/, 'the last-write-wins approved version must count, deduped to ONE title despite two approved chunks sharing it');
+  assert.doesNotMatch(gridMd, /Unapproved Doc/);
 });
