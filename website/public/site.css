@@ -1651,3 +1651,43 @@ table.doc-table td code {
     transform: none;
   }
 }
+
+/* ── landing page ──
+   These live here rather than in a page-local <style> block because the CSP in
+   _headers is `style-src 'self'` — an inline <style> is refused outright, and a
+   refused rule fails SILENTLY: .stat-row simply rendered as display:block in
+   production while looking perfect on a local server that sends no CSP. Any
+   page-specific rule belongs in this file. */
+.hero .install-box pre {
+  font-size: 0.82rem;
+}
+/* On a narrow phone this command overflows its own scroller. It SCROLLS — it
+   must never wrap. BRAND.md: "a wrapped command is a lie — someone will paste
+   it." Shrinking the type buys back most of the width, and the copy button is
+   the real affordance either way. */
+@media (max-width: 560px) {
+  .hero .install-box pre {
+    font-size: 0.72rem;
+  }
+}
+.lead-fig {
+  margin-top: 2.5rem;
+}
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1.4rem;
+  margin: 2.5rem 0 0;
+}
+.stat .n {
+  font-family: var(--display);
+  font-size: 1.9rem;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1;
+}
+.stat .l {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-top: 0.3rem;
+}
