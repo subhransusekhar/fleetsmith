@@ -14,6 +14,24 @@ fleet:
     cron: "0 3 * * 1"        # weekly Monday 03:00; or use `interval: 6h`, or neither for self-paced
     note: "re-scan the API surface for new endpoints and regressions since last week"
 
+  # Intelligence Grid (v0.7.0, enterprise/ee only — see docs/enterprise/deployment.md and setup.md).
+  # Absence is the normal state: with no `grid:` block and no RELATA_URL/RELATA_TOKEN env pair, a build/run
+  # is byte-identical to a plain core checkout — this block only ever narrows nothing, it opts IN to syncing
+  # this fleet's ledger/handoff/presence state through a customer-run RelataDB instance ("the cortex").
+  # Never put a literal token here — fleet.yaml is meant to be committed, and `token_env` names an
+  # environment variable instead; a literal `grid.token` is refused outright at build/run time.
+  #
+  # grid:
+  #   url: https://your-cortex.example.com:9090   # required if this block is present at all
+  #   token_env: RELATA_TOKEN                     # required — the NAME of the env var holding the token
+  #   purposes: [cross_dev_reuse, regression_check]  # optional — extra purposes beyond the six standard ones
+  #   accel_endpoint: https://your-embedder.example.com  # optional — a customer-run embedder sidecar for
+  #                                                       # vector recall; text-only (BM25) recall is the
+  #                                                       # default with no accel_endpoint configured
+  #   approvers: [alice, bob]                      # optional — who `grid approve`/reject accepts (client-side
+  #                                                 # allowlist; see docs/enterprise/identity.md for why this
+  #                                                 # isn't an engine-enforced role)
+
 defaults:
   model: inherit             # smart | fast | cheap | inherit — a relative intent, not a model name
   capabilities: { read: true }
