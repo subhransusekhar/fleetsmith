@@ -7,6 +7,7 @@ import { GRID_TYPES, ingestRows, resolveRepoId } from './ontology.js';
 import { ledgerToTasks, presenceFrom, handoffToPointer, eventsToSummary, ProjectionError } from './project.js';
 import { declaredFiles, declaredSymbols } from './declared.js';
 import { resolveActor } from '../actor.js';
+import { redactRow as defaultRedactRow } from './redact.js';
 
 /**
  * The grid push loop (G3.2): reads what already exists on disk, projects it into grid rows (G2.2), enriches
@@ -159,7 +160,7 @@ export async function pushOnce(config, repoDir, opts = {}) {
   const actor = opts.actor ?? resolveActor();
   const branch = opts.branch ?? resolveBranch(repoDir);
   const localDir = opts.localDir ?? path.join(repoDir, '_fleet', 'local');
-  const redactRow = opts.redactRow ?? ((row) => row);
+  const redactRow = opts.redactRow ?? defaultRedactRow;
   const ctx = { repoId: opts.repoId ?? resolveRepoId(repoDir), actor, branch, purpose: opts.purpose ?? DEFAULT_PURPOSE, origin: opts.origin ?? DEFAULT_ORIGIN };
 
   const warnings = [];
@@ -195,23 +196,29 @@ export async function pushOnce(config, repoDir, opts = {}) {
     }
     if (changed.length === 0) continue;
 
-    let redacted;
-    try {
-      redacted = changed.map(({ row }) => redactRow(row));
-    } catch (e) {
-      warnings.push(`${typeName}: redaction refused this batch, nothing pushed for it this cycle: ${e.message}`);
-      continue;
+    // G9.2: redaction is PER ROW, not per batch — a blocked row must not take its siblings down with it. A
+    // blocked row's digest is deliberately never recorded in `pushed.json`, so it is re-scanned (and, if still
+    // a real secret, re-blocked and re-warned) every cycle until the underlying content actually changes —
+    // loud and persistent, not a warning that fires once and then goes silent while the secret sits there.
+    const toIngest = [];
+    for (const entry of changed) {
+      try {
+        toIngest.push({ ...entry, row: redactRow(entry.row) });
+      } catch (e) {
+        warnings.push(`${typeName} ${entry.key}: ${e.message}`);
+      }
     }
+    if (toIngest.length === 0) continue;
 
     try {
-      await ingestRows(config, typeName, redacted);
-      for (const { key, digest } of changed) {
+      await ingestRows(config, typeName, toIngest.map(({ row }) => row));
+      for (const { key, digest } of toIngest) {
         digests[key] = digest;
         digestsChanged = true;
         pushed.push(key);
       }
     } catch (e) {
-      warnings.push(`${typeName}: /ingest failed for ${changed.length} row(s), will retry next cycle: ${e.message}`);
+      warnings.push(`${typeName}: /ingest failed for ${toIngest.length} row(s), will retry next cycle: ${e.message}`);
     }
   }
 

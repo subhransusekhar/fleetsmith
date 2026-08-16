@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { request } from '../memory/relatadb.js';
+import { redactRow, RedactionError } from './redact.js';
 
 /**
  * The grid ontology (G2.1): the four typed rows that carry live cross-developer state through RelataDB's
@@ -108,9 +109,37 @@ export function validateRow(typeName, row) {
  * status. One real network call per invocation, not batched further — a caller with many rows to push (the
  * G3 daemon) issues one call per type per push cycle, which is already how `remember_batch` works elsewhere
  * in this package.
+ *
+ * --- G9.2: every row is also redacted here, not only wherever a caller remembers to call it --------------
+ *
+ * This is the ONE function every real `/ingest` call in `ee/src/grid/` (and `ee/console/`) goes through — the
+ * choke point that makes "every push path redacted" a structural guarantee, not a per-call-site convention
+ * that a future caller could forget. Validation (above) stays all-or-nothing — a malformed row (missing a key
+ * field) is a caller BUG, and the whole call failing loudly is the correct response. Redaction is different:
+ * a row that looks like it carries a secret is a CONTENT problem specific to that one row, so this refuses to
+ * send anything at all in THIS call when even one row is flagged (naming every flagged row, never a value) —
+ * the safe default for a function most callers invoke with one or a handful of rows, where "block this one
+ * row" and "block this call" are the same thing anyway. `push.js` is the one caller sophisticated enough to
+ * pre-filter its own batch (so its siblings still get pushed even when one row is blocked) — by the time it
+ * calls this function, its rows have already passed the SAME `redactRow`, so this check never fires a second
+ * time for it; every OTHER caller in this package gets protection it never had to opt into.
  */
 export async function ingestRows(config, typeName, rows) {
   for (const row of rows) validateRow(typeName, row);
+
+  const blocked = [];
+  for (const row of rows) {
+    try {
+      redactRow(row);
+    } catch (e) {
+      const key = GRID_TYPES[typeName].key.map((field) => row[field]).join('|');
+      blocked.push(`${typeName}::${key} — ${e.message}`);
+    }
+  }
+  if (blocked.length) {
+    throw new RedactionError(`refusing to ingest ${blocked.length} of ${rows.length} row(s) for "${typeName}": ${blocked.join('; ')}`);
+  }
+
   return request(config, { method: 'POST', path: '/ingest', query: { object_type: typeName }, body: { rows } });
 }
 
