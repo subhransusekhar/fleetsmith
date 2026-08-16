@@ -3984,12 +3984,14 @@ test('a nonexistent FLEETSMITH_EE_PATH warns once and does not crash the CLI', (
 });
 
 test('the real ee/ scaffold loads cleanly via FLEETSMITH_EE_PATH (dogfood check)', () => {
-  // ee/src/index.js's register() is intentionally empty until G1/G3, so this
-  // only proves the scaffold itself — license header, package.json shape,
-  // entrypoint — is loadable by the same mechanism a real install would use.
+  // Proves the real package — license header, package.json shape, entrypoint, registered commands — is
+  // loadable by the same mechanism a real install would use. The version regex accepts a plain release
+  // semver (e.g. "0.7.0", the shape shipped from G10.3 onward) or a "-dev.N" prerelease suffix (the shape
+  // used before a version is actually released) — this test asserts the mechanism works, not which of the
+  // two shapes ee/package.json's version happens to be at any given moment.
   const eeIndex = fileURLToPath(new URL('../ee/src/index.js', import.meta.url));
   const res = cliRun(['version'], { FLEETSMITH_EE_PATH: eeIndex });
   assert.equal(res.status, 0);
   assert.equal(res.stderr, '');
-  assert.match(res.stdout, /fleetsmith-ee \d+\.\d+\.\d+-dev\.\d+ \(AGPL-3\.0-only\)/);
+  assert.match(res.stdout, /fleetsmith-ee \d+\.\d+\.\d+(-dev\.\d+)? \(AGPL-3\.0-only\)/);
 });

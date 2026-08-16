@@ -1,3 +1,48 @@
+## 0.7.0 — Intelligence Grid
+
+Multiple developers running fleets against the same repo now stay in sync *before any git commit*, via an
+optional, BYOL, enterprise tier (`fleetsmith-ee`, AGPL-3.0-only) that plugs into core through the existing
+plugin registry — a checkout with no cortex configured stays byte-identical to v0.6, and every capability
+below names a degraded answer that works with core + git alone.
+
+**A `fleetsmith grid` daemon, and the state it moves**
+- `fleetsmith grid init` / `grid sync [--watch]` push each developer's ledger/handoff/presence state as typed
+  rows into a customer-run RelataDB instance ("the cortex") and materialize every peer's state back down as
+  plain files under `_fleet/local/grid/` — agents just read files, never talk to the cortex directly.
+- `fleetsmith grid overlaps [--git-only]` surfaces cross-developer file/task/dependency-cycle collisions
+  before they become merge conflicts; `--git-only` needs no cortex at all.
+- A grid-awareness skill, compiled into every target, teaches an agent to read `GRID.md`/`OVERLAPS.md` before
+  claiming overlapping work — grid-conditional, so a grid-disabled compile is unchanged from v0.6.
+
+**Team knowledge and governance**
+- `fleetsmith grid import`/`grid knowledge` turn meeting notes, discussions, decisions, and specs into
+  provenance-tracked, semantically recallable org knowledge, idempotent on re-import.
+- A purposes vocabulary, an `OrgDocument` draft→proposed→approved→published approval lifecycle, per-agent
+  equip scoping (opt-in narrowing, never opt-in permission), and purpose-audited `grid audit` (including
+  `--why <item-id>` lineage).
+- An admin console (`ee/console/`) — board, audit, knowledge/procedures, equip, members, and health screens
+  over a stateless BFF that re-authenticates every request against the cortex directly, forwarding the
+  caller's own token.
+
+**Grid is advisory, never a gate**
+- Grid state may never gate an agent, alter a QA/eval verdict, or bypass the promotion ladder into
+  `_fleet/shared/` — a standing, statically-checked invariant (`docs/evolution.md`), enforced by grepping
+  every file under `ee/src/` for a reference to the `SubagentStop` handover gate script and reaffirmed by a
+  six-row degradation matrix covering unreachable cortex, license exhaustion, revoked tokens, and malformed
+  responses.
+- On any cortex failure: degrade to the file backend, exactly one warning, no run failure — never a crash,
+  never a silent hang.
+
+**Documentation**
+- `docs/enterprise/{deployment,setup,governance,degradation}.md` — an enterprise admin and two developers can
+  stand up the whole grid from these pages alone; every command in `setup.md` was run against a real instance
+  while writing it, not merely reasoned about.
+- `docs/enterprise/identity.md` — token provisioning, rotation, and the client-side identity/ACL story on an
+  engine surface with no server-side role enforcement yet.
+
+See `docs/milestones/v0.7.0-intelligence-grid.md` and `docs/architecture/intelligence-grid.md` for the full
+design and the load-bearing decisions behind it.
+
 ## 0.6.1 — Portable models, and eval that stops thinking
 
 **The harness stopped reasoning its way through checks it already ships**

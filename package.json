@@ -1,6 +1,6 @@
 {
   "name": "fleetsmith",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Meta agent-fleet builder: compile one fleet spec into coordinated agent teams, skills, and handover protocols for Claude Code, opencode, and goose.",
   "type": "module",
   "bin": {
@@ -27,7 +27,8 @@
     "build:binary": "node scripts/bundle.mjs && node scripts/build-binary.mjs",
     "build:binary:macos-x64": "node scripts/bundle.mjs && node scripts/build-binary.mjs --arch x64",
     "build:example": "node src/cli.js build fleet.example.yaml --target all --out ./dist-example",
-    "prepublishOnly": "npm test"
+    "publish-check": "node scripts/publish-check.mjs",
+    "prepublishOnly": "npm test && node scripts/publish-check.mjs"
   },
   "keywords": [
     "agents",
