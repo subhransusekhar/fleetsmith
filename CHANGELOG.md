@@ -1,3 +1,25 @@
+## 0.8.1 — the path guard works on Windows
+
+One defect, in the guardrails that shipped hours earlier in 0.8.0: **the protected-path guard was inert on
+Windows.** Every protected edit was allowed there, silently, while the same spec blocked correctly on macOS and
+Linux. Anyone on macOS or Linux can skip this release; anyone on Windows was running with one of 0.8.0's two new
+deterministic controls switched off.
+
+**The bug.** The hook payload carries an OS-native path, and JSON escapes every separator, so on Windows the guard
+reads `D:\\repo\\test\\x.js` while the patterns compiled from `guardrails.protectedPaths` are POSIX globs
+(`test/*`). Nothing matched, so nothing was blocked. The guard normalizes separators before matching now — backslashes
+to forward slashes, runs of slashes collapsed — on both the target path and `CLAUDE_PROJECT_DIR` before the prefix
+strip, so the project-relative form is the same shape on every platform.
+
+**Why the suite missed it, and what now catches it.** Every guard test built its payload with `path.join`, which
+produces forward slashes on the two platforms anyone ran locally — the Windows shape was unreachable by construction,
+exactly like the v0.7.0 binary defect. The release runner found it, which is the only reason 0.8.0's Windows binary
+never shipped. The suite now asserts a real Windows payload (`JSON.stringify` of a backslash path, with
+`CLAUDE_PROJECT_DIR` set to a drive-letter root) on every platform, blocked and allowed cases both.
+
+**Also in this release.** v0.8.0's release run failed on the Windows job, so that tag has Linux and both macOS
+binaries but no `fleetsmith-windows-x64.exe`. This release ships all four.
+
 ## 0.8.0 — the AI-native SDLC plays
 
 A fleet run is a miniature software development lifecycle: a request arrives, gets decomposed,
