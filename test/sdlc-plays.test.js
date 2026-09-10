@@ -141,10 +141,27 @@ test('guard hook: blocks edits under protected paths with an explanation, lets e
   const dir = tmp('guard');
   buildClaudeCode(spec, {}).write(dir, { force: true });
   const script = path.join(dir, spec.fleet.local, GUARD_PATH);
-  const run = (payload) =>
-    spawnSync('sh', [script], { input: typeof payload === 'string' ? payload : JSON.stringify(payload), cwd: dir, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: dir } });
+  const run = (payload, projectDir = dir) =>
+    spawnSync('sh', [script], { input: typeof payload === 'string' ? payload : JSON.stringify(payload), cwd: dir, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir } });
 
   const edit = (file_path, tool = 'Edit', agent_type = 'writer') => ({ tool_name: tool, tool_input: { file_path }, agent_type });
+
+  // Windows sends OS-native paths and JSON escapes every separator, so the hook
+  // reads `D:\\repo\\test\\x.js` while these patterns are POSIX globs. It matched
+  // nothing there and allowed every protected edit — caught by the Windows
+  // release runner, asserted here on every platform. `JSON.stringify` produces
+  // exactly the escaping a real payload carries, so this is the true shape.
+  const winRoot = 'D:\\repo';
+  assert.equal(
+    run(JSON.stringify({ tool_name: 'Edit', tool_input: { file_path: `${winRoot}\\test\\unit\\a.test.js` }, agent_type: 'writer' }), winRoot).status,
+    2,
+    'a backslash-separated path under a protected glob must still be blocked'
+  );
+  assert.equal(
+    run(JSON.stringify({ tool_name: 'Edit', tool_input: { file_path: `${winRoot}\\src\\index.js` }, agent_type: 'writer' }), winRoot).status,
+    0,
+    'an unprotected backslash path is still allowed'
+  );
 
   // absolute and relative forms of a protected path are both caught
   let r = run(edit(path.join(dir, 'test/unit/a.test.js')));

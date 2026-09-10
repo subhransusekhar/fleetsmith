@@ -114,8 +114,16 @@ case "$tool" in
     target=$(printf '%s' "$payload" | sed -n 's/.*"file_path"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
     [ -n "$target" ] || target=$(printf '%s' "$payload" | sed -n 's/.*"notebook_path"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')
     [ -n "$target" ] || exit 0
+    # Normalize separators before matching. On Windows the payload carries
+    # OS-native paths and JSON escapes every backslash, so a drive-letter path
+    # arrives with doubled backslashes between its segments while these patterns
+    # are POSIX globs — the guard matched nothing at all there and silently
+    # allowed every protected edit. Runs of slashes are collapsed too, which is
+    # what translating those doubled separators leaves behind.
+    target=$(printf '%s' "$target" | tr '\\\\' '/' | sed -e 's|//*|/|g')
+    norm_root=$(printf '%s' "$root" | tr '\\\\' '/' | sed -e 's|//*|/|g')
     case "$target" in
-        "$root"/*) rel=\${target#"$root"/} ;;
+        "$norm_root"/*) rel=\${target#"$norm_root"/} ;;
         *) rel=$target ;;
     esac
     rel=\${rel#./}
