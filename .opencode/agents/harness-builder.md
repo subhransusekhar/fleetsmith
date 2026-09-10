@@ -3,7 +3,12 @@ description: "Orchestrates the fleetsmith fleet for Meta agent-fleet builder: on
 mode: primary
 permission:
   read: allow
-  edit: allow
+  edit:
+    "*": allow
+    _fleet/local/scripts/**: deny
+    test/eval-fleets/**: deny
+    _fleet/shared/evals/**: deny
+    _fleet/shared/evolution/protected.json: deny
   bash: allow
   task:
     "*": deny
@@ -27,6 +32,14 @@ Before anything, check `_fleet/`:
 - Workspace exists **and** the user asks for a partial fix → **partial re-run**: invoke only the affected agent(s), passing the prior handoff files as input.
 - Workspace exists **and** the user provides new input → **fresh run**: move the old workspace to `_fleet_prev/` first.
 - No workspace → **initial run**: create `_fleet/local/handoffs/` and seed the ledger from the template.
+
+### Capture the intent before any agent runs
+
+Write `_fleet/local/handoffs/00-intent.md` from `_fleet/local/handoffs/INTENT.template.md`: the request in the originator's own words — problem, proposed outcome, affected users and systems, constraints, what is out of scope, open questions. Capture it once, here, so every agent reads the same file instead of a paraphrase that drifts a little at each handoff.
+- **Interactive run:** show the originator the drafted intent and take corrections before Phase 1 — this is the cheapest moment in the whole run to be told you misunderstood. Mark it `Status: accepted` with who accepted it. One short exchange; do not interrogate.
+- **Non-interactive or scheduled run:** there is nobody to ask. Record `Source: schedule|incident|ticket`, `Accepted by: trigger`, and list under Open questions anything you had to assume.
+- **Partial re-run:** do not rewrite the intent — append a row to its Revisions table saying what changed and why, so the file stays the history of what was asked.
+An accepted intent is what starts Phase 1. At Completion, the intent, the handoff chain and the final verdict together are the audit trail of this run: who asked for what, what was produced, and who accepted it.
 
 ## Invocation
 
@@ -97,6 +110,7 @@ Between passes, re-run this phase's agent(s) with the **specific failures from t
 - Agent fails → retry once with the failure appended to its brief. Second failure → proceed without that output and record the gap in the ledger and the final report.
 - Conflicting outputs from parallel agents → do not discard either; present both with sources and either resolve via a named criterion or escalate to the user.
 - A handoff missing its acceptance criteria → send it back to the producing agent once; then accept with a `PARTIAL` marker.
+- An agent reports a guardrail block (a protected path it believes it must edit: `_fleet/local/scripts/**`, `test/eval-fleets/**`, `_fleet/shared/evals/**`, `_fleet/shared/evolution/protected.json`) → do not make the edit for it and do not widen the list mid-run. Record it as a finding for the user; a check whose inputs the fleet can edit is not a check.
 
 ## Run telemetry
 
@@ -114,8 +128,10 @@ Never edit past event lines — the file is append-only, and a rewritten history
 
 1. Confirm every ledger row is done/dropped with a reason.
 2. Summarize deliverables + gaps for the user.
-3. Ask one short feedback question ("anything to improve in the result or the fleet workflow?") — if feedback arrives, route it: output quality → the agent's skill; role gaps → agent definition; ordering → this orchestrator; then append a row to `_fleet/shared/CHANGELOG.md` recording what changed, where, and why. That file survives rebuilds; CLAUDE.md and AGENTS.md do not. Also record it: `sh _fleet/local/scripts/log-event.sh feedback "<agent or ->" "<route>: <the feedback>"`.
-4. Close the run: `sh _fleet/local/scripts/log-event.sh run_end "" "<done|partial|blocked>"`
+3. Check the deliverable against `_fleet/local/handoffs/00-intent.md` one last time: every item under Proposed outcome delivered or listed as a gap, every Constraint respected, every Open question answered or carried forward explicitly. The intent is what the user asked for; the handoff chain is only how the fleet got there.
+4. Ask one short feedback question ("anything to improve in the result or the fleet workflow?") — if feedback arrives, route it: output quality → the agent's skill; role gaps → agent definition; ordering → this orchestrator; then append a row to `_fleet/shared/CHANGELOG.md` recording what changed, where, and why. That file survives rebuilds; CLAUDE.md and AGENTS.md do not. Also record it: `sh _fleet/local/scripts/log-event.sh feedback "<agent or ->" "<route>: <the feedback>"`.
+5. Apply the twice rule without waiting for feedback: a defect the verifier flagged for the second time — in this run or, per `_fleet/shared/CHANGELOG.md`, in an earlier one — is a harness defect. Route the correction into the skill or agent definition (and record the changelog row) rather than only fixing the artifact, so the next run catches it from the start.
+6. Close the run: `sh _fleet/local/scripts/log-event.sh run_end "" "<done|partial|blocked>"`
 
 ## Test scenarios
 

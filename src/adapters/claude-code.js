@@ -1,11 +1,13 @@
 import { FileSet } from '../lib/fs-utils.js';
 import { mdWithFrontmatter } from '../lib/md.js';
 import { compileAgentBody, title } from '../compile/agent-prompt.js';
-import { handoffTemplate, ledgerTemplate, changelogTemplate } from '../handover/protocol.js';
+import { handoffTemplate, intentTemplate, ledgerTemplate, changelogTemplate } from '../handover/protocol.js';
 import { compileOrchestratorBody } from '../compile/orchestrator.js';
 import { settingsJson, validatorScript, loopMd, VALIDATOR_PATH } from './claude-settings.js';
 import { skillEvals, evalsReadme } from '../compile/evals.js';
 import { logEventScript, TELEMETRY_PATH } from '../compile/telemetry.js';
+import { guardScript, protectedPathsFor, GUARD_PATH } from '../compile/guardrails.js';
+import { ciWorkflow, CI_WORKFLOW_PATH } from '../compile/ci.js';
 
 /**
  * Claude Code adapter.
@@ -62,10 +64,14 @@ export function buildClaudeCode(spec, options = {}) {
   // SubagentStop gate so a missing handoff blocks the agent instead of
   // silently becoming the next agent's problem.
   const validatorPath = `${spec.fleet.local}/${VALIDATOR_PATH}`;
-  out.add('.claude/settings.json', settingsJson(spec, { validatorPath }));
+  const guardPath = `${spec.fleet.local}/${GUARD_PATH}`;
+  out.add('.claude/settings.json', settingsJson(spec, { validatorPath, guardPath }));
   out.add(validatorPath, validatorScript(spec));
+  // PreToolUse guard: protected paths (declared + the fleet's own gate scripts).
+  out.add(guardPath, guardScript(spec));
 
   if (spec.fleet.schedule) out.add('.claude/loop.md', loopMd(spec));
+  if (spec.fleet.ci === 'github') out.add(CI_WORKFLOW_PATH, ciWorkflow(spec));
 
   if (options.claudeMd !== false) {
     out.add('CLAUDE.md', claudeMdPointer(spec));
@@ -322,6 +328,7 @@ function liveStateBlock(spec) {
 
 function emitWorkspace(out, spec, options = {}) {
   out.add(`${spec.handover.dir}/HANDOFF.template.md`, handoffTemplate());
+  out.add(`${spec.handover.dir}/INTENT.template.md`, intentTemplate());
   if (spec.handover.ledger) {
     out.add(`${spec.fleet.local}/LEDGER.md`, ledgerTemplate(spec.fleet.name, Boolean(spec.fleet.grid)));
   }
@@ -341,6 +348,10 @@ function claudeMdPointer(spec) {
 **Trigger:** For ${spec.orchestrator.trigger}, use the \`${spec.orchestrator.name}\` skill. Simple questions can be answered directly.
 
 **Handover gate:** \`.claude/settings.json\` registers a \`SubagentStop\` hook running \`${spec.fleet.local}/${VALIDATOR_PATH}\`, which blocks a fleet agent from finishing until its handoff file exists and carries every required section. Note that project-level hooks do not run until this workspace is trusted — until you accept that dialog the gate is silently skipped and the fleet degrades to advisory instructions.
+
+**Protected paths:** a \`PreToolUse\` hook (\`${spec.fleet.local}/${GUARD_PATH}\`) blocks edits — by any session in this project — under ${protectedPathsFor(spec).map((g) => `\`${g}\``).join(', ')}. These are the fleet's own gates and the inputs of its objective checks; change them by editing \`fleet.guardrails.protectedPaths\` in the spec and rebuilding, never by working around the block.
+
+**Intent:** every run starts by writing \`${spec.handover.dir}/00-intent.md\` — what was asked, by whom, and why — and every agent reads it first. Correct that file, not the agents, when a run is heading the wrong way.
 
 **Changelog:** harness changes are recorded in \`${spec.fleet.shared}/CHANGELOG.md\` — append a row there rather than editing this file, which is regenerated on every build.
 `;

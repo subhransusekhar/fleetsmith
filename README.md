@@ -76,6 +76,16 @@ Every agentic CLI grew its own harness format: Claude Code has subagents + Agent
 - **Loop engineering, translated per tool.** Declare an iteration loop on a phase (`loop: { until, max, check }`, repeat-until-quality) or a recurring schedule on the fleet (`schedule: { cron, interval }`). Each compiles to a bounded prose loop on every target — plus goose's native `retry` for checked loops, and `/loop`/routines, cron wrappers, or `goose schedule` for recurring runs. See [`docs/spec.md`](docs/spec.md#loop-engineering).
 - **Enforced contracts, not advisory ones.** Where a target can check something deterministically, fleetsmith emits the check rather than an instruction: a Claude Code `SubagentStop` hook that blocks an agent until its handoff file is complete, opencode `permission.task` maps that compile the handoff graph (a denied agent disappears from the task tool entirely), and goose `response.json_schema` that validates the handoff summary at runtime.
 
+### AI-native SDLC plays (unreleased)
+
+Anthropic's [AI-native SDLC playbook](https://claude.com/blog/the-ai-native-sdlc-playbook) (2026-08) describes the shape a fleet run already has — a chain of committed artifacts, skills as institutional knowledge, hooks as the deterministic layer behind advisory instructions — and names the mechanisms fleetsmith was missing. The mapping, play by play, is in [`docs/research/ai-native-sdlc-playbook-2026-09.md`](docs/research/ai-native-sdlc-playbook-2026-09.md).
+
+- **An intent artifact.** Every run now starts by writing `00-intent.md` — what was asked, by whom, and why, in the originator's words, confirmed with them before any agent runs — and every agent reads it first. Verifiers check compliance against it; Completion checks the deliverable against it. The intent, the handoff chain and the verdict are the run's audit trail.
+- **Protected paths, enforced.** `fleet.guardrails.protectedPaths` compiles to a Claude Code `PreToolUse` hook that blocks the edit, explains why, and records it, plus opencode permission denies. The fleet's own gate scripts are protected automatically. Point it at your tests and fixtures: an agent asked to make `npm test` pass and able to edit the tests will eventually edit the tests.
+- **Self-verification before handoff.** Agents accountable to a phase's `check` run it themselves and paste the literal output under `## Verification`; the `SubagentStop` gate refuses their stop without it.
+- **Review passes.** Verifiers review in three tagged passes (defects, compliance with the intent, policy), rank *Important* over *Nit*, cap nits, and label a repeat finding as a harness defect so it is routed into the skill, not just the artifact.
+- **Config-regression CI, opt-in.** `fleet.ci: github` emits a workflow that runs `fleetsmith qa --built .` and `fleetsmith eval --stage 2` on any change to the spec, the compiled harness, or `_fleet/shared/` — no API key needed.
+
 ### What v0.5 adds
 
 A generated harness now has a feedback loop. It records what its runs did, checks itself deterministically, and can propose its own improvements for review — with **one model call in the whole system** and gates that never depend on it. Full detail in [Self-evolution](#self-evolution-v050); evidence in [`docs/research/self-evolving-agents-2026-08.md`](docs/research/self-evolving-agents-2026-08.md).

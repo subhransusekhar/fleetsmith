@@ -6,6 +6,7 @@ import {
   HANDOFF_PROTOCOLS,
   EFFORT_LEVELS,
   FREEDOM_LEVELS,
+  CI_PROVIDERS,
 } from './schema.js';
 import { slugify } from '../lib/md.js';
 import { lintSpec } from './lint.js';
@@ -46,6 +47,30 @@ export function validateSpec(spec) {
           'with no leading slash and no ".." segment. This value is interpolated into generated shell scripts and config.'
       );
     }
+  }
+
+  // Guardrail globs land unquoted in a `case` pattern inside a generated
+  // PreToolUse hook, so the character set is the whole security boundary.
+  for (const p of spec.fleet.guardrails.protectedPaths) {
+    if (!isSafeGlob(p)) {
+      err(
+        `fleet.guardrails.protectedPaths entry "${p}" is not a safe glob — use only letters, digits, dot, dash, underscore, ` +
+          'forward slash, "*" and "?", with no leading slash and no ".." segment. It is interpolated into a generated hook script.'
+      );
+    }
+  }
+  if (spec.fleet.ci && !CI_PROVIDERS.includes(spec.fleet.ci)) {
+    err(`fleet.ci "${spec.fleet.ci}" is not one of: ${CI_PROVIDERS.join(', ')}`);
+  }
+  // A loop with an objective check is a feedback loop, and a feedback loop an
+  // agent can edit is not objective: the check's inputs (tests, fixtures) need
+  // to be on the protected list or the agent can satisfy the check by
+  // weakening it.
+  const checkedLoop = (spec.orchestrator.phases ?? []).some((p) => p.loop?.check);
+  if (checkedLoop && spec.fleet.guardrails.protectedPaths.length === 0) {
+    warn(
+      'a phase loop declares a shell `check` but fleet.guardrails.protectedPaths is empty — protect the check\'s inputs (test files, fixtures) so an agent cannot pass the check by editing it'
+    );
   }
 
   // recurring loop (fleet.schedule)
@@ -199,6 +224,14 @@ export function validateSpec(spec) {
 function isSafeRelativePath(p) {
   if (typeof p !== 'string' || p.length === 0) return false;
   if (!/^[A-Za-z0-9._\-/]+$/.test(p)) return false;
+  if (p.startsWith('/')) return false;
+  return !p.split('/').includes('..');
+}
+
+/** A safe relative path that may also carry `*` and `?` glob characters. */
+function isSafeGlob(p) {
+  if (typeof p !== 'string' || p.length === 0) return false;
+  if (!/^[A-Za-z0-9._\-/*?]+$/.test(p)) return false;
   if (p.startsWith('/')) return false;
   return !p.split('/').includes('..');
 }

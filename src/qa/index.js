@@ -3,6 +3,7 @@ import path from 'node:path';
 import { validateSpec } from '../spec/validate.js';
 import { lintSpec } from '../spec/lint.js';
 import { ADAPTERS, DEFAULT_TARGETS, buildAll } from '../adapters/index.js';
+import { protectedPathsFor, GUARD_PATH } from '../compile/guardrails.js';
 
 /**
  * The deterministic verification battery — the EVALUATE stage's gate.
@@ -38,6 +39,7 @@ export function runQa(spec, { builtDir = null, targets = DEFAULT_TARGETS, playbo
   for (const target of targets) checks.push(checkCompiles(spec, target));
   checks.push(checkHandoffGraph(spec));
   checks.push(checkCapabilityLeaks(spec));
+  checks.push(checkGuardrails(spec));
   checks.push(checkLoopBounds(spec));
   checks.push(checkOriginMarkers(spec));
   if (builtDir) checks.push(checkDrift(spec, builtDir, playbooks));
@@ -143,6 +145,53 @@ function checkCapabilityLeaks(spec) {
     }
   }
   return result('capability leaks', evidence.length === 0, evidence);
+}
+
+/**
+ * Guardrails, checked on the compiled output the runtimes actually read: every
+ * protected path (declared, plus the fleet's own gate scripts) must be wired
+ * into the Claude Code PreToolUse hook and its script, denied in every opencode
+ * agent's edit map, and named in every goose recipe. A protected path that is
+ * only protected in the spec is the failure this check exists for.
+ */
+function checkGuardrails(spec) {
+  const evidence = [];
+  const globs = protectedPathsFor(spec);
+
+  const cc = ADAPTERS['claude-code'](spec, {});
+  const settings = JSON.parse(cc.files.get('.claude/settings.json') ?? '{}');
+  const pre = settings.hooks?.PreToolUse ?? [];
+  const guardPath = `${spec.fleet.local}/${GUARD_PATH}`;
+  if (!pre.some((h) => (h.hooks ?? []).some((x) => String(x.command).includes(GUARD_PATH)))) {
+    evidence.push('.claude/settings.json: no PreToolUse hook runs the protected-path guard');
+  }
+  if (!pre.some((h) => /Edit/.test(h.matcher) && /Bash/.test(h.matcher))) {
+    evidence.push('.claude/settings.json: guard hook matcher must cover the file-editing tools and Bash');
+  }
+  const script = cc.files.get(guardPath) ?? '';
+  for (const g of globs) {
+    if (!script.includes(g)) evidence.push(`${guardPath}: protected path "${g}" is not in the guard script`);
+  }
+
+  const oc = ADAPTERS.opencode(spec, {});
+  for (const [p, body] of oc.files) {
+    if (!/^\.opencode\/agents\//.test(p)) continue;
+    for (const g of globs) {
+      // Frontmatter renders the map as `  "<glob>": deny` (or unquoted when safe).
+      const denied = new RegExp(`^\\s+"?${g.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"?:\\s*deny\\s*$`, 'm').test(body);
+      if (!denied) evidence.push(`${p}: edit permission does not deny protected path "${g}"`);
+    }
+  }
+
+  const goose = ADAPTERS.goose(spec, {});
+  for (const [p, body] of goose.files) {
+    if (!/^\.goose\/recipes\//.test(p) || p.endsWith(`${spec.orchestrator.name}.yaml`)) continue;
+    for (const g of globs) {
+      if (!body.includes(g)) evidence.push(`${p}: recipe instructions do not name protected path "${g}"`);
+    }
+  }
+
+  return result('guardrails (compiled)', evidence.length === 0, evidence, `${globs.length} protected path(s)`);
 }
 
 /**

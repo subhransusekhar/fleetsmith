@@ -37,6 +37,17 @@ builders add `edit` and `run`, verifiers get `read` + `run` but never `edit` —
 verifier that can edit will fix instead of report, and the defect disappears from the
 record.
 
+## Guardrails: protect the checks
+
+A capability says what an agent may do; `fleet.guardrails.protectedPaths` says what
+nobody in the fleet may edit, and compiles to a hook (Claude Code) and permission
+denies (opencode) rather than to prose. Put the inputs of every objective check
+there — test files, fixtures, snapshots, generated code — because an agent told to
+make `npm test` pass and able to edit the tests will, eventually, edit the tests.
+The fleet's own gate scripts are protected automatically. Any phase with a
+`loop.check` and no protected paths is a feedback loop the agent can weaken; the
+validator warns about exactly that.
+
 ## Handoff contracts
 
 Every edge carries an `artifact` filename and 2-4 `criteria`. Criteria must be

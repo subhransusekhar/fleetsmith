@@ -2,11 +2,12 @@ import YAML from 'yaml';
 import { FileSet } from '../lib/fs-utils.js';
 import { prune, mdWithFrontmatter } from '../lib/md.js';
 import { compileAgentBody, title, isVerifier } from '../compile/agent-prompt.js';
-import { handoffTemplate, ledgerTemplate, changelogTemplate } from '../handover/protocol.js';
+import { handoffTemplate, intentTemplate, ledgerTemplate, changelogTemplate } from '../handover/protocol.js';
 import { compileOrchestratorBody } from '../compile/orchestrator.js';
 import { agentsMdPointer } from '../compile/pointers.js';
 import { skillEvals, evalsReadme } from '../compile/evals.js';
 import { logEventScript, TELEMETRY_PATH } from '../compile/telemetry.js';
+import { ciWorkflow, CI_WORKFLOW_PATH } from '../compile/ci.js';
 
 /**
  * goose adapter (aaif-goose/goose, recipe format v1.0.0, skills need goose >= 1.25).
@@ -84,6 +85,7 @@ export function buildGoose(spec, options = {}) {
   }
 
   out.add(`${spec.handover.dir}/HANDOFF.template.md`, handoffTemplate());
+  out.add(`${spec.handover.dir}/INTENT.template.md`, intentTemplate());
   if (spec.handover.ledger) {
     out.add(`${spec.fleet.local}/LEDGER.md`, ledgerTemplate(spec.fleet.name, Boolean(spec.fleet.grid)));
   }
@@ -97,12 +99,18 @@ export function buildGoose(spec, options = {}) {
   if (options.agentsMd !== false) {
     out.add('AGENTS.md', agentsMdPointer(spec));
   }
+  if (spec.fleet.ci === 'github') out.add(CI_WORKFLOW_PATH, ciWorkflow(spec));
 
   return out;
 }
 
 function agentRecipe(agent, spec, playbooks = {}) {
-  const instructions = [compileAgentBody(agent, spec, { team: false, playbook: playbooks[agent.name] ?? [] }), readOnlyClause(agent)]
+  // goose has no path-level permission, so the guardrails block compiles in
+  // its advisory form: it says so, rather than implying a hook that is not there.
+  const instructions = [
+    compileAgentBody(agent, spec, { team: false, playbook: playbooks[agent.name] ?? [], guardrailsEnforced: false }),
+    readOnlyClause(agent),
+  ]
     .filter(Boolean)
     .join('\n\n');
 

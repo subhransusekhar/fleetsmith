@@ -14,6 +14,22 @@ fleet:
     cron: "0 3 * * 1"        # weekly Monday 03:00; or use `interval: 6h`, or neither for self-paced
     note: "re-scan the API surface for new endpoints and regressions since last week"
 
+  # Deterministic guardrails (AI-native SDLC playbook). Paths no fleet agent — or any
+  # other session in the project — may edit: compiles to a Claude Code PreToolUse hook
+  # (blocks + explains + records), opencode edit-permission denies, and a stated
+  # constraint on goose. Put the inputs of every objective check here: an agent asked to
+  # make `npm test` pass and able to edit the tests will eventually edit the tests. The
+  # fleet's own gate scripts (_fleet/local/scripts/**) are protected automatically.
+  guardrails:
+    protectedPaths:
+      - test/**
+      - src/gen/**
+
+  # Opt-in config-regression CI: emits .github/workflows/fleet-qa.yml, which runs
+  # `fleetsmith qa --built .` and `fleetsmith eval --stage 2` on any change to the spec,
+  # the compiled agents/skills/hooks, or _fleet/shared/. Both are deterministic — no API key.
+  ci: github
+
   # Intelligence Grid (v0.7.0, enterprise/ee only — see docs/enterprise/deployment.md and setup.md).
   # Absence is the normal state: with no `grid:` block and no RELATA_URL/RELATA_TOKEN env pair, a build/run
   # is byte-identical to a plain core checkout — this block only ever narrows nothing, it opts IN to syncing

@@ -1,5 +1,7 @@
 import { title } from './agent-prompt.js';
 import { telemetryBlock } from './telemetry.js';
+import { INTENT_FILE } from '../handover/protocol.js';
+import { protectedPathsFor } from './guardrails.js';
 
 /**
  * Grid status line (G4.3): a one-line summary of `_fleet/local/grid/GRID.md`
@@ -126,6 +128,25 @@ export function compileOrchestratorBody(spec, target) {
   s.push(`- No workspace → **initial run**: create \`${spec.handover.dir}/\`${spec.handover.ledger ? ' and seed the ledger from the template' : ''}.`);
 
   s.push('');
+  s.push('### Capture the intent before any agent runs');
+  s.push('');
+  s.push(
+    `Write \`${spec.handover.dir}/${INTENT_FILE}\` from \`${spec.handover.dir}/INTENT.template.md\`: the request in the originator's own words — problem, proposed outcome, affected users and systems, constraints, what is out of scope, open questions. Capture it once, here, so every agent reads the same file instead of a paraphrase that drifts a little at each handoff.`
+  );
+  s.push(
+    '- **Interactive run:** show the originator the drafted intent and take corrections before Phase 1 — this is the cheapest moment in the whole run to be told you misunderstood. Mark it `Status: accepted` with who accepted it. One short exchange; do not interrogate.'
+  );
+  s.push(
+    '- **Non-interactive or scheduled run:** there is nobody to ask. Record `Source: schedule|incident|ticket`, `Accepted by: trigger`, and list under Open questions anything you had to assume.'
+  );
+  s.push(
+    `- **Partial re-run:** do not rewrite the intent — append a row to its Revisions table saying what changed and why, so the file stays the history of what was asked.`
+  );
+  s.push(
+    'An accepted intent is what starts Phase 1. At Completion, the intent, the handoff chain and the final verdict together are the audit trail of this run: who asked for what, what was produced, and who accepted it.'
+  );
+
+  s.push('');
   s.push('## Invocation');
   s.push('');
   s.push(invocationSection(spec, target));
@@ -187,6 +208,9 @@ export function compileOrchestratorBody(spec, target) {
   s.push('- Agent fails → retry once with the failure appended to its brief. Second failure → proceed without that output and record the gap in the ledger and the final report.');
   s.push('- Conflicting outputs from parallel agents → do not discard either; present both with sources and either resolve via a named criterion or escalate to the user.');
   s.push('- A handoff missing its acceptance criteria → send it back to the producing agent once; then accept with a `PARTIAL` marker.');
+  s.push(
+    `- An agent reports a guardrail block (a protected path it believes it must edit: ${protectedPathsFor(spec).map((g) => `\`${g}\``).join(', ')}) → do not make the edit for it and do not widen the list mid-run. Record it as a finding for the user; a check whose inputs the fleet can edit is not a check.`
+  );
 
   s.push('');
   s.push(telemetryBlock(spec));
@@ -196,8 +220,10 @@ export function compileOrchestratorBody(spec, target) {
   s.push('');
   s.push(`1. Confirm every ledger row is done/dropped with a reason.`);
   s.push('2. Summarize deliverables + gaps for the user.');
-  s.push(`3. Ask one short feedback question ("anything to improve in the result or the fleet workflow?") — if feedback arrives, route it: output quality → the agent's skill; role gaps → agent definition; ordering → this orchestrator; then append a row to \`${spec.fleet.shared}/CHANGELOG.md\` recording what changed, where, and why. That file survives rebuilds; CLAUDE.md and AGENTS.md do not. Also record it: \`sh ${spec.fleet.local}/scripts/log-event.sh feedback "<agent or ->" "<route>: <the feedback>"\`.`);
-  s.push(`4. Close the run: \`sh ${spec.fleet.local}/scripts/log-event.sh run_end "" "<done|partial|blocked>"\``);
+  s.push(`3. Check the deliverable against \`${spec.handover.dir}/${INTENT_FILE}\` one last time: every item under Proposed outcome delivered or listed as a gap, every Constraint respected, every Open question answered or carried forward explicitly. The intent is what the user asked for; the handoff chain is only how the fleet got there.`);
+  s.push(`4. Ask one short feedback question ("anything to improve in the result or the fleet workflow?") — if feedback arrives, route it: output quality → the agent's skill; role gaps → agent definition; ordering → this orchestrator; then append a row to \`${spec.fleet.shared}/CHANGELOG.md\` recording what changed, where, and why. That file survives rebuilds; CLAUDE.md and AGENTS.md do not. Also record it: \`sh ${spec.fleet.local}/scripts/log-event.sh feedback "<agent or ->" "<route>: <the feedback>"\`.`);
+  s.push(`5. Apply the twice rule without waiting for feedback: a defect the verifier flagged for the second time — in this run or, per \`${spec.fleet.shared}/CHANGELOG.md\`, in an earlier one — is a harness defect. Route the correction into the skill or agent definition (and record the changelog row) rather than only fixing the artifact, so the next run catches it from the start.`);
+  s.push(`6. Close the run: \`sh ${spec.fleet.local}/scripts/log-event.sh run_end "" "<done|partial|blocked>"\``);
 
   if (spec.fleet.schedule) {
     s.push('');

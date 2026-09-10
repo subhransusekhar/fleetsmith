@@ -28,6 +28,8 @@ The fleet spec is the single tool-agnostic source of truth. `normalizeSpec` fill
 | `schedule` | `null` | recurring-loop config — see [Loop engineering](#loop-engineering) |
 | `mcp` | `null` | map `name -> {type, url \| command, args, env}`. Compiles to `.mcp.json` (Claude Code), `opencode.json` `mcp`, and goose recipe `extensions`. Validator errors if a remote server has no `url` or a stdio server no `command` |
 | `allowParallelWrites` | `false` | escape hatch for the single-writer rule (see [Validation rules](#validation-rules)) — set only when concurrent writers provably touch disjoint paths |
+| `guardrails` | `{protectedPaths: []}` | project-relative globs no fleet agent (or any other session in the project) may edit — see [Guardrails](#guardrails). A bare array is shorthand for `{protectedPaths: [...]}`. The fleet's own `<workspace>/local/scripts/**` is always added. Globs allow `[A-Za-z0-9._-/*?]` only, no leading `/`, no `..` (validator error) — they are interpolated into a generated hook |
+| `ci` | `null` | `github` emits `.github/workflows/fleet-qa.yml`, which runs `fleetsmith qa <spec> --built .` and `fleetsmith eval <spec> --stage 2` on any change to the spec, the compiled output, `_fleet/shared/`, `CLAUDE.md` or `AGENTS.md`. Both commands are deterministic, so the workflow needs no API key. Opt-in because it writes a GitHub-specific file |
 
 ## `defaults`
 
@@ -146,13 +148,39 @@ Neither `cron` nor `interval` → self-paced. Setting both warns (cron wins). Tr
 | `ledger` | `true` | emit `<workspace>/LEDGER.md` + ledger duties in every prompt |
 | `dir` | `<workspace>/handoffs` | handoff file location; naming: `{seq}-{from}-to-{to}.md` |
 
+### The intent artifact
+
+Every run begins with `<handover.dir>/00-intent.md`, written by the orchestrator from the emitted `INTENT.template.md` before any agent is invoked: the request in the originator's own words — problem, proposed outcome, affected users and systems, constraints, out of scope, open questions — plus a revisions table. It is the [AI-native SDLC playbook](https://claude.com/blog/the-ai-native-sdlc-playbook)'s `intent.md` applied to a fleet run (see `docs/research/ai-native-sdlc-playbook-2026-09.md`).
+
+- **Interactive runs** show the drafted intent to the originator and take corrections before Phase 1, then mark it `Status: accepted`.
+- **Scheduled / non-interactive runs** record `Source: schedule|incident|ticket` and `Accepted by: trigger`; a scheduled firing that finds work writes the intent first.
+- **Partial re-runs** append a row to the revisions table rather than rewriting the file.
+
+Every compiled agent reads the intent first and is told it outranks any paraphrase in its brief; verifiers run a *Compliance* pass against it; Completion checks the deliverable against it. The intent, the handoff chain and the final verdict together are the run's audit trail.
+
+### Verification in handoffs
+
+The handoff template carries a `## Verification` section: the check command(s) run and their **literal** output. Agents accountable to an objective check — those in a phase with `loop.check`, plus the producers handing work into such a phase — get a *Verifying your work* section in their prompt, and the `SubagentStop` gate refuses their stop until the section is present. Other agents may write `none`.
+
+## Guardrails
+
+`fleet.guardrails.protectedPaths` is the deterministic layer behind "do not edit the tests / the fixtures / the gate". The declared globs, plus the fleet's own `<workspace>/local/scripts/**`, compile per target:
+
+| Target | Mechanism | Enforced? |
+|---|---|---|
+| Claude Code | `PreToolUse` hook on `Edit\|Write\|MultiEdit\|NotebookEdit\|Bash` running `<local>/scripts/guard-paths.sh`: exit 2 blocks the call, the reason goes to the agent, a `guard_block` telemetry event is recorded. File tools are matched on the project-relative path. Bash is matched on a heuristic: a protected prefix appearing *after* a write-shaped token — a redirect into it, or `rm`, `mv`, `cp`, `tee`, `truncate`, `sed -i`, `git checkout/restore/clean` with it among the arguments. Reading a protected path, or mentioning it, is not a write | Yes, for every session in the project once the workspace is trusted. The Bash arm is best-effort; OS sandboxing is what closes it fully |
+| opencode | `permission.edit` map denies each glob on every agent and on the orchestrator (later keys win) | Yes, by the runtime |
+| goose | The *Guardrails* section of the recipe instructions, worded as advisory | No — goose has no path-level permission |
+
+`fleetsmith qa` checks the wiring on all three targets (`guardrails (compiled)`). Every compiled agent's prompt names the protected set and says what to do when a task appears to need such an edit: stop and report it as a finding, never work around the block. The validator warns when a phase declares a `loop.check` but no paths are protected — that is a feedback loop the agent can weaken.
+
 ## Validation rules
 
 Errors (block build): missing/duplicate/non-kebab agent or skill names, unknown pattern/execution/model/capability/protocol values, handoff to unknown agent, agent referencing unknown skill, skill without description, orchestrator phase referencing unknown agent, empty fleet.
 
-Errors also: phase `loop.max` not a positive integer, unknown `agents[].effort` tier, unknown `skills[].freedom` level, `fleet.mcp` entry missing `url` (remote) or `command` (stdio), `fleet.workspace` / `handover.dir` not a safe relative path, a skill `description` over 1,536 chars (it would be truncated in the skill listing, cutting off its trigger vocabulary), and a `parallel` phase containing more than one editing agent (override with `fleet.allowParallelWrites` only when the writers provably touch disjoint paths).
+Errors also: phase `loop.max` not a positive integer, unknown `agents[].effort` tier, unknown `skills[].freedom` level, `fleet.mcp` entry missing `url` (remote) or `command` (stdio), `fleet.workspace` / `handover.dir` not a safe relative path, a `fleet.guardrails.protectedPaths` glob with characters outside `[A-Za-z0-9._-/*?]` (or leading `/` / `..`), unknown `fleet.ci` provider, a skill `description` over 1,536 chars (it would be truncated in the skill listing, cutting off its trigger vocabulary), and a `parallel` phase containing more than one editing agent (override with `fleet.allowParallelWrites` only when the writers provably touch disjoint paths).
 
-Warnings: empty domain, roleless agent, handoff edge without artifact, handoff cycle outside supervisor-family patterns, disconnected agent, unattached skill, short skill description, skill body >500 lines, `agents[].turns` >200, `loop.max` >10, loop with no exit condition (no `until`/`check`), malformed `schedule.cron`, `schedule` with both cron and interval.
+Warnings: empty domain, roleless agent, handoff edge without artifact, handoff cycle outside supervisor-family patterns, disconnected agent, unattached skill, short skill description, skill body >500 lines, `agents[].turns` >200, `loop.max` >10, loop with no exit condition (no `until`/`check`), a loop with a `check` while `fleet.guardrails.protectedPaths` is empty, malformed `schedule.cron`, `schedule` with both cron and interval.
 
 ## Typed mutations (`fleetsmith patch`)
 

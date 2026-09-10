@@ -49,6 +49,9 @@ export const HARD_PROTECTED = [
   'ee/test/**',
   '.github/workflows/**',
   '_fleet/local/scripts/validate-handoff.sh',
+  // The protected-path guard is a gate too: a loop that can edit the hook that stops it editing
+  // its scorecards has, transitively, write access to the scorecards.
+  '_fleet/local/scripts/guard-paths.sh',
   'docs/milestones/v0.5.0-self-evolution.md',
   'docs/research/self-evolving-agents-2026-08.md',
   'docs/architecture/multi-user-context.md',

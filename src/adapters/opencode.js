@@ -1,11 +1,13 @@
 import { FileSet } from '../lib/fs-utils.js';
 import { mdWithFrontmatter } from '../lib/md.js';
 import { compileAgentBody, title } from '../compile/agent-prompt.js';
-import { handoffTemplate, ledgerTemplate, changelogTemplate } from '../handover/protocol.js';
+import { handoffTemplate, intentTemplate, ledgerTemplate, changelogTemplate } from '../handover/protocol.js';
 import { compileOrchestratorBody, gridStatusScript, GRID_STATUS_SCRIPT_PATH } from '../compile/orchestrator.js';
 import { agentsMdPointer } from '../compile/pointers.js';
 import { skillEvals, evalsReadme } from '../compile/evals.js';
 import { logEventScript, TELEMETRY_PATH } from '../compile/telemetry.js';
+import { protectedPathsFor } from '../compile/guardrails.js';
+import { ciWorkflow, CI_WORKFLOW_PATH } from '../compile/ci.js';
 
 /**
  * opencode adapter (opencode.ai — anomalyco/opencode).
@@ -70,6 +72,7 @@ export function buildOpencode(spec, options = {}) {
   }
 
   out.add(`${spec.handover.dir}/HANDOFF.template.md`, handoffTemplate());
+  out.add(`${spec.handover.dir}/INTENT.template.md`, intentTemplate());
   if (spec.handover.ledger) {
     out.add(`${spec.fleet.local}/LEDGER.md`, ledgerTemplate(spec.fleet.name, Boolean(spec.fleet.grid)));
   }
@@ -86,8 +89,20 @@ export function buildOpencode(spec, options = {}) {
   if (options.agentsMd !== false) {
     out.add('AGENTS.md', agentsMdPointer(spec));
   }
+  if (spec.fleet.ci === 'github') out.add(CI_WORKFLOW_PATH, ciWorkflow(spec));
 
   return out;
+}
+
+/**
+ * Protected paths as opencode edit-permission entries. Later keys win in
+ * opencode's permission maps, so these are spread AFTER the capability grant:
+ * an editing agent keeps `*: allow` and loses exactly the protected globs, a
+ * read-only agent keeps its workspace-only allow but never the gate scripts
+ * inside it. Enforced by the runtime, not read by the model.
+ */
+function protectedDenies(spec) {
+  return Object.fromEntries(protectedPathsFor(spec).map((g) => [g, 'deny']));
 }
 
 function agentFile(agent, spec, playbooks = {}) {
@@ -131,7 +146,9 @@ function capsToPermission(agent, spec) {
   const allow = (on) => (on ? 'allow' : 'deny');
   return {
     read: 'allow',
-    edit: caps.edit ? 'allow' : { '*': 'deny', [`${spec.fleet.workspace}/**`]: 'allow' },
+    edit: caps.edit
+      ? { '*': 'allow', ...protectedDenies(spec) }
+      : { '*': 'deny', [`${spec.fleet.workspace}/**`]: 'allow', ...protectedDenies(spec) },
     bash: allow(caps.run),
     webfetch: allow(caps.web),
     websearch: allow(caps.web),
@@ -155,7 +172,9 @@ function orchestratorAgent(spec) {
       model: spec.defaults.opencodeModels?.smart ?? undefined,
       permission: {
         read: 'allow',
-        edit: 'allow',
+        // The orchestrator is bound by the same guardrails as its agents: a
+        // lead that can edit the gate on the agents' behalf is the same hole.
+        edit: { '*': 'allow', ...protectedDenies(spec) },
         bash: 'allow',
         task: { '*': 'deny', ...Object.fromEntries(spec.agents.filter((a) => a.name !== spec.orchestrator.name).map((a) => [a.name, 'allow'])) },
       },
