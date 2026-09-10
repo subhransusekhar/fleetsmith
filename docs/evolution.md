@@ -57,7 +57,8 @@ failure, and removing one re-opens it.
 9. **Grid state is advisory input to prompts and health; it may never gate an
    agent, alter a QA/eval verdict, or bypass the promotion ladder into
    `_fleet/shared/`.** The `SubagentStop` handover gate and its validator
-   (`_fleet/local/scripts/validate-handoff.sh`) remain on the protected-paths
+   (`_fleet/local/scripts/validate-handoff.sh`) and the protected-path guard
+   (`_fleet/local/scripts/guard-paths.sh`) remain on the protected-paths
    list and are never referenced by `ee/` code — enforced structurally by
    `ee/test/daemon.test.js`'s `'gate isolation'` test and reaffirmed by
    `ee/test/degradation-matrix.test.js`'s `'gate isolation (reaffirmed)'` test,

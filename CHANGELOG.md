@@ -1,3 +1,42 @@
+## Unreleased — AI-native SDLC plays
+
+Applies Anthropic's [AI-native SDLC playbook](https://claude.com/blog/the-ai-native-sdlc-playbook) (2026-08-21) to
+generated harnesses. Analysis and the play-by-play decision table: `docs/research/ai-native-sdlc-playbook-2026-09.md`.
+
+**Added**
+
+- **Intent artifact.** `INTENT.template.md` is emitted next to the handoff template; the orchestrator writes
+  `<handover.dir>/00-intent.md` in Phase 0 (confirmed with the originator on interactive runs, `Accepted by: trigger`
+  on scheduled ones, a revision row on partial re-runs). Every agent's protocol block reads it first and treats it as
+  outranking the brief; verifiers run a compliance pass against it; Completion checks the deliverable against it. A
+  scheduled `loop.md` firing that finds work writes it as an intent before any agent runs.
+- **`fleet.guardrails.protectedPaths`** — globs no fleet agent may edit. Claude Code: a `PreToolUse` hook on
+  `Edit|Write|MultiEdit|NotebookEdit|Bash` running the generated `guard-paths.sh` (exit 2, reason on stderr, new
+  `guard_block` telemetry event; the Bash arm requires a write-shaped token followed by the protected prefix and is
+  documented as best-effort). opencode: `permission.edit` denies on every agent and the orchestrator. goose: stated
+  constraint, labelled advisory. The fleet's own `<local>/scripts/**` is always protected. `fleetsmith qa` gains a
+  `guardrails (compiled)` check; the validator rejects unsafe globs and warns when a `loop.check` exists with nothing
+  protected.
+- **Self-verification.** `checksFor(agent)` — the `loop.check` of every phase an agent runs in or hands into — drives a
+  *Verifying your work* prompt section, a `## Verification` section in the handoff template, and a `Verification`
+  requirement in the `SubagentStop` gate for those agents only.
+- **Review passes.** The verifier *Reviewing* section now runs Defects / Compliance / Policy passes, ranks Important
+  vs Nit with a five-nit cap, excludes what deterministic checks already enforce, cross-checks the producer's pasted
+  verification, and labels repeat findings as harness defects. The orchestrator's Completion applies the "twice rule"
+  unprompted.
+- **`fleet.ci: github`** — emits `.github/workflows/fleet-qa.yml` (`qa --built .` + `eval --stage 2` on config changes;
+  deterministic, no API key). Opt-in.
+- Meta-fleet: `fleet.yaml` protects `test/eval-fleets/**`, `_fleet/shared/evals/**` and
+  `_fleet/shared/evolution/protected.json`; `fleet-design` gains a *Guardrails* section and `harness-verification`
+  a §5b on guardrails and the intent chain. `guard-paths.sh` joins `validate-handoff.sh` on the evolution loop's
+  hard-protected list.
+
+**Changed**
+
+- Every compiled agent prompt carries a *Guardrails* section; the handoff template carries an intent pointer and a
+  `## Verification` section; `CLAUDE.md` names the protected set and the intent file. The committed
+  `grid-two-actor.nogrid.snapshot.json` was regenerated for these prompt changes.
+
 ## 0.7.1 — the standalone binary actually runs
 
 A patch release for one defect: **every published v0.7.0 standalone binary threw before executing any

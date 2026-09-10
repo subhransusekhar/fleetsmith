@@ -33,6 +33,7 @@ export const EVENTS = [
   'invoke_agent',
   'gate_pass',
   'gate_block',
+  'guard_block',
   'execute_tool_error',
   'feedback',
   'evaluation',

@@ -6,4 +6,8 @@
 
 **Handover gate:** `.claude/settings.json` registers a `SubagentStop` hook running `_fleet/local/scripts/validate-handoff.sh`, which blocks a fleet agent from finishing until its handoff file exists and carries every required section. Note that project-level hooks do not run until this workspace is trusted — until you accept that dialog the gate is silently skipped and the fleet degrades to advisory instructions.
 
+**Protected paths:** a `PreToolUse` hook (`_fleet/local/scripts/guard-paths.sh`) blocks edits — by any session in this project — under `_fleet/local/scripts/**`, `test/eval-fleets/**`, `_fleet/shared/evals/**`, `_fleet/shared/evolution/protected.json`. These are the fleet's own gates and the inputs of its objective checks; change them by editing `fleet.guardrails.protectedPaths` in the spec and rebuilding, never by working around the block.
+
+**Intent:** every run starts by writing `_fleet/local/handoffs/00-intent.md` — what was asked, by whom, and why — and every agent reads it first. Correct that file, not the agents, when a run is heading the wrong way.
+
 **Changelog:** harness changes are recorded in `_fleet/shared/CHANGELOG.md` — append a row there rather than editing this file, which is regenerated on every build.

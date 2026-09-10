@@ -1,6 +1,7 @@
-import { protocolBlock, teamProtocolBlock, incomingMap } from '../handover/protocol.js';
+import { protocolBlock, teamProtocolBlock, incomingMap, INTENT_FILE } from '../handover/protocol.js';
 import { playbookSection } from '../playbook/index.js';
 import { DEFAULT_HANDOFF_SCHEMA } from '../spec/schema.js';
+import { guardrailsBlock } from './guardrails.js';
 
 /**
  * Compile the tool-agnostic body of an agent's system prompt.
@@ -14,7 +15,7 @@ import { DEFAULT_HANDOFF_SCHEMA } from '../spec/schema.js';
  * state. Per-run variance belongs in the handoff files, which are read as
  * ordinary content and cost nothing to change.
  */
-export function compileAgentBody(agent, spec, { team = false, playbook = [] } = {}) {
+export function compileAgentBody(agent, spec, { team = false, playbook = [], guardrailsEnforced = true } = {}) {
   const incoming = incomingMap(spec.agents).get(agent.name) ?? [];
   const sections = [];
 
@@ -62,6 +63,21 @@ export function compileAgentBody(agent, spec, { team = false, playbook = [] } = 
     })
   );
 
+  const checks = checksFor(agent, spec);
+  if (checks.length > 0) {
+    sections.push('');
+    sections.push('## Verifying your work');
+    sections.push(
+      [
+        `Before you finish, run ${checks.map((c) => `\`${c}\``).join(' and ')} yourself and paste the literal output under \`## Verification\` in your handoff (or in your final reply if you are a terminal agent). Exit 0 is the bar. The evidence has to come from the toolchain, not from your reading of the work — a verifier will run the same command, and a mismatch between your paste and their run is itself a finding.`,
+        'If a check fails, fix the work, not the check: never edit, skip or delete a failing test or fixture to get green. Where the command passes but the requirement is plainly not met, say so rather than reporting done — a check can be satisfied without the work being right.',
+      ].join('\n')
+    );
+  }
+
+  sections.push('');
+  sections.push(guardrailsBlock(spec, { enforced: guardrailsEnforced }));
+
   if (agent.memory) {
     sections.push('');
     sections.push('## Durable notes');
@@ -82,9 +98,18 @@ export function compileAgentBody(agent, spec, { team = false, playbook = [] } = 
       [
         'You review work you did not produce, and you see the artifact and the criteria rather than the reasoning behind them. That is deliberate: judging the result on its own terms is the point, so do not go asking the producer what they meant.',
         '',
+        'Run three passes and tag every finding with its pass:',
+        '- **Defects** — the artifact is wrong: logic errors, broken edge cases, claims the evidence does not support.',
+        `- **Compliance** — the artifact does what \`${spec.handover.dir}/${INTENT_FILE}\` asked and meets the producer's acceptance criteria; scope creep and silently dropped constraints belong here.`,
+        '- **Policy** — the methodology in the skills was followed, and nothing under a protected path was touched.',
+        '',
+        'Rank findings by severity. Reserve **Important** for what would make the deliverable wrong, breach a constraint in the intent, or violate a policy; everything else is a **Nit**. Report at most five nits and summarize the rest as a count. Do not report what a deterministic check already enforces — the handover gate, `fleetsmith qa`, a passing `check` command — repeating it adds noise and no information.',
+        '',
         'Flag only gaps that affect correctness or the stated requirements. Anything else — style, alternative designs you would have preferred, hypothetical futures — is optional and must be labelled as such. A reviewer asked to find problems will always find some; reporting weak findings as though they were defects sends the fleet into rework it does not need.',
         '',
-        'Every defect needs reproducible evidence: a command and its output, or `file:line`. "This looks fragile" is not a finding. Where the acceptance test is a command, confirm the work actually does what was asked rather than only that the command exits 0.',
+        'Every defect needs reproducible evidence: a command and its output, or `file:line`. "This looks fragile" is not a finding. Where the acceptance test is a command, run it yourself and confirm the work actually does what was asked rather than only that the command exits 0 — and compare your output with what the producer pasted under `## Verification`; a mismatch is a finding in its own right.',
+        '',
+        'A finding you are making for the second time — the same class of mistake in a previous pass or a previous run — is a harness defect, not an output defect. Say so explicitly so the orchestrator routes the correction into the skill or agent definition instead of only fixing the artifact.',
       ].join('\n')
     );
   }
@@ -130,6 +155,25 @@ export function isVerifier(agent, spec) {
   if (agent.capabilities.edit) return false;
   const handsBackTo = new Set(agent.handoff.to);
   return spec.agents.some((a) => handsBackTo.has(a.name) && a.handoff.to.includes(agent.name));
+}
+
+/**
+ * The objective checks an agent is accountable to: the `loop.check` of every
+ * phase it runs in, plus those of any phase it hands work into. The second
+ * half is the point — the producer being verified should run the verifier's
+ * command before handing off, so what reaches the verifier has already passed
+ * it (the playbook's "feedback loop", as distinct from the verifier subagent).
+ */
+export function checksFor(agent, spec) {
+  const phases = spec.orchestrator.phases ?? [];
+  const receivers = new Set(agent.handoff.to);
+  const checks = [];
+  for (const p of phases) {
+    if (!p.loop?.check) continue;
+    const agents = p.agents ?? [];
+    if (agents.includes(agent.name) || agents.some((n) => receivers.has(n))) checks.push(p.loop.check);
+  }
+  return [...new Set(checks)];
 }
 
 export function title(slug) {

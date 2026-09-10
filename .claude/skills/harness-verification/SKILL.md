@@ -54,6 +54,17 @@ Grep the compiled output for grants the spec did not make: an agent with
 `edit: false` whose Claude Code file lists Write/Edit, or whose opencode permission
 map allows edits outside the workspace.
 
+## 5b. Guardrails and the intent chain
+`fleetsmith qa` already checks that every protected path (declared plus the fleet's
+own gate scripts) reaches the Claude Code `PreToolUse` guard, every opencode edit
+map, and every goose recipe — read its `guardrails (compiled)` line rather than
+re-deriving it. Your judgment is for whether the *right* paths are protected: any
+phase with a `loop.check` whose inputs (tests, fixtures, snapshots) are not on the
+list is a feedback loop the agent can weaken, and that is a FAIL routed to the
+architect. Also confirm every compiled agent reads `00-intent.md` first and every
+verifier's Reviewing section runs the compliance pass against it; a fleet whose
+agents only see paraphrases of the request has no audit trail.
+
 ## 6. Loop bounds (only if the spec declares loops or a schedule)
 Every phase `loop` renders a bounded "iterate until … (max N)" callout in all three
 orchestrators — no unbounded loop ships. A loop with a shell `check` produces a

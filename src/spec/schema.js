@@ -113,6 +113,16 @@ export function normalizeSpec(raw) {
   // Escape hatch for the single-writer rule: authors who genuinely coordinate
   // concurrent writers (disjoint paths, worktrees) opt out explicitly.
   spec.fleet.allowParallelWrites = spec.fleet.allowParallelWrites === true;
+  // Deterministic guardrails behind the advisory instructions (AI-native SDLC
+  // playbook, Stage 3 "hooks as build-time guardrails" and Stage 4 "the loop
+  // itself needs protecting"). `protectedPaths` are project-relative globs no
+  // fleet agent may edit; the compiler always adds the fleet's own gate
+  // scripts to the set, because an agent that can edit its gate passes it.
+  spec.fleet.guardrails = normalizeGuardrails(spec.fleet.guardrails);
+  // Opt-in CI workflow that regression-tests the harness configuration the
+  // way code is tested (playbook Stage 4, "continuous evals in CI"). Only
+  // `github` exists today; `null` emits nothing.
+  spec.fleet.ci = typeof spec.fleet.ci === 'string' && spec.fleet.ci.trim() ? spec.fleet.ci.trim() : null;
 
   spec.defaults ??= {};
   spec.defaults.model ??= 'inherit';
@@ -263,6 +273,22 @@ function normalizeLoop(l) {
     Number.isInteger(l.noProgress) && l.noProgress > 0 ? l.noProgress : DEFAULT_LOOP_NO_PROGRESS;
   return { until: l.until ?? '', max, check: l.check ?? null, noProgress };
 }
+
+/**
+ * Guardrails: `{ protectedPaths: string[] }`. Accepts a bare array as
+ * shorthand for `{ protectedPaths: [...] }`. Patterns are shell globs matched
+ * against the project-relative path; validation of their character set lives
+ * in validate.js because they are interpolated into a generated hook script.
+ */
+function normalizeGuardrails(g) {
+  if (Array.isArray(g)) g = { protectedPaths: g };
+  if (!g || typeof g !== 'object') return { protectedPaths: [] };
+  const protectedPaths = [...new Set(toArray(g.protectedPaths).map((p) => String(p).trim()).filter(Boolean))];
+  return { protectedPaths };
+}
+
+/** CI providers the compiler can emit a config-regression workflow for. */
+export const CI_PROVIDERS = ['github'];
 
 /**
  * Recurring loop: `{ cron, interval, note }` or null.

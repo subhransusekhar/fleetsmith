@@ -13,10 +13,58 @@
  *     giving any agent (or a human) a five-second view of fleet state.
  */
 
+export const INTENT_FILE = '00-intent.md';
+
+/**
+ * The intent artifact — what was asked, by whom, and why — written by the
+ * orchestrator before any agent runs and read by every agent on start.
+ *
+ * This is the AI-native SDLC playbook's `intent.md` (Stage 1) applied to a
+ * fleet run: the request is captured once, in the originator's own words, as
+ * a file the next stage acts on, instead of living only in the orchestrator's
+ * context and reaching each agent as a paraphrase. Together with the handoff
+ * chain and the verifier's verdict it is the run's audit trail — who asked for
+ * what, what the agents produced, and who accepted it.
+ */
+export function intentTemplate() {
+  return `# Intent: {short title}
+
+- **Author:** {who asked — a person, a ticket, an alert, or a schedule}
+- **Source:** conversation | ticket | incident | schedule
+- **Status:** draft | accepted
+- **Accepted by:** {the person who confirmed this, or "trigger" for a non-interactive run}
+
+## Problem
+{What cannot be done today, who is affected, and what "better" looks like — in
+the originator's own words. No agent vocabulary here.}
+
+## Proposed outcome
+{The deliverable the run should end with, concrete enough to check.}
+
+## Affected users and systems
+{Who and what this touches — teams, services, repositories, paths.}
+
+## Constraints
+{What must not change, what must be preserved, deadlines, policies in force.}
+
+## Out of scope
+{Adjacent work the originator explicitly does not want done in this run.}
+
+## Open questions
+{Anything unresolved that a downstream agent must decide or escalate.}
+
+## Revisions
+| When | Who | What changed |
+|------|-----|--------------|
+| {date} | {author} | initial |
+`;
+}
+
 export function handoffTemplate() {
   return `# Handoff: {from} -> {to}
 
 - **Task:** {one-line task statement}
+- **Intent:** ${INTENT_FILE} — what was asked and why; the acceptance criteria below serve it
 - **Status:** ready | blocked | partial
 
 ## Objective
@@ -49,6 +97,11 @@ When context is compacted, preserve this section.}
 | Path | What it is | State |
 |------|-----------|-------|
 | {relative/path} | {description} | final / draft |
+
+## Verification
+{The check command(s) you ran and their LITERAL output, pasted from the
+toolchain — not your summary of it. "none — this phase has no objective check"
+is a valid entry; an assertion that it passed is not.}
 
 ## Acceptance criteria
 {What "done" looks like for the receiving agent, as checkable statements.}
@@ -126,14 +179,17 @@ export function protocolBlock({ agent, dir, ledgerPath, gridPath, incoming, outg
   );
   lines.push('');
   lines.push('**On start:**');
+  lines.push(
+    `1. Read \`${dir}/${INTENT_FILE}\` — what was asked, by whom, and why. It is the originator's words, and it outranks any paraphrase of the request in your brief; when the two disagree, say so and follow the intent. If the file is missing, note that in your output and proceed on the brief alone.`
+  );
   if (incoming.length > 0) {
     lines.push(
-      `1. Read your incoming handoff(s) from ${incoming.map((n) => `\`${n}\``).join(', ')} in \`${dir}/\` (files matching \`*-to-${agent}.md\`). If one is missing or its acceptance criteria are unclear, say so in your output and proceed with explicit assumptions rather than silently guessing.`
+      `2. Read your incoming handoff(s) from ${incoming.map((n) => `\`${n}\``).join(', ')} in \`${dir}/\` (files matching \`*-to-${agent}.md\`). If one is missing or its acceptance criteria are unclear, say so in your output and proceed with explicit assumptions rather than silently guessing.`
     );
   } else {
-    lines.push(`1. You are an entry-point agent: your input comes from the orchestrator's task brief.`);
+    lines.push(`2. You are an entry-point agent: your input comes from the orchestrator's task brief.`);
   }
-  if (ledgerPath) lines.push(`2. Read \`${ledgerPath}\` to see fleet state before starting.`);
+  if (ledgerPath) lines.push(`3. Read \`${ledgerPath}\` to see fleet state before starting.`);
   lines.push('');
   lines.push('**On finish:**');
   if (outgoing.length > 0) {

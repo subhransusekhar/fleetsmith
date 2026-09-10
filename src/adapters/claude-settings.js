@@ -1,5 +1,8 @@
 import { DEFAULT_HANDOFF_SCHEMA } from '../spec/schema.js';
 import { TELEMETRY_PATH } from '../compile/telemetry.js';
+import { GUARD_PATH } from '../compile/guardrails.js';
+import { checksFor } from '../compile/agent-prompt.js';
+import { INTENT_FILE } from '../handover/protocol.js';
 
 /**
  * Claude Code project settings + the deterministic handover gate.
@@ -28,7 +31,7 @@ export const VALIDATOR_PATH = 'scripts/validate-handoff.sh';
  * deliberately: a bare tool-name deny would drop the tool from context and
  * invalidate the prompt cache for every turn.
  */
-export function settingsJson(spec, { validatorPath }) {
+export function settingsJson(spec, { validatorPath, guardPath = `${spec.fleet.local}/${GUARD_PATH}` }) {
   const anyEdit = spec.agents.some((a) => a.capabilities.edit);
   const anyRun = spec.agents.some((a) => a.capabilities.run);
   const anyWeb = spec.agents.some((a) => a.capabilities.web);
@@ -54,6 +57,23 @@ export function settingsJson(spec, { validatorPath }) {
       $schema: 'https://json.schemastore.org/claude-code-settings.json',
       permissions: { allow },
       hooks: {
+        // Protected-path guard: the deterministic layer behind "do not edit
+        // the tests / the gate". Runs on the file-editing tools and on Bash
+        // (write-shaped commands into a protected prefix). Applies to every
+        // session in the project, fleet agent or not — that is what makes it
+        // a control rather than a suggestion.
+        PreToolUse: [
+          {
+            matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash',
+            hooks: [
+              {
+                type: 'command',
+                command: `sh "$CLAUDE_PROJECT_DIR/${guardPath}"`,
+                timeout: 10,
+              },
+            ],
+          },
+        ],
         SubagentStop: [
           {
             matcher: spec.agents.map((a) => a.name).join('|'),
@@ -97,10 +117,16 @@ export function validatorScript(spec) {
   const ledger = spec.handover.ledger ? shellSingleQuote(`${spec.fleet.local}/LEDGER.md`) : '';
 
   // Required sections come from the declared schema when there is one, so the
-  // gate enforces the same contract the handoff template advertises.
+  // gate enforces the same contract the handoff template advertises. An agent
+  // accountable to an objective `check` must additionally show its
+  // Verification — the literal check output — before it may stop: "run the
+  // tests before reporting done, and show the output" is only a control when
+  // something refuses the stop without it.
   const sectionsFor = (agent) => {
     const schema = agent.handoff.schema ?? DEFAULT_HANDOFF_SCHEMA;
-    return Object.keys(schema).map(sectionHeading).join('|');
+    const headings = Object.keys(schema).map(sectionHeading);
+    if (checksFor(agent, spec).length > 0) headings.push('Verification');
+    return headings.join('|');
   };
   const cases = spec.agents
     .filter((a) => a.handoff.to.length > 0)
@@ -208,6 +234,11 @@ Each firing: ${what}
    state, never clobber the previous run's workspace.
 3. If there is nothing to do this firing, say so and stop; an empty pass is a
    valid outcome, and inventing work to fill it is not.
+4. If there is work, write it down first as \`${spec.handover.dir}/${INTENT_FILE}\`
+   (\`Source: schedule\`, \`Accepted by: trigger\`) before any agent runs — a
+   finding that enters the pipeline as an intent file can be triaged, reviewed
+   and audited like anything a person asked for; one that lives only in this
+   firing's context cannot.
 
 Notes for whoever schedules this:
 - Recurring scheduled tasks expire after 7 days and need re-arming.
