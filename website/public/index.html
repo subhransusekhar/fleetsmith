@@ -63,7 +63,7 @@
       <!-- ── hero ───────────────────────────────────────────────────────── -->
       <header class="hero">
         <div class="wrap">
-          <span class="pill"><span class="dot"></span> v0.7.0 · The Intelligence Grid</span>
+          <span class="pill"><span class="dot"></span> v0.8.0 · The AI-native SDLC plays</span>
           <h1>One spec.<br /><span class="grad">Three agent harnesses.</span></h1>
           <p class="sub">
             Describe a fleet of AI agents once — roles, skills, handoff graph — and compile it into
@@ -188,8 +188,9 @@
               <h4>Enforced gates, not advice</h4>
               <p>
                 Where a target can check something deterministically, the compiler emits the check.
-                A Claude Code <code>SubagentStop</code> hook blocks an agent until its handoff file
-                is complete. A denied opencode agent disappears from the task tool entirely.
+                A <code>SubagentStop</code> hook blocks an agent until its handoff file is complete;
+                a <code>PreToolUse</code> hook blocks edits to the paths a fleet must not touch; a
+                denied opencode agent disappears from the task tool entirely.
               </p>
             </div>
             <div class="feature-card">
@@ -220,6 +221,103 @@
                 lives in handoff files.
               </p>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="divider"></div>
+
+      <!-- ── what's new ─────────────────────────────────────────────────── -->
+      <section id="sdlc">
+        <div class="wrap">
+          <span class="section-tag">New in v0.8.0</span>
+          <h2>The AI-native SDLC, compiled in</h2>
+          <p class="lead">
+            A fleet run is a miniature software development lifecycle: a request arrives, gets
+            decomposed, designed, built, verified and shipped through a chain of files. Anthropic's
+            <a href="https://claude.com/blog/the-ai-native-sdlc-playbook">AI-native SDLC playbook</a>
+            names the mechanisms that turn that chain into an audit trail. v0.8.0 compiles them into
+            every generated harness — five plays, each one replacing an instruction an agent could
+            ignore with something a runtime enforces.
+          </p>
+
+          <div class="figure-dark lead-fig">
+            <pre><code>fleet:
+  guardrails:
+    protectedPaths: [ test/**, fixtures/** ]   # a hook, not a sentence
+  ci: github                                   # qa + eval on every config change</code></pre>
+          </div>
+
+          <div class="features-grid">
+            <div class="feature-card">
+              <div class="icon">📝</div>
+              <h4>An intent file, before any agent runs</h4>
+              <p>
+                The orchestrator writes <code>00-intent.md</code> in phase zero — problem, outcome,
+                constraints, what is out of scope — and confirms it with whoever asked. Every agent
+                reads it first and is told it outranks the brief. Previously the request lived in
+                one agent's context and reached the rest as a paraphrase.
+              </p>
+            </div>
+            <div class="feature-card">
+              <div class="icon">🛡️</div>
+              <h4>Protected paths, actually blocked</h4>
+              <p>
+                <code>guardrails.protectedPaths</code> compiles to a Claude Code
+                <code>PreToolUse</code> hook that blocks the edit, explains why and records it, and
+                to <code>permission.edit</code> denies on opencode. A fleet's own gate scripts are
+                protected whether you list them or not.
+              </p>
+            </div>
+            <div class="feature-card">
+              <div class="icon">✅</div>
+              <h4>Show the output, not the claim</h4>
+              <p>
+                An agent accountable to a phase's <code>check</code> now runs it and pastes the
+                literal output under <code>## Verification</code> — and the handover gate refuses to
+                let it stop without one. The producer tests its own work before the verifier ever
+                sees it.
+              </p>
+            </div>
+            <div class="feature-card">
+              <div class="icon">🔎</div>
+              <h4>Review in named passes</h4>
+              <p>
+                Verifiers run defects, compliance-with-the-intent and policy as three tagged passes,
+                rank <em>Important</em> over <em>Nit</em> with a cap on nits, and skip anything a
+                deterministic check already enforces. A finding made twice is labelled a harness
+                defect, so the fix lands in the skill rather than only in the artifact.
+              </p>
+            </div>
+            <div class="feature-card">
+              <div class="icon">⚙️</div>
+              <h4>Config-regression CI</h4>
+              <p>
+                <code>ci: github</code> emits a workflow that runs <code>qa --built .</code> and
+                <code>eval --stage 2</code> whenever the spec, the compiled harness or the shared
+                tier changes. Both commands are deterministic, so it needs no API key and costs
+                nothing but CI minutes.
+              </p>
+            </div>
+            <div class="feature-card">
+              <div class="icon">🧾</div>
+              <h4>The run becomes the record</h4>
+              <p>
+                Intent, handoff chain and final verdict are one reviewable trail: who asked for
+                what, what each agent produced, what the checks said, and who accepted it. Blocked
+                edits and gate verdicts are logged alongside as run telemetry.
+              </p>
+            </div>
+          </div>
+
+          <div class="note">
+            <span class="label">Nothing to migrate</span>
+            <p>
+              Both new spec keys default to absent, and an existing <code>fleet.yaml</code> keeps
+              compiling unchanged apart from gaining the intent template and the intent read step.
+              The playbook mapping, including what was deliberately left out and why, is in
+              <code>docs/research/ai-native-sdlc-playbook-2026-09.md</code>.
+            </p>
           </div>
         </div>
       </section>

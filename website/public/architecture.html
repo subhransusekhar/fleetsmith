@@ -53,7 +53,9 @@
           <li class="sub"><a href="#patterns">Patterns</a></li>
           <li class="sub"><a href="#capabilities">Capabilities</a></li>
           <li><a href="#handover">Handover protocol</a></li>
+          <li class="sub"><a href="#intent">The intent artifact</a></li>
           <li class="sub"><a href="#gates">Enforced gates</a></li>
+          <li class="sub"><a href="#guardrails">Guardrails</a></li>
           <li><a href="#workspace">Workspace tiers</a></li>
           <li><a href="#evolution">Self-evolution</a></li>
           <li><a href="#grid">The Intelligence Grid</a></li>
@@ -68,7 +70,7 @@
         <h1>Architecture</h1>
         <p class="page-lead">
           What Infinia Harness emits, and why each piece is shaped the way it is. Everything here
-          describes v0.7.0.
+          describes v0.8.0.
         </p>
 
         <section id="model">
@@ -258,7 +260,7 @@ agents:
     ├── LEDGER.md              my task rows: task, owner, depends-on, status, artifact
     ├── handoffs/              one file per completed edge
     ├── runs/                  telemetry: gate verdicts, retries, corrections
-    └── scripts/               the gate + event-log hooks</code></pre>
+    └── scripts/               the handover gate, the path guard, the event log</code></pre>
           </div>
 
           <p>
@@ -266,6 +268,45 @@ agents:
             boundaries, and failed approaches — and consumers are told to <em>cite</em> it rather
             than restate it. Every paraphrase between producer and consumer loses detail, and the
             loss compounds down a chain.
+          </p>
+
+          <h3 id="intent">
+            The intent artifact
+            <a class="anchor" href="#intent" aria-label="Link to this section">#</a>
+          </h3>
+          <p>
+            The chain starts one file earlier than the first handoff. Before any agent is invoked,
+            the orchestrator writes <code>00-intent.md</code> from the emitted template: the request
+            in the originator's own words — problem, proposed outcome, affected users and systems,
+            constraints, what is out of scope, open questions — plus a revisions table.
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr><th>How the run started</th><th>What the orchestrator does</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Someone asked</td>
+                  <td>Drafts the intent, shows it, takes corrections <em>before</em> phase one, marks it <code>Status: accepted</code></td>
+                </tr>
+                <tr>
+                  <td>A schedule or an alert fired</td>
+                  <td>Records <code>Source: schedule|incident|ticket</code> and <code>Accepted by: trigger</code>, and lists every assumption it had to make</td>
+                </tr>
+                <tr>
+                  <td>A partial re-run</td>
+                  <td>Appends a revision row rather than rewriting the file, so it stays the history of what was asked</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Every compiled agent reads it first and is told it outranks any paraphrase in its brief.
+            Verifiers run a compliance pass against it; the orchestrator checks the finished
+            deliverable against it before reporting done. Confirming the intent is also the cheapest
+            moment in a run to be told you misunderstood the request — the alternative is finding
+            out at the verdict.
           </p>
 
           <h3 id="gates">
@@ -287,9 +328,19 @@ agents:
                   <td>An agent cannot finish until its handoff file exists and carries every required section</td>
                 </tr>
                 <tr>
+                  <td>Claude Code</td>
+                  <td><code>PreToolUse</code> hook running <code>guard-paths.sh</code></td>
+                  <td>Edits to a protected path are blocked with a reason, and the attempt is recorded</td>
+                </tr>
+                <tr>
                   <td>opencode</td>
                   <td><code>permission.task</code> maps compiled from the handoff graph</td>
                   <td>An agent with no edge to another simply cannot see it in the task tool</td>
+                </tr>
+                <tr>
+                  <td>opencode</td>
+                  <td><code>permission.edit</code> denies compiled from the guardrails</td>
+                  <td>Protected paths are refused by the runtime, on every agent and the orchestrator</td>
                 </tr>
                 <tr>
                   <td>goose</td>
@@ -308,6 +359,70 @@ agents:
               behaves less strictly than expected.
             </p>
           </div>
+
+          <h3 id="guardrails">
+            Guardrails <a class="anchor" href="#guardrails" aria-label="Link to this section">#</a>
+          </h3>
+          <p>
+            A skill is an advisory control: it makes the policy likely, not certain. Anything that
+            must hold without exception needs something deterministic behind it. Two things in a
+            fleet qualify — the inputs of its objective checks, and its own gate scripts.
+          </p>
+          <div class="highlight-box">
+            <p>
+              <strong>An agent told to make <code>npm test</code> pass, and able to edit the tests,
+              will eventually edit the tests.</strong> The same reasoning one level up: an agent
+              that can edit its <code>SubagentStop</code> gate has no gate. So
+              <code>&lt;workspace&gt;/local/scripts/**</code> is protected whether or not anyone
+              lists it.
+            </p>
+          </div>
+          <div class="figure-dark">
+            <pre><code>fleet:
+  guardrails:
+    protectedPaths: [ test/**, fixtures/**, src/gen/*.js ]</code></pre>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr><th>Target</th><th>Mechanism</th><th>Enforced?</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Claude Code</td>
+                  <td>
+                    <code>PreToolUse</code> hook on the file-editing tools and Bash. Exit 2 blocks
+                    the call, the reason goes back to the agent, and a <code>guard_block</code>
+                    event is recorded
+                  </td>
+                  <td>Yes — for every session in the project, not only fleet agents</td>
+                </tr>
+                <tr>
+                  <td>opencode</td>
+                  <td><code>permission.edit</code> denies on every agent and the orchestrator</td>
+                  <td>Yes — by the runtime</td>
+                </tr>
+                <tr>
+                  <td>goose</td>
+                  <td>A stated constraint in the recipe instructions</td>
+                  <td>No — goose has no path-level permission, and the text says so</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            File edits are matched on the project-relative path. Shell commands are matched on a
+            narrower heuristic — a protected prefix appearing <em>after</em> a write-shaped token, so
+            reading a protected file, or naming it in a commit message, is not a write. That arm is
+            best-effort by construction; OS-level sandboxing is what closes it completely.
+            <code>fleetsmith qa</code> checks the wiring on all three targets, because a path
+            protected only in the spec is exactly the failure this is meant to prevent.
+          </p>
+          <p>
+            An agent that believes its task requires such an edit is told to report it as a finding
+            rather than route around it, and the orchestrator is told not to make the edit on its
+            behalf or widen the list mid-run.
+          </p>
         </section>
 
         <section id="workspace">

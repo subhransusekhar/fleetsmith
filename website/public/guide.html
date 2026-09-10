@@ -54,6 +54,8 @@
           <li class="sub"><a href="#handoffs">Handoffs</a></li>
           <li class="sub"><a href="#skills">Skills</a></li>
           <li class="sub"><a href="#loops">Loops</a></li>
+          <li class="sub"><a href="#guardrails">Guardrails</a></li>
+          <li class="sub"><a href="#intent">Intent &amp; verification</a></li>
           <li><a href="#build-install">Build vs install</a></li>
           <li><a href="#improve">Keeping it good</a></li>
           <li class="sub"><a href="#qa">qa</a></li>
@@ -63,6 +65,7 @@
           <li><a href="#daily">Day to day</a></li>
           <li><a href="#grid">Grid commands</a></li>
           <li><a href="#ci">In CI</a></li>
+          <li class="sub"><a href="#ci-generated">Generated workflow</a></li>
         </ul>
       </aside>
 
@@ -282,6 +285,86 @@
             <code>goose schedule</code> or cron on goose. Neither <code>cron</code> nor
             <code>interval</code> means self-paced; setting both warns and cron wins.
           </p>
+
+          <h3 id="guardrails">
+            Guardrails <a class="anchor" href="#guardrails" aria-label="Link to this section">#</a>
+          </h3>
+          <p>
+            Paths nobody in the fleet may edit. Declared once, compiled into whatever each target
+            can actually enforce.
+          </p>
+          <pre><code>fleet:
+  guardrails:
+    protectedPaths:
+      - test/**
+      - fixtures/**
+      - src/gen/*.js</code></pre>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Target</th><th>What it becomes</th></tr></thead>
+              <tbody>
+                <tr><td>Claude Code</td><td>A <code>PreToolUse</code> hook that blocks the edit, prints why, and logs a <code>guard_block</code> event</td></tr>
+                <tr><td>opencode</td><td><code>permission.edit</code> denies on every agent and on the orchestrator</td></tr>
+                <tr><td>goose</td><td>A stated constraint in the recipe — advisory, and labelled as such</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Point it at the inputs of your checks. A phase that declares
+            <code>loop.check</code> while nothing is protected earns a validator warning, because an
+            agent asked to make a command pass, and able to edit what that command reads, has a
+            feedback loop it can weaken instead of satisfy. Your fleet's own generated scripts
+            directory is added for you — an agent that can edit its gate has no gate.
+          </p>
+          <div class="warn-box">
+            <span class="label">Blocked is a finding, not an obstacle</span>
+            <p>
+              Agents are told to report a needed change to a protected path and carry on, and the
+              orchestrator is told not to make the edit for them or widen the list mid-run. To
+              change what is protected, edit the spec and rebuild. Globs allow letters, digits,
+              <code>. _ - /</code> and <code>* ?</code> only — they are interpolated into a shell
+              hook, so anything else is a validator error.
+            </p>
+          </div>
+
+          <h3 id="intent">
+            Intent &amp; verification
+            <a class="anchor" href="#intent" aria-label="Link to this section">#</a>
+          </h3>
+          <p>
+            Two files you do not declare — every fleet gets them — but which change how a run reads
+            and how you steer it.
+          </p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>File</th><th>Written by</th><th>What it is for</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td><code>handoffs/00-intent.md</code></td>
+                  <td>The orchestrator, in phase zero</td>
+                  <td>What was asked, by whom, why, under which constraints. Every agent reads it before its own brief</td>
+                </tr>
+                <tr>
+                  <td><code>## Verification</code> in each handoff</td>
+                  <td>Any agent accountable to a <code>check</code></td>
+                  <td>The literal output of the check command it ran. The handover gate refuses to let it stop without one</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            When a run is heading somewhere you did not intend, correct
+            <code>00-intent.md</code> rather than re-briefing agents one by one: it is the file they
+            all read, and the one verifiers judge compliance against. On a partial re-run, add a row
+            to its revisions table instead of rewriting it — the point of the file is that it
+            records what was asked, including when that changed.
+          </p>
+          <p>
+            "Agents accountable to a check" means those in a phase that declares
+            <code>loop.check</code>, plus the producers handing work <em>into</em> such a phase — so
+            what arrives at a verifier has already been run through the same command the verifier
+            will run. Agents in a fleet with no checks are unaffected and write nothing extra.
+          </p>
         </section>
 
         <section id="build-install">
@@ -440,7 +523,7 @@ fleetsmith grid audit --why &lt;item-id&gt;</code></pre>
           <pre><code>- name: Install Infinia Harness
   run: |
     curl -fsSL https://infinia-harness.adid.dev/install.sh \
-      | sh -s -- --version 0.7.0 --yes
+      | sh -s -- --version 0.8.0 --yes
     . ~/.fleetsmith/env.sh
 
 - name: Gate the harness
@@ -455,6 +538,27 @@ fleetsmith grid audit --why &lt;item-id&gt;</code></pre>
             <code>--stage 1</code> is the fast rung of the eval ladder and is the right one for
             every-commit CI; save the full corpus for a nightly job. Nothing here needs a cortex, so
             the same workflow runs unchanged for both editions.
+          </p>
+
+          <h3 id="ci-generated">
+            Or have it written for you
+            <a class="anchor" href="#ci-generated" aria-label="Link to this section">#</a>
+          </h3>
+          <p>
+            One spec key emits the essentials of the workflow above as
+            <code>.github/workflows/fleet-qa.yml</code>, wired to the paths that actually steer the
+            fleet:
+          </p>
+          <pre><code>fleet:
+  ci: github</code></pre>
+          <p>
+            It runs <code>qa --built .</code> and <code>eval --stage 2</code> on any change to the
+            spec, the compiled harness under <code>.claude/</code>, <code>.opencode/</code> or
+            <code>.goose/</code>, the shared workspace tier, or the pointer files. The configuration
+            that steers an agent deserves the regression testing its code gets — and since both
+            commands are deterministic, the job needs no model access and no API key. It is opt-in
+            because writing a GitHub-specific file into a project that may not be on GitHub is
+            presumptuous.
           </p>
         </section>
 

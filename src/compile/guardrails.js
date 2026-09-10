@@ -22,6 +22,14 @@
 
 export const GUARD_PATH = 'scripts/guard-paths.sh';
 
+/**
+ * How far after a write-shaped token the Bash arm still counts a protected path
+ * as that command's argument. Wide enough for real flag lists
+ * (`rm -rf --preserve-root test/x`), narrow enough that an unrelated mention
+ * later in the same command is not attributed to it.
+ */
+export const WRITE_GAP = 60;
+
 /** Declared globs plus the fleet's own gate scripts. Order is stable for deterministic output. */
 export function protectedPathsFor(spec) {
   const auto = `${spec.fleet.local}/scripts/**`;
@@ -125,14 +133,21 @@ ${caseArms || '        __none__) ;;'}
     cmd=$(printf '%s' "$payload" | sed -n 's/.*"command"[[:space:]]*:[[:space:]]*"\\(.*\\)".*/\\1/p')
     [ -n "$cmd" ] || exit 0
     # Strip the redirects that only silence output, then look for a write-shaped
-    # token FOLLOWED by a protected prefix: a redirect into it, or rm/mv/cp/tee/
-    # truncate/sed -i/git checkout|restore|clean with it among the arguments
-    # (before the next pipe or separator). Merely mentioning the path — in a
-    # grep, a cat, a commit message — is not a write. POSIX ERE only.
+    # token FOLLOWED CLOSELY by a protected prefix: a redirect into it, or
+    # rm/mv/cp/tee/truncate/sed -i/git checkout|restore|clean with it among the
+    # arguments. Merely mentioning the path — in a grep, a cat, a commit message —
+    # is not a write. POSIX ERE only.
+    #
+    # The gap between the token and the path is bounded (${WRITE_GAP} characters, no
+    # separator or redirect inside it) because the hook payload arrives as ONE
+    # line: newlines are escaped, so grep sees a heredoc's whole body as a single
+    # line and an unbounded gap matches any write-ish word anywhere against any
+    # protected path anywhere. That over-blocked a heredoc whose prose merely
+    # mentioned a protected path, which is how this bound got here.
     stripped=$(printf '%s' "$cmd" | sed -e 's/2>&1//g' -e 's/[12]\\{0,1\\}>[[:space:]]*\\/dev\\/null//g')
     for prefix in ${prefixList}; do
         [ -n "$prefix" ] || continue
-        if printf '%s' "$stripped" | grep -Eq ">>?[[:space:]]*[\\"']?$prefix|(^|[^[:alnum:]_])(tee|rm|mv|cp|truncate|sed[[:space:]]+-[a-zA-Z]*i[^[:space:]]*|git[[:space:]]+(checkout|restore|clean))[^|;&]*$prefix"; then
+        if printf '%s' "$stripped" | grep -Eq ">>?[[:space:]]*[\\"']?$prefix|(^|[^[:alnum:]_])(tee|rm|mv|cp|truncate|sed[[:space:]]+-[a-zA-Z]*i[^[:space:]]*|git[[:space:]]+(checkout|restore|clean))[^|;&<>\\\`]{0,${WRITE_GAP}}$prefix"; then
             explain "$prefix" "Bash writes into a protected prefix"
             echo "If this command only reads the protected path, it should not redirect into it or pass it to a command that writes; redirect elsewhere or use the Read tool instead." >&2
             log_event guard_block "$agent" "Bash write into protected path $prefix"

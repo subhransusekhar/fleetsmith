@@ -76,7 +76,7 @@ Every agentic CLI grew its own harness format: Claude Code has subagents + Agent
 - **Loop engineering, translated per tool.** Declare an iteration loop on a phase (`loop: { until, max, check }`, repeat-until-quality) or a recurring schedule on the fleet (`schedule: { cron, interval }`). Each compiles to a bounded prose loop on every target — plus goose's native `retry` for checked loops, and `/loop`/routines, cron wrappers, or `goose schedule` for recurring runs. See [`docs/spec.md`](docs/spec.md#loop-engineering).
 - **Enforced contracts, not advisory ones.** Where a target can check something deterministically, fleetsmith emits the check rather than an instruction: a Claude Code `SubagentStop` hook that blocks an agent until its handoff file is complete, opencode `permission.task` maps that compile the handoff graph (a denied agent disappears from the task tool entirely), and goose `response.json_schema` that validates the handoff summary at runtime.
 
-### AI-native SDLC plays (unreleased)
+### What v0.8 adds
 
 Anthropic's [AI-native SDLC playbook](https://claude.com/blog/the-ai-native-sdlc-playbook) (2026-08) describes the shape a fleet run already has — a chain of committed artifacts, skills as institutional knowledge, hooks as the deterministic layer behind advisory instructions — and names the mechanisms fleetsmith was missing. The mapping, play by play, is in [`docs/research/ai-native-sdlc-playbook-2026-09.md`](docs/research/ai-native-sdlc-playbook-2026-09.md).
 
@@ -127,12 +127,12 @@ Assets: `fleetsmith-linux-x64`, `fleetsmith-macos-arm64`, `fleetsmith-macos-x64`
 **B. Global CLI via npm, from the GitHub release (needs Node.js ≥ 18):**
 
 ```bash
-npm install -g github:subhransusekhar/fleetsmith#v0.7.0   # then: fleetsmith <command>
+npm install -g github:subhransusekhar/fleetsmith#v0.8.0   # then: fleetsmith <command>
 ```
 
-> **Not on the npm registry yet.** `npm install -g fleetsmith` will fail with a
-> 404 — the name is not published. Install from the tag above (drop `#v0.7.0`
-> to track `main`), or use option A or C.
+> Both packages are on the npm registry: `npm install -g fleetsmith` and
+> `npm install -g fleetsmith-ee`. Installing from the tag above is for pinning to
+> a specific commit, or tracking `main` (drop `#v0.8.0`).
 
 **C. Zero-install via npx (needs Node.js ≥ 18):**
 

@@ -202,6 +202,22 @@ test('guard hook: blocks edits under protected paths with an explanation, lets e
     assert.match(r.stderr, /Bash writes into a protected prefix/);
   }
 
+  // The payload arrives as ONE line — a heredoc's newlines are escaped — so an
+  // unbounded gap between the write token and the path matched any write-ish
+  // word anywhere against any protected path anywhere. This blocked a long
+  // heredoc whose prose merely mentioned a protected path; the gap is bounded.
+  const longProse = [
+    "python3 - <<'PY'",
+    "s = s.replace('run rm -rf build first', 'x')",
+    ...Array.from({ length: 40 }, (_, i) => `# line ${i} of ordinary documentation prose about fleets`),
+    "s += 'Your fleet\\'s own test/ directory is protected for you'",
+    'PY',
+  ].join('\n');
+  r = run(bash(longProse));
+  assert.equal(r.status, 0, `a distant mention is not an argument of the write token:\n${r.stderr}`);
+  // but the same token with the path as its actual argument still blocks
+  assert.equal(run(bash('rm -rf --preserve-root test/fixtures/old')).status, 2);
+
   // every block was recorded through the fleet's telemetry, attributed to the agent
   const blocks = readEvents(dir, spec).filter((e) => e.event === 'guard_block');
   assert.ok(blocks.length >= 8, `expected guard_block events, got ${blocks.length}`);

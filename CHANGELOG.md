@@ -1,7 +1,11 @@
-## Unreleased — AI-native SDLC plays
+## 0.8.0 — the AI-native SDLC plays
 
-Applies Anthropic's [AI-native SDLC playbook](https://claude.com/blog/the-ai-native-sdlc-playbook) (2026-08-21) to
-generated harnesses. Analysis and the play-by-play decision table: `docs/research/ai-native-sdlc-playbook-2026-09.md`.
+A fleet run is a miniature software development lifecycle: a request arrives, gets decomposed,
+designed, built, verified and shipped through a chain of files. This release applies Anthropic's
+[AI-native SDLC playbook](https://claude.com/blog/the-ai-native-sdlc-playbook) (2026-08-21) to generated harnesses:
+what was asked becomes a committed artifact every agent reads, the paths a fleet must not edit become a hook rather
+than a sentence, an agent accountable to a check runs it and shows the output before it may stop, and review happens
+in named, severity-ranked passes. Analysis and the play-by-play decision table: `docs/research/ai-native-sdlc-playbook-2026-09.md`.
 
 **Added**
 
@@ -12,8 +16,12 @@ generated harnesses. Analysis and the play-by-play decision table: `docs/researc
   scheduled `loop.md` firing that finds work writes it as an intent before any agent runs.
 - **`fleet.guardrails.protectedPaths`** — globs no fleet agent may edit. Claude Code: a `PreToolUse` hook on
   `Edit|Write|MultiEdit|NotebookEdit|Bash` running the generated `guard-paths.sh` (exit 2, reason on stderr, new
-  `guard_block` telemetry event; the Bash arm requires a write-shaped token followed by the protected prefix and is
-  documented as best-effort). opencode: `permission.edit` denies on every agent and the orchestrator. goose: stated
+  `guard_block` telemetry event). File tools are matched on the project-relative path. The Bash arm is a documented
+  best-effort heuristic: a protected prefix within 60 characters after a write-shaped token — a redirect, `rm`, `mv`,
+  `cp`, `tee`, `truncate`, `sed -i`, `git checkout|restore|clean` — so reading a protected file, or naming it in a
+  commit message, is not a write. The bound is load-bearing: hook payloads arrive as a single line with newlines
+  escaped, so an unbounded gap matched any write-ish word anywhere against any protected path anywhere, and blocked a
+  long heredoc whose prose merely mentioned one. opencode: `permission.edit` denies on every agent and the orchestrator. goose: stated
   constraint, labelled advisory. The fleet's own `<local>/scripts/**` is always protected. `fleetsmith qa` gains a
   `guardrails (compiled)` check; the validator rejects unsafe globs and warns when a `loop.check` exists with nothing
   protected.
